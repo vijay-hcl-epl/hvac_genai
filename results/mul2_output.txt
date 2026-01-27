@@ -1,0 +1,2 @@
+Input value: 8
+Output (x * 2): 16
