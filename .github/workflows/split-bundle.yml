@@ -1,0 +1,48 @@
+name: Split code bundle into source files
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "codegen/code_bundle.txt"
+      - "tools/split_bundle.py"
+      - ".github/workflows/split-bundle.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  split:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Split bundle
+        run: |
+          python tools/split_bundle.py
+
+      - name: Commit & push if changed
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Stage only the generated code tree (avoid committing accidental changes)
+          git add code/inc code/src
+
+          # If nothing changed, exit cleanly
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Expand code bundle into code/inc and code/src [skip ci]"
+          git push
