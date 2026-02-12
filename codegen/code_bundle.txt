@@ -1,0 +1,312 @@
+###### FILE: code/inc/main_coordinator.h ######
+#ifndef MAIN_COORDINATOR_H
+#define MAIN_COORDINATOR_H
+
+#include <stdint.h>
+#include "uart_cmd_handler.h"
+#include "motor_control.h"
+#include "feedback_processor.h"
+#include "led_control.h"
+
+typedef enum {
+    SYS_INIT,
+    SYS_IDLE,
+    SYS_MOVING,
+    SYS_HOLD
+} system_mode_t;
+
+typedef struct {
+    system_mode_t mode;
+    int8_t target_position;
+    int8_t last_position;
+    uint8_t error_flag;
+} coordinator_state_t;
+
+void coordinator_init(void);
+void coordinator_main_loop(void);
+
+#endif // MAIN_COORDINATOR_H
+###### END FILE ######
+###### FILE: code/inc/uart_cmd_handler.h ######
+#ifndef UART_CMD_HANDLER_H
+#define UART_CMD_HANDLER_H
+
+#include <stdint.h>
+
+void uart_cmd_init(void);
+int8_t uart_cmd_get(void);
+
+#endif // UART_CMD_HANDLER_H
+###### END FILE ######
+###### FILE: code/inc/motor_control.h ######
+#ifndef MOTOR_CONTROL_H
+#define MOTOR_CONTROL_H
+
+#include <stdint.h>
+
+typedef enum {
+    MOTOR_STOPPED,
+    MOTOR_RUNNING
+} motor_state_t;
+
+typedef enum {
+    MOTOR_OK = 0,
+    MOTOR_ALREADY_AT_POSITION,
+    MOTOR_INVALID_TARGET
+} motor_status_t;
+
+void motor_control_init(void);
+motor_status_t motor_move_to(int8_t target_position);
+void motor_stop(void);
+
+#endif // MOTOR_CONTROL_H
+###### END FILE ######
+###### FILE: code/inc/feedback_processor.h ######
+#ifndef FEEDBACK_PROCESSOR_H
+#define FEEDBACK_PROCESSOR_H
+
+#include <stdint.h>
+
+#define FLAP_POSITION_COUNT 6
+#define FLAP_POSITION_INVALID -1
+
+void feedback_processor_init(void);
+int8_t feedback_get_position(void);
+
+#endif // FEEDBACK_PROCESSOR_H
+###### END FILE ######
+###### FILE: code/inc/led_control.h ######
+#ifndef LED_CONTROL_H
+#define LED_CONTROL_H
+
+#include <stdint.h>
+
+void led_control_init(void);
+void led_update(int8_t position);
+
+#endif // LED_CONTROL_H
+###### END FILE ######
+###### FILE: code/src/main.c ######
+#include "main_coordinator.h"
+#include "uart_cmd_handler.h"
+#include "motor_control.h"
+#include "feedback_processor.h"
+#include "led_control.h"
+
+int main(void)
+{
+    coordinator_init();
+    while (1)
+    {
+        coordinator_main_loop();
+    }
+    return 0;
+}
+###### END FILE ######
+###### FILE: code/src/main_coordinator.c ######
+#include "main_coordinator.h"
+#include "uart_cmd_handler.h"
+#include "motor_control.h"
+#include "feedback_processor.h"
+#include "led_control.h"
+
+static coordinator_state_t state;
+
+void coordinator_init(void)
+{
+    uart_cmd_init();
+    motor_control_init();
+    feedback_processor_init();
+    led_control_init();
+    state.mode = SYS_INIT;
+    state.target_position = FLAP_POSITION_INVALID;
+    state.last_position = FLAP_POSITION_INVALID;
+    state.error_flag = 0u;
+    // Read current position, update LEDs, enter IDLE
+    int8_t curr_pos = feedback_get_position();
+    state.last_position = curr_pos;
+    led_update(curr_pos);
+    state.mode = SYS_IDLE;
+}
+
+void coordinator_main_loop(void)
+{
+    int8_t cmd = uart_cmd_get();
+    int8_t curr_pos = feedback_get_position();
+    if (state.mode == SYS_IDLE)
+    {
+        if ((cmd >= 0) && (cmd < FLAP_POSITION_COUNT) && (cmd != curr_pos))
+        {
+            state.target_position = cmd;
+            state.mode = SYS_MOVING;
+            (void)motor_move_to(cmd);
+        }
+        else if ((cmd >= 0) && (cmd < FLAP_POSITION_COUNT))
+        {
+            led_update(curr_pos);
+        }
+    }
+    else if (state.mode == SYS_MOVING)
+    {
+        if ((curr_pos == state.target_position) && (curr_pos != FLAP_POSITION_INVALID))
+        {
+            motor_stop();
+            state.mode = SYS_HOLD;
+            led_update(curr_pos);
+        }
+        else if (curr_pos == FLAP_POSITION_INVALID)
+        {
+            motor_stop();
+            state.error_flag = 1u;
+            state.mode = SYS_IDLE;
+        }
+    }
+    else if (state.mode == SYS_HOLD)
+    {
+        state.mode = SYS_IDLE;
+        state.target_position = FLAP_POSITION_INVALID;
+    }
+    if (curr_pos != state.last_position)
+    {
+        led_update(curr_pos);
+        state.last_position = curr_pos;
+    }
+}
+###### END FILE ######
+###### FILE: code/src/uart_cmd_handler.c ######
+#include "uart_cmd_handler.h"
+#include "stm32f4xx_hal.h"
+
+static int8_t last_cmd = -1;
+
+void uart_cmd_init(void)
+{
+    // Initialize UART hardware using Cube/HAL configuration
+    // Assume MX_USART2_UART_Init() etc. have been called
+    last_cmd = -1;
+}
+
+int8_t uart_cmd_get(void)
+{
+    uint8_t rx = 0U;
+    if (HAL_UART_Receive(&huart2, &rx, 1, 0) == HAL_OK) {
+        if ((rx >= '0') && (rx <= '5')) {
+            last_cmd = (int8_t)(rx - '0');
+            return last_cmd;
+        }
+    }
+    return -1;
+}
+###### END FILE ######
+###### FILE: code/src/motor_control.c ######
+#include "motor_control.h"
+#include "stm32f4xx_hal.h"
+
+#define MOTOR_PWM_CHANNEL TIM_CHANNEL_1
+#define MOTOR_PWM_TIMER   &htim1
+#define MOTOR_PIN_EN      GPIO_PIN_6
+#define MOTOR_PORT_EN     GPIOB
+#define MOTOR_PIN_DIR1    GPIO_PIN_0
+#define MOTOR_PORT_DIR1   GPIOA
+#define MOTOR_PIN_DIR2    GPIO_PIN_1
+#define MOTOR_PORT_DIR2   GPIOA
+
+static motor_state_t motor_state = MOTOR_STOPPED;
+static int8_t last_target = -1;
+
+void motor_control_init(void)
+{
+    motor_state = MOTOR_STOPPED;
+    last_target = -1;
+    HAL_GPIO_WritePin(MOTOR_PORT_EN, MOTOR_PIN_EN, GPIO_PIN_RESET);
+}
+
+motor_status_t motor_move_to(int8_t target_position)
+{
+    int8_t curr_pos = 0; // replace with actual call if available
+    // curr_pos = feedback_get_position();
+    if ((target_position < 0) || (target_position >= 6))
+        return MOTOR_INVALID_TARGET;
+    if (target_position == curr_pos)
+        return MOTOR_ALREADY_AT_POSITION;
+    // Determine direction (for demo, assume curr_pos < target_position -> forward)
+    if (target_position > curr_pos)
+    {
+        HAL_GPIO_WritePin(MOTOR_PORT_DIR1, MOTOR_PIN_DIR1, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(MOTOR_PORT_DIR2, MOTOR_PIN_DIR2, GPIO_PIN_RESET);
+    }
+    else
+    {
+        HAL_GPIO_WritePin(MOTOR_PORT_DIR1, MOTOR_PIN_DIR1, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(MOTOR_PORT_DIR2, MOTOR_PIN_DIR2, GPIO_PIN_SET);
+    }
+    HAL_GPIO_WritePin(MOTOR_PORT_EN, MOTOR_PIN_EN, GPIO_PIN_SET);
+    HAL_TIM_PWM_Start(MOTOR_PWM_TIMER, MOTOR_PWM_CHANNEL);
+    motor_state = MOTOR_RUNNING;
+    last_target = target_position;
+    return MOTOR_OK;
+}
+
+void motor_stop(void)
+{
+    HAL_TIM_PWM_Stop(MOTOR_PWM_TIMER, MOTOR_PWM_CHANNEL);
+    HAL_GPIO_WritePin(MOTOR_PORT_EN, MOTOR_PIN_EN, GPIO_PIN_RESET);
+    motor_state = MOTOR_STOPPED;
+}
+###### END FILE ######
+###### FILE: code/src/feedback_processor.c ######
+#include "feedback_processor.h"
+#include "stm32f4xx_hal.h"
+
+// ADC value calibration table (example)
+static const uint16_t adc_calib_table[FLAP_POSITION_COUNT+1] = { 0, 750, 1500, 2250, 3000, 3700, 4095 };
+
+void feedback_processor_init(void)
+{
+    // ADC already initialized in main Cube config
+}
+
+int8_t feedback_get_position(void)
+{
+    uint32_t adc_value = 0;
+    HAL_ADC_Start(&hadc1);
+    if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
+    {
+        adc_value = HAL_ADC_GetValue(&hadc1);
+        for (int8_t i = 0; i < FLAP_POSITION_COUNT; i++)
+        {
+            if ((adc_value >= adc_calib_table[i]) && (adc_value < adc_calib_table[i+1]))
+                return i;
+        }
+    }
+    return FLAP_POSITION_INVALID;
+}
+###### END FILE ######
+###### FILE: code/src/led_control.c ######
+#include "led_control.h"
+#include "stm32f4xx_hal.h"
+
+#define POWER_LED_PIN   GPIO_PIN_7
+#define POWER_LED_PORT  GPIOB
+static const uint16_t green_led_pins[6] = { GPIO_PIN_0, GPIO_PIN_1, GPIO_PIN_2, GPIO_PIN_3, GPIO_PIN_4, GPIO_PIN_5 };
+static GPIO_TypeDef* green_led_ports[6] = { GPIOC, GPIOC, GPIOC, GPIOC, GPIOC, GPIOC };
+
+void led_control_init(void)
+{
+    // Assume all LED GPIOs inited in MX_GPIO_Init
+    HAL_GPIO_WritePin(POWER_LED_PORT, POWER_LED_PIN, GPIO_PIN_SET);
+}
+
+void led_update(int8_t position)
+{
+    for (int i = 0; i < 6; i++)
+    {
+        HAL_GPIO_WritePin(green_led_ports[i], green_led_pins[i], GPIO_PIN_RESET);
+    }
+    if ((position >= 0) && (position < 6))
+    {
+        HAL_GPIO_WritePin(green_led_ports[position], green_led_pins[position], GPIO_PIN_SET);
+    }
+    HAL_GPIO_WritePin(POWER_LED_PORT, POWER_LED_PIN, GPIO_PIN_SET);
+}
+###### END FILE ######
