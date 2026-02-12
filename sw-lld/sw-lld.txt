@@ -1,0 +1,185 @@
+========================
+LOW LEVEL DESIGN – HVAC FLAP ACTUATOR SOFTWARE (SWE.3)
+========================
+
+Branch: refCI-122f
+Artifacts: sw-lld/sw-lld.txt
+Inputs: sw-reqs/sw-reqs.txt, sw-arch/sw-arch.txt
+
+------------------------------------------------------------
+1. Software Unit: Main Control Coordinator
+------------------------------------------------------------
+1. Responsibilities
+- Handles global control flow, startup, safety stop, command coordination.
+- Does not handle direct hardware IO or parsing.
+
+2. Internal Data Design
+- State variables: system mode (INIT, IDLE, MOVING, HOLD), target_position, last_position, error_flag.
+- Config: pointer/structs to unit interfaces, consts for error/status values.
+
+3. State Machine
+States: INIT, IDLE, MOVING, HOLD
+Events: Power-up, CommandReceived, PositionChanged, ErrorDetected
+Transitions: INIT->IDLE on startup, IDLE->MOVING on valid command, MOVING->HOLD on target reached, any->IDLE on error.
+
+4. Algorithms & Control Flow
+- On INIT: call subunits to initialize.
+- IDLE: Wait for command or external event.
+- MOVING: Instruct Motor Control with target, monitor Feedback.
+- On error: set error_flag, stop Motor, revert to IDLE.
+
+5. Interfaces (APIs)
+Provided: coordinator_init(), coordinator_main_loop()
+Required: uart_cmd_get(), feedback_get_position(), motor_move_to(), motor_stop(), led_update()
+
+6. Error Handling
+- Calls motor_stop() and reverts to IDLE if any error is flagged by subunits.
+- Ignores invalid commands/positions by returning to IDLE.
+
+7. Resource & Timing Considerations
+- Invoked at system startup and after all events.
+- WCET: Assumed <1ms per control cycle (excluding motor movement time).
+- Not re-entrant.
+
+8. Traceability
+SW-REQ-004, SW-REQ-005, SW-REQ-021, SW-REQ-022, SW-REQ-028, SWE-REQ-030, SWE-REQ-031
+
+------------------------------------------------------------
+2. Software Unit: UART Command Handler
+------------------------------------------------------------
+1. Responsibilities
+- Handles UART input reception, validates commands, signals Main if valid.
+- Does not handle hardware configuration or motor commands.
+
+2. Internal Data Design
+- Incoming byte buffer, validated_command, input_state.
+
+3. State Machine
+State: WAIT (wait for byte), VALIDATE (check bounds). If valid, raise new_command_event.
+
+4. Algorithms & Control Flow
+- On UART RX: parse byte, check 0–5, flag valid.
+- If invalid: set state to WAIT, discard.
+
+5. Interfaces (APIs)
+Provided: uart_cmd_get()
+Required: None (uses HAL UART).
+Returns: int (0–5 valid, -1 invalid).
+
+6. Error Handling
+- Ignores/flushes non-numeric and out-of-range values.
+- Does not signal errors to user or other units.
+
+7. Resource & Timing Considerations
+- Reactive on UART RX interrupt/event.
+- WCET: <<1ms
+- Not re-entrant.
+
+8. Traceability
+SW-REQ-001, SW-REQ-002, SW-REQ-015, SW-REQ-024, SWE-REQ-030
+
+------------------------------------------------------------
+3. Software Unit: Motor Control
+------------------------------------------------------------
+1. Responsibilities
+- Handles all GPIO/PWM for DC motor enable/dir, moves to position or stops.
+- Does not process position feedback or parse commands.
+
+2. Internal Data Design
+- Motor state (ENABLED, DISABLED), direction, last_target, stop_flag.
+- Config: pin mapping, max drive time.
+
+3. State Machine
+State: STOPPED, RUNNING
+Transition: STOPPED->RUNNING (on move command), RUNNING->STOPPED (on stop or position reached).
+
+4. Algorithms & Control Flow
+- On move_to(target): evaluate current vs. target, set direction, enable PWM.
+- On stop: disable PWM, set stop_flag.
+
+5. Interfaces (APIs)
+Provided: motor_move_to(int target), motor_stop()
+Required: None (uses HAL GPIO/PWM)
+Returns: status_code (success, out-of-range, already at position)
+
+6. Error Handling
+- Stops and sets stop_flag if asked to move to an out-of-range target or error from Feedback Processor.
+
+7. Resource & Timing Considerations
+- Invoked by Main Coordinator or upon position change.
+- WCET: <0.5ms typical logic. (Excluding physical movement.)
+- Not re-entrant.
+
+8. Traceability
+SW-REQ-006, SW-REQ-007, SW-REQ-008, SW-REQ-017, SW-REQ-023, SWE-REQ-031
+
+------------------------------------------------------------
+4. Software Unit: Feedback Processor
+------------------------------------------------------------
+1. Responsibilities
+- Handles reading ADC, mapping to logical position, validates ranges.
+- Does not set motor or LED outputs.
+
+2. Internal Data Design
+- ADC buffer, last_adc_value, calib_table[6], valid_range, position.
+
+3. State Machine
+No explicit state machine; processes sampled value and updates position on change.
+
+4. Algorithms & Control Flow
+- On sample: read ADC channel, compare to table/range. If new valid position, update and notify Main.
+- If value invalid, flag error.
+
+5. Interfaces (APIs)
+Provided: feedback_get_position()
+Required: None (uses HAL ADC)
+Returns: int position (0–5), -1 if invalid.
+
+6. Error Handling
+- Flags invalid, clamps positions, notifies Main Coordinator.
+- Does not stop or move the motor itself.
+
+7. Resource & Timing Considerations
+- Invoked periodically or on demand.
+- WCET: <0.5ms/sample
+- Not re-entrant.
+
+8. Traceability
+SW-REQ-009, SW-REQ-010, SW-REQ-011, SW-REQ-016, SW-REQ-023, SW-REQ-031, SWE-REQ-030
+
+------------------------------------------------------------
+5. Software Unit: LED Control
+------------------------------------------------------------
+1. Responsibilities
+- Sets system ON and flap position (green) LEDs per command.
+- Does not read position itself, is write-only.
+
+2. Internal Data Design
+- Led_state_array[6], pin_map[6], status_led_state
+
+3. State Machine
+None; simple output control based on received instructions.
+
+4. Algorithms & Control Flow
+- On update: clear all LEDs, set bit for power/status, set one green LED per position.
+
+5. Interfaces (APIs)
+Provided: led_update(int position)
+Required: None (uses HAL GPIO)
+Returns: status_code
+
+6. Error Handling
+- Ignores requests to set out-of-range position LED.
+- Status LED always ON except in INIT or on error.
+
+7. Resource & Timing Considerations
+- Triggered by status/position change.
+- WCET: <0.1ms
+- Not re-entrant.
+
+8. Traceability
+SW-REQ-012, SW-REQ-013, SW-REQ-014, SW-REQ-018, SWE-REQ-031
+
+========================
+END OF FILE
+========================
