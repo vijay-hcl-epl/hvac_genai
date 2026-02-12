@@ -1,0 +1,98 @@
+========================
+Software Architecture – HVAC Flap Actuator (Prototype)
+========================
+
+Branch: refCI-122f
+Artifact: sw-arch/sw-arch.txt
+Input Reqs: sys-reqs/sys-reqs.txt, sw-reqs/sw-reqs.txt
+ASPICE Activity: SWE.2 (Software Architectural Design)
+
+------------------------------------------------------------
+ARCHITECTURE STYLE SELECTION AND JUSTIFICATION
+------------------------------------------------------------
+
+Candidate styles considered:
+1. Monolithic (single-control, tightly coupled modules)
+2. Component-based
+3. Layered (HW abstraction, central logic, external interface)
+
+Evaluation summary:
+- System complexity: Low; all logic fits in a simple sequence without interleaved behaviors, threads, or services.
+- HW interaction: Direct mapping from requirements to HW interface (UART, ADC, GPIO).
+- Testability: Code must be testable by unit and at system level per requirements (§SW-REQ-039, SW-REQ-040).
+- Maintainability: Changes (e.g., different HW, positions) require only localized/unit changes if separated.
+- ASPICE L3 expectations: Modular, explicit interfaces, clear separation of responsibilities. No RTOS/services exposure.
+
+Final Style: COMPONENT-BASED (Reject monolithic due to maintainability and testability. Layered provides no extra benefit as interface abstractions are lightweight and straightforward.)
+
+Justification:
+- Distinct responsibilities (UART command, actuator, feedback processing, LED output, main coordinator)
+- Each HW interaction is easily encapsulated.
+- Enables clear unit mapping per SWE.3 and supports atomic testability.
+
+------------------------------------------------------------
+EXECUTION MODEL DECLARATION
+------------------------------------------------------------
+“No explicit execution model or scheduling policy is mandated by the requirements at this stage.”
+
+All interaction is assumed to follow a simple, invocation-driven process consistent with the system/testing expectations. No timing or RTOS model is implied in SWE.1.
+
+------------------------------------------------------------
+A) TEXT-BASED ARCHITECTURE DIAGRAM
+------------------------------------------------------------
+
++------------------+
+|   Main Control   |
+|   Coordinator    |
++------------------+
+     /   |   \   \
+    /    |    \   \
+    v    v     v   v
++---------+ +---------+ +---------+ +---------+
+| UART    | | Motor   | | Feedback| | LED     |
+| Command | | Control | | Proc.   | | Control |
++---------+ +---------+ +---------+ +---------+
+
+Text key:
+- Main Control Coordinator: supervises and routes control/data between units below.
+- UART Command: receives user commands, parses/validates, notifies Main.
+- Motor Control: receives movement/stop requests, manipulates GPIO/PWM.
+- Feedback Processing: samples ADC, maps to logical position, notifies Main.
+- LED Control: updates system/position LEDs per Main instruction.
+
+Arrows: information/control flow. No direct peer-to-peer communication between lower-level units (all via Main except HW indirect reactions).
+
+------------------------------------------------------------
+B) SOFTWARE UNIT TABLE
+------------------------------------------------------------
+Software Unit   | Responsibilities                                                | Interfaces Provided         | Interfaces Used
+----------------|----------------------------------------------------------------|-----------------------------|---------------------
+Main Control    | Supervises software state, invokes relevant sub-units, routes   | Flap Actuator Coordinator   | Calls all below
+Coordinator     | data/commands between units, enforces mode/idle/init, safety    | interface                   | (UART, Motor, Feedback,
+                | stop, and system rules.                                        |                             | LED sub-units)
+UART Command    | Reads UART input, validates user commands, discards invalid     | Parsed Command interface    | UART hardware driver,
+Handler         | input, signals Main on new/valid command                       |                             | Main invocation
+Motor Control   | Receives movement/stop commands from Main, controls GPIO/PWM    | Motor Driver interface      | GPIO, PWM, Main
+                | to move/stop DC motor as requested, stops on error/idle        |                             |
+Feedback        | Samples ADC for potentiometer, maps to logical positions,       | Current Position interface  | ADC hardware, Main
+Processor       | detects invalid values, peers with Main on position change      |                             |
+LED Control     | Drives system and position LEDs according to current state,     | LED Driver interface        | GPIO, Main
+                | ensures only appropriate LED(s) ON                             |                             |
+
+All units and interfaces map to requirements as follows (traced):
+- UART Command Handler: SW-REQ-001, SW-REQ-002, SW-REQ-015, SW-REQ-024
+- Motor Control: SW-REQ-006, SW-REQ-007, SW-REQ-008, SW-REQ-017, SW-REQ-023
+- Feedback Processing: SW-REQ-009, SW-REQ-010, SW-REQ-011, SW-REQ-016, SW-REQ-023, SW-REQ-031
+- LED Control: SW-REQ-012, SW-REQ-013, SW-REQ-014, SW-REQ-018
+- Main Coordinator: SW-REQ-004, SW-REQ-005, SW-REQ-021, SW-REQ-022, SW-REQ-028, and all system coordination
+
+------------------------------------------------------------
+NOTES AND TRACING CONSTRAINTS
+------------------------------------------------------------
+- No safety, cybersecurity, or diagnostics sub-units or flows are designed (not required by SWE.1)
+- No internal scheduling, queues, task activation, or explicit polling included (SWE.1 and SW-REQ-022, -024 prohibit this)
+- No code or sub-algorithms specified here: this is a software structure abstraction only
+
+========================
+END OF FILE
+========================
