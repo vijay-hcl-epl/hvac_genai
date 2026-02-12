@@ -1,0 +1,84 @@
+1.0 System Overview
+-------------------
+SYS-REQ-001: The system SHALL control a single HVAC flap actuator for air flow or mixing within an automotive HVAC prototype system.
+SYS-REQ-002: The system SHALL be controllable by user input via a PC connection through UART.
+
+2.0 Flap Position Control
+-------------------------
+SYS-REQ-003: The system SHALL support commanding the flap to one of a fixed number of discrete positions (minimum six: 0–5).
+SYS-REQ-004: The system SHALL move the flap to reach the user-commanded position within the defined valid range.
+SYS-REQ-005: The system SHALL prevent flap movement for commands outside the valid range. [Implied]
+
+3.0 Motor Control
+------------------
+SYS-REQ-006: The system SHALL interface to a DC motor for moving the flap.
+SYS-REQ-007: The system SHALL control motor direction (clockwise, anti-clockwise) to achieve the commanded position.
+SYS-REQ-008: The system SHALL stop the motor once the target position is reached or upon detection of any invalid operation (e.g., out-of-range position feedback).
+SYS-REQ-009: The system SHALL ensure the motor remains OFF when the system is idle, upon initialization, and after reaching a target.
+
+4.0 Position Feedback Acquisition & Processing
+----------------------------------------------
+SYS-REQ-010: The system SHALL acquire position feedback using a potentiometer mechanically linked to the flap and read via ADC.
+SYS-REQ-011: The system SHALL map ADC readings to the set of allowed flap positions (0–5) using predefined, fixed ADC value ranges.
+SYS-REQ-012: The system SHALL ignore, and NOT act upon, ADC readings outside expected ranges. [Implied]
+
+5.0 User Command Interface
+---------------------------
+SYS-REQ-013: The system SHALL accept flap position commands via UART as simple numeric values (0–5).
+SYS-REQ-014: The system SHALL ignore any command outside the valid range, with no response or error output required for invalid commands.
+SYS-REQ-015: The UART interface SHALL use a standard USB-to-UART physical layer compatible with the PC.
+
+6.0 Status Indication
+----------------------
+SYS-REQ-016: The system SHALL provide status indication using one or more LEDs.
+SYS-REQ-017: The system SHALL provide a power-on/status LED to indicate system is ON.
+SYS-REQ-018: The system SHALL indicate the current flap position using LEDs, ensuring at most one position-indicating (green) LED is ON at any time.
+
+7.0 System Behavior (Power-up, Idle, Normal, Target Reached, Invalid Input)
+----------------------------------------------------------------------------
+SYS-REQ-019: Upon power-up, the system SHALL initialize all peripherals (ADC, UART, GPIO, PWM), leave the motor OFF, and provide status indication.
+SYS-REQ-020: Upon initialization, the system SHALL detect and indicate the current flap position via LEDs.
+SYS-REQ-021: When idle, the system SHALL continuously monitor for valid user commands and position feedback.
+SYS-REQ-022: The system SHALL not crash or enter undefined state if the target is not reached (timeout handling is NOT required).
+SYS-REQ-023: The system SHALL ignore invalid UART commands and invalid ADC feedback safely. [Implied]
+SYS-REQ-024: No homing/calibration sequence SHALL be required at startup. [Implied]
+
+8.0 Interfaces (UART, Motor Driver, ADC, LEDs)
+----------------------------------------------
+SYS-REQ-025: The system SHALL use UART for user command input.
+SYS-REQ-026: The system SHALL use PWM and dedicated GPIO pins for DC motor direction and enable.
+SYS-REQ-027: The system SHALL use one or more ADC channels for potentiometer feedback acquisition.
+SYS-REQ-028: The system SHALL use GPIO pins for LED status and positional indication.
+
+9.0 Constraints & Assumptions
+-----------------------------
+SYS-REQ-029: The system SHALL assume fixed calibration values and ranges for ADC mapping, defined in software.
+SYS-REQ-030: The system SHALL NOT require dynamic configuration or diagnostic capability.
+SYS-REQ-031: The system SHALL ONLY control the one flap actuator and interfaced components (motor, LEDs, potentiometer).
+SYS-REQ-032: The system SHALL assume correct functioning hardware. [Implied]
+
+10.0 Non-Functional Requirements
+-------------------------------
+ 10.1 Responsiveness
+  SYS-REQ-033: The system SHALL process user commands and reflect flap movement in a timely manner perceptible to a human user.
+
+ 10.2 Error Handling & Edge Cases
+  SYS-REQ-034: The system SHALL safely stop the motor and prevent action for any invalid ADC readings or command inputs.
+  SYS-REQ-035: No advanced diagnostic or logging functionality SHALL be required for operation.
+
+ 10.3 Resource Constraints
+  SYS-REQ-036: The system SHALL avoid dynamic memory allocation and use lightweight resources, suitable for microcontroller targets.
+
+ 10.4 Maintainability & Modularity
+  SYS-REQ-037: The system SHALL organize its requirements, interfaces, and functions to enable future expansion or modification at the software level.
+
+ 10.5 Testability
+  SYS-REQ-038: The system SHALL be verifiable via manual or script-based tests for: UART command acceptance, position movement, and correct LED indication.
+
+---
+Architecture-Relevant Considerations Derived from System Requirements
+-----------------------------------------------------------------------
+- Concurrency Presence/Absence: Requirements do not imply concurrency; normal operation may be managed by sequential control flows.
+- Interaction Complexity: The system involves interaction between UI (UART), actuator, sensors, and outputs. Interaction is straightforward with distinct function for each interface.
+- Control Complexity: No advanced or nested state management required; explicit state tracking can be simple and shallow.
+- Expandability: Requirement organization and modular interface use supports adaptation to more positions or additional (similar) actuators in the future, within the outlined constraints.
