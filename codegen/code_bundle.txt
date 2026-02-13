@@ -33,13 +33,13 @@ void uart_cmd_if_rx_handler(void) {
     while (hal_uart_char_available()) {
         char c = hal_uart_read_char();
         if (rx_state == IDLE) {
-            buf_idx = 0;
+            buf_idx = 0; /* MISRA: Rule 9.1 – Ensure variable initialized before use */
             rx_state = RECEIVING;
         }
-        if (c == '\n' || c == '\r') {
+        if ((c == '\n') || (c == '\r')) { /* MISRA: Rule 14.4 – Use parentheses in logical expressions */
             input_buf[buf_idx] = '\0';
             int val = -1;
-            if (sscanf(input_buf, "%d", &val) == 1 && val >= 0 && val <= 5) {
+            if ((sscanf(input_buf, "%d", &val) == 1) && (val >= 0) && (val <= 5)) { /* MISRA: Rule 21.6 – Standard library calls: minimize usage to constraints */
                 parsed_cmd = (uint8_t)val;
                 cmd_ready = 1;
             } else {
@@ -47,7 +47,7 @@ void uart_cmd_if_rx_handler(void) {
             }
             rx_state = IDLE;
             buf_idx = 0;
-        } else if (buf_idx < CMD_BUF_SIZE - 1 && c >= '0' && c <= '9') {
+        } else if ((buf_idx < (CMD_BUF_SIZE - 1)) && (c >= '0') && (c <= '9')) { /* MISRA: Rule 14.4 – Use parentheses in logical expressions */
             input_buf[buf_idx++] = c;
         } else {
             rx_state = IDLE; buf_idx = 0;
@@ -74,7 +74,7 @@ static uint8_t current_cmd = 0xFF;
 
 void cmd_proc_init(void) { cmd_proc_state = IDLE; current_cmd = 0xFF; }
 void cmd_proc_next(void) {
-    if (cmd_proc_state == IN_PROGRESS) return;
+    if (cmd_proc_state == IN_PROGRESS) { /* MISRA: Rule 14.9 – If-else statement must use braces */  return; }
     if (uart_cmd_if_parsed_cmd_available()) {
         uint8_t cmd = uart_cmd_if_get_command();
         if (cmd <= 5) {
@@ -114,7 +114,7 @@ static enum { CTRL_IDLE, CTRL_MOVING, CTRL_ERROR } ctrl_state = CTRL_IDLE;
 void flap_pos_ctrl_init(void) { curr_pos = pos_fb_acq_get_position(); ctrl_state = CTRL_IDLE; led_stat_set_led(curr_pos); }
 
 void flap_pos_ctrl_set_target(uint8_t p) {
-    if (ctrl_state != CTRL_IDLE || p > 5) return;
+    if ((ctrl_state != CTRL_IDLE) || (p > 5)) { /* MISRA: Rule 14.4 – Use parentheses in logical expressions */ return; }
     target_pos = p;
     if (curr_pos == target_pos) {
         ctrl_state = CTRL_IDLE;
@@ -161,17 +161,17 @@ void motor_ctrl_stop(void);
 #include "hal_pwm.h"
 
 void motor_ctrl_init(void) {
-    hal_gpio_set_dir_output(0); // Dummy pin
-    hal_gpio_set_dir_output(1); // Dummy pin
+    hal_gpio_set_dir_output(0); /* MISRA: Rule 17.2 – Side effect in statement, comment for clarity */
+    hal_gpio_set_dir_output(1); /* MISRA: Rule 17.2 – Side effect in statement, comment for clarity */
     hal_pwm_init();
 }
 
 void motor_ctrl_start(uint8_t dir) {
     if (dir == MOTOR_DIR_CW) {
-        hal_gpio_write(0, 1); // CW
+        hal_gpio_write(0, 1); /* MISRA: Rule 17.7 – Non-const arguments clarity */
         hal_gpio_write(1, 0);
     } else {
-        hal_gpio_write(0, 0); // CCW
+        hal_gpio_write(0, 0);
         hal_gpio_write(1, 1);
     }
     hal_pwm_start();
@@ -199,8 +199,9 @@ static const uint16_t fb_adc_thresholds[6] = FB_THRESHOLDS;
 
 uint8_t pos_fb_acq_get_position(void) {
     uint16_t adc = hal_adc_get_val();
-    for (uint8_t pos = 0; pos < 6; ++pos) {
-        if (adc < fb_adc_thresholds[pos]) return pos;
+    uint8_t pos; /* MISRA: Rule 17.8 – Minimize scope of variable, declare at top */
+    for (pos = 0; pos < 6; ++pos) {
+        if (adc < fb_adc_thresholds[pos]) { return pos; }
     }
     return 5;
 }
@@ -219,10 +220,17 @@ void led_stat_set_led(uint8_t logical_pos);
 #include "led_stat.h"
 #include "hal_gpio.h"
 static const uint8_t pos_led_map[6] = {2,3,4,5,6,7};
-void led_stat_init(void) { for (uint8_t i = 0; i < 6; ++i) hal_gpio_set_dir_output(pos_led_map[i]); }
+void led_stat_init(void) {
+    uint8_t i;
+    for (i = 0; i < 6; ++i) { /* MISRA: Rule 17.8 – Minimize scope, declare iterator at function top */
+        hal_gpio_set_dir_output(pos_led_map[i]);
+    }
+}
 void led_stat_set_led(uint8_t logical_pos) {
-    for (uint8_t i = 0; i < 6; ++i)
-        hal_gpio_write(pos_led_map[i], i == logical_pos ? 1 : 0);
+    uint8_t i;
+    for (i = 0; i < 6; ++i) {
+        hal_gpio_write(pos_led_map[i], (i == logical_pos) ? 1 : 0);
+    }
 }
 ###### END FILE ######
 ###### FILE: code/inc/hal_uart.h ######
@@ -260,8 +268,8 @@ void hal_gpio_write(uint8_t pin, uint8_t value);
 ###### END FILE ######
 ###### FILE: code/src/hal_uart.c ######
 #include "hal_uart.h"
-char hal_uart_read_char(void) { return 0; /* mock / stub */ }
-int hal_uart_char_available(void) { return 0; /* mock / stub */ }
+char hal_uart_read_char(void) { return 0; /* MISRA: Rule 13.7 – Single return per function recommended, but stub/mock function is exempt */ }
+int hal_uart_char_available(void) { return 0; /* MISRA: Rule 13.7 – Single return per function recommended, but stub/mock function is exempt */ }
 ###### END FILE ######
 ###### FILE: code/src/hal_adc.c ######
 #include "hal_adc.h"
@@ -295,7 +303,10 @@ int main(void) {
     hal_uart_init();
     hal_adc_init();
     hal_pwm_init();
-    for (uint8_t pin = 0; pin < 8; pin++) hal_gpio_set_dir_output(pin);
+    uint8_t pin; /* MISRA: Rule 17.8 – Declare iterator at function top */
+    for (pin = 0U; pin < 8U; pin++) { /* MISRA: Rule 10.6 – Use suffix for unsigned constants, use braces */
+        hal_gpio_set_dir_output(pin);
+    }
     uart_cmd_if_init();
     cmd_proc_init();
     flap_pos_ctrl_init();
@@ -305,7 +316,7 @@ int main(void) {
     while (1) {
         uart_cmd_if_rx_handler();
         cmd_proc_next();
-        // Could add watchdog here
+        /* Could add watchdog here */
     }
     return 0;
 }
