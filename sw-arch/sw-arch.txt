@@ -1,0 +1,77 @@
+# 1.0 HVAC Flap Actuator Software Architecture
+
+## 1.1 Introduction
+This document defines the software architecture for the HVAC flap actuator based strictly on the provided requirements. No features or implementation mechanisms outside those mandated by SWE.1 are considered.
+
+## 2.0 Architecture Style Selection
+
+### 2.1 Candidates Evaluated
+- Layered Architecture
+- Component-Based (Modular) Architecture
+- Monolithic (Single Block) Architecture
+
+### 2.2 Evaluation
+| Style         | System Complexity | HW Interaction | Testability  | Maintainability | ASPICE L3 Compliance       |
+|---------------|------------------|----------------|--------------|-----------------|----------------------------|
+| Layered       | Well-handled     | Decoupled HW logic | Good         | High            | Eases process compliance   |
+| Component     | Low complexity   | Direct/clear   | Excellent    | High            | Suits traceability, modular|
+| Monolithic    | Small systems    | Tight HW coupling| Poor         | Low             | Not ASPICE L3 complaint    |
+
+### 2.3 Selection & Justification
+Selected: **Component-Based (Modular) Architecture**
+- Justification: Direct modular mapping to input handling, position logic, control, output, HW abstraction (SWE-REQ-034, SWE-REQ-037, SYS-REQ-037).
+- Rejected: Layered (complexity not required for scale); Monolithic (insufficient separation, poor traceability).
+
+
+## 3.0 Architecture Definition
+
+### 3.1 Software Units (Traceability: all to SWE.1)
+- **UART Command Interface** — Parses input commands (SWE-REQ-001, SWE-REQ-002, SWE-REQ-014)
+- **Command Processor** — Manages command queueing/handling logic (SWE-REQ-003, SWE-REQ-022)
+- **Flap Position Controller** — Interprets/setpoints, state tracking (SWE-REQ-004, SWE-REQ-005, SWE-REQ-021)
+- **Motor Control** — Sets direction, enables/stops motor (SWE-REQ-007, SWE-REQ-016)
+- **Position Feedback Acquisition** — Reads and debounces ADC, validates and maps input (SWE-REQ-008, SWE-REQ-009, SWE-REQ-010, SWE-REQ-026)
+- **LED Status Provider** — Power/status/position indication (SWE-REQ-006, SWE-REQ-011, SWE-REQ-012, SWE-REQ-017)
+- **HW Abstraction Layer** — Provides APIs for UART, ADC, GPIO, PWM as per SWE-REQ-016, SWE-REQ-017
+
+### 3.2 Responsibilities
+Each unit only implements logic and interfaces mandated by its mapped SWE-REQs. Error handling flows are explicit as per SWE-REQ-023, SWE-REQ-026. All configuration is static as per SWE-REQ-024, SWE-REQ-025, SWE-REQ-030.
+
+### 3.3 Interfaces
+- UART Command Interface exposes parsed commands to Command Processor; uses HAL-UART.
+- Command Processor exposes valid command events to Flap Position Controller; uses no external interfaces.
+- Flap Position Controller exposes setpoint/move requests to Motor Control and status to LED Status; uses feedback from Position Feedback Acquisition.
+- Motor Control uses HAL-GPIO, HAL-PWM, and receives set-point from Flap Position Controller.
+- Position Feedback Acquisition uses HAL-ADC and provides current value to Flap Position Controller.
+- LED Status Provider uses HAL-GPIO and receives status from Flap Position Controller.
+
+### 3.4 Execution Model
+“No explicit execution model or scheduling policy is mandated by the requirements at this stage.”
+
+## 4.0 Text-based Architecture Diagram
+
+|UART Command| → |Command Processor| → |Flap Position Controller| → |Motor Control|
+                                               ↑              ↓
+                               |Position Feedback Acquisition|   |LED Status|
+                                                        ↑             ↓
+                                                    |HW Abstraction Layer|
+
+## 5.0 Software Units Table
+| Software Unit                | Responsibilities                                      | Interfaces Provided        | Interfaces Used                  |
+|-----------------------------|-------------------------------------------------------|---------------------------|----------------------------------|
+| UART Command Interface      | Parse & validate UART user cmd                        | cmd (parsed)              | HAL-UART                         |
+| Command Processor           | Single cmd active policy, ignore while moving         | cmd event                 | UART Command Interface           |
+| Flap Position Controller    | Flap state, validates cmd, triggers actuation         | setpoint, status event    | Command Processor, Position Feedback Acquisition |
+| Motor Control               | Controls motor start/stop, direction, PWM             | motor interface           | Flap Position Controller, HAL-GPIO/PWM          |
+| Position Feedback Acquisition| ADC sample, threshold mapping, signal validation     | position/status           | HAL-ADC                          |
+| LED Status Provider         | Power-on/position/diagnostic indication via LEDs      | LED interface             | Flap Position Controller, HAL-GPIO              |
+| HW Abstraction Layer        | APIs for UART, ADC, GPIO, PWM                        | HW APIs                   | Direct hardware calls             |
+
+## 6.0 Constraints
+- All logic strictly mapped to SWE-1; no behavior or requirement changes allowed.
+- No additional safety/cybersecurity/diagnostics.
+- No implementation detail or unit algorithms (SWE.3).
+- No explicit timing, concurrency, or scheduling decisions.
+
+## 7.0 Traceability
+All architectural decisions are traceable to specific SWE-REQs as mapped above.
