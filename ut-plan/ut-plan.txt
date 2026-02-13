@@ -1,0 +1,146 @@
+# ASPICE SWE.4 Unit Test Plan - HVAC Flap Actuator (Branch: alag-132d)
+
+## 1. Software Units Under Test
+1. UART Command Interface (`uart_cmd_if.c/h`)
+2. Command Processor (`cmd_proc.c/h`)
+3. Flap Position Controller (`flap_pos_ctrl.c/h`)
+4. Motor Control (`motor_ctrl.c/h`)
+5. Position Feedback Acquisition (`pos_fb_acq.c/h`)
+6. LED Status Provider (`led_stat.c/h`)
+7. HW Abstraction Layer (`hal_*`)
+
+## 2. Unit-wise Test Cases
+
+### 2.1 UART Command Interface
+**Responsibilities:**
+- Parse position commands from UART (0-5)
+- Reject invalid or out-of-range input
+- Provide parsed command to application
+**Allocated SW-REQs:** SWE-REQ-001, 002, 014
+
+| Test Case ID | SW-REQ | Test Objective                        | Preconditions        | Input                 | Expected Result             | Pass/Fail Criteria      |
+|--------------|--------|---------------------------------------|----------------------|-----------------------|-----------------------------|-------------------------|
+| TC-UART-001  | 001    | Accept valid command ('3')            | Idle                 | UART='3\r'            | parsed_cmd=3, available=1   | Command available = PASS|
+| TC-UART-002  | 002    | Ignore out-of-range ('9')             | Idle                 | UART='9\r'            | parsed_cmd=INVALID, avail=0 | Not available = PASS    |
+| TC-UART-003  | 014    | Input buffer overflow                  | Receiving            | >8 valid chars        | State reset, no parse       | Not available = PASS    |
+| TC-UART-004  | 002    | Invalid char input                     | Idle                 | 'a\r'                 | State reset, no parse       | Not available = PASS    |
+
+### 2.2 Command Processor
+**Responsibilities:** Ensure single active cmd, initiate flap movement, ignore when busy.
+**Allocated SW-REQs:** SWE-REQ-003, 022
+
+| Test Case ID | SW-REQ | Test Objective                 | Preconditions        | Input                            | Expected Result     | Pass/Fail Criteria          |
+|--------------|--------|--------------------------------|----------------------|----------------------------------|---------------------|-----------------------------|
+| TC-CMD-001   | 003    | Accept valid command when idle | IDLE, UART avail     | cmd=4                            | State->IN_PROGRESS  | State change = PASS         |
+| TC-CMD-002   | 003    | Reject command when busy       | IN_PROGRESS          | Any                              | No state change     | Remains busy = PASS         |
+| TC-CMD-003   | 022    | Complete on movement done      | IN_PROGRESS, done    | flap_pos_ctrl_movement_complete()| State->IDLE         | State change = PASS         |
+
+### 2.3 Flap Position Controller
+**Responsibilities:** Map command to physical movement, validate feedback, call Motor/LED
+**Allocated SW-REQs:** SWE-REQ-004, 005, 021
+
+| Test Case ID | SW-REQ | Test Objective                    | Preconditions        | Input                  | Expected Result          | Pass/Fail Criteria  |
+|--------------|--------|-----------------------------------|----------------------|------------------------|--------------------------|---------------------|
+| TC-FLAP-001  | 004    | Move from pos 1 -> 4              | At 1                 | set_target(4)          | Motor start CW, moving   | API call/mocks      |
+| TC-FLAP-002  | 004    | Move from pos 4 -> 1              | At 4                 | set_target(1)          | Motor start CCW, moving  | API call/mocks      |
+| TC-FLAP-003  | 005    | Proper stop at target, update LED | MOVING               | Feedback=target        | Motor stop, LED set      | API call/mocks      |
+| TC-FLAP-004  | 021    | New command while moving (ignored)| MOVING               | set_target(x)          | No effect                | No state/API called |
+| TC-FLAP-005  | 004    | Reject out-of-range               | IDLE                 | set_target(9)          | No action                | No state/API called |
+
+### 2.4 Motor Control
+**Responsibilities:** Start/stop motor in correct direction, disable on stop/error.
+**Allocated SW-REQs:** SWE-REQ-007, 016
+
+| Test Case ID | SW-REQ | Test Objective     | Preconditions | Input         | Expected Result        | Pass/Fail Criteria |
+|--------------|--------|--------------------|---------------|--------------|-----------------------|--------------------|
+| TC-MOTOR-001 | 007    | Start CW direction | Idle          | start(CW)     | GPIO/pwm set CW       | Mock assert        |
+| TC-MOTOR-002 | 007    | Start CCW dir      | Idle          | start(CCW)    | GPIO/pwm set CCW      | Mock assert        |
+| TC-MOTOR-003 | 016    | Stop, all off      | RUNNING       | stop()        | GPIO/pwm disable      | Mock assert        |
+
+### 2.5 Position Feedback Acquisition
+**Responsibilities:** Validate ADC, convert to logical pos, flag error for OOR.
+**Allocated SW-REQs:** SWE-REQ-008, 009, 010, 026
+
+| Test Case ID   | SW-REQ | Test Objective           | Preconditions | Input           | Expected Result     | Pass/Fail Criteria   |
+|----------------|--------|--------------------------|---------------|-----------------|---------------------|----------------------|
+| TC-POSFB-001   | 008    | ADC value in range -> pos| Idle          | ADC value X     | Logical pos mapped  | Correct mapping      |
+| TC-POSFB-002   | 010    | ADC out-of-range error   | Idle          | Large ADC val   | Error flagged       | Mock check           |
+| TC-POSFB-003   | 009    | Each threshold boundary  | Idle          | Edge ADC vals   | Correct pos mapped  | Correct result       |
+
+### 2.6 LED Status Provider
+**Responsibilities:** Show only correct status/position, ignore OOR.
+**Allocated SW-REQs:** SWE-REQ-006, 011, 012, 017
+
+| Test Case ID | SW-REQ | Test Objective             | Preconditions      | Input            | Expected Result | Pass/Fail Criteria |
+|--------------|--------|----------------------------|--------------------|------------------|-----------------|--------------------|
+| TC-LED-001   | 006    | Display position via LED   | Any                | set_led(3)       | GPIO 3 on only  | Mock GPIO assert   |
+| TC-LED-002   | 011    | Power-on LED init          | Startup            | led_stat_init()  | Power LED on    | Mock GPIO assert   |
+| TC-LED-003   | 017    | OOR does not change LEDs   | Any                | set_led(8)       | No change       | State unchanged    |
+
+### 2.7 HW Abstraction Layer
+**Responsibilities:** Return API/stub values, always safe for repeated/dummy use.
+**Allocated SW-REQs:** SWE-REQ-016, 017
+
+| Test Case ID  | SW-REQ | Test Objective              | Preconditions  | Input                  | Expected Result         | Pass/Fail Criteria |
+|---------------|--------|-----------------------------|----------------|------------------------|------------------------|--------------------|
+| TC-HAL-001    | 016    | Provide deterministic stub  | Any            | API call               | Return mock/stub value | Mock/stub return   |
+| TC-HAL-002    | 017    | Handle hardware failure     | Any            | Error code injected    | API error code         | Deterministic      |
+
+## 3. Isolation Rules
+- All HAL (ADC, GPIO, PWM, UART) APIs must be mocked.
+- No tests interact with real hardware. No integration tests.
+- Each unit test is deterministic and repeatable.
+
+## 4. Traceability Tables
+### 4.1 SW-REQ to Test Case
+| SW-REQ    | Test Case(s)       |
+|-----------|--------------------|
+| 001       | TC-UART-001        |
+| 002       | TC-UART-002/004    |
+| 003       | TC-CMD-001/002     |
+| 004       | TC-FLAP-001/002/005|
+| 005       | TC-FLAP-003        |
+| 006       | TC-LED-001         |
+| 007       | TC-MOTOR-001/002   |
+| 008       | TC-POSFB-001       |
+| 009       | TC-POSFB-003       |
+| 010       | TC-POSFB-002       |
+| 011       | TC-LED-002         |
+| 012       | TC-LED-001         |
+| 014       | TC-UART-003        |
+| 016       | TC-MOTOR-003/TC-HAL-001 |
+| 017       | TC-LED-003/TC-HAL-002   |
+| 021       | TC-FLAP-004        |
+| 022       | TC-CMD-003         |
+| 026       | TC-POSFB-002       |
+
+### 4.2 SW Unit to Test Case
+| SW Unit                 | Test Case(s)                                |
+|-------------------------|---------------------------------------------|
+| UART Command Interface  | TC-UART-XXX                                 |
+| Command Processor       | TC-CMD-XXX                                  |
+| Flap Position Ctrl      | TC-FLAP-XXX                                 |
+| Motor Control           | TC-MOTOR-XXX                                |
+| Pos Feedback Acq        | TC-POSFB-XXX                                |
+| LED Status Provider     | TC-LED-XXX                                  |
+| HW Abs Layer            | TC-HAL-XXX                                  |
+
+## 5. Example Test Stub (C, using mocks)
+```c
+/* Minimal example for UART Command IF using CMocka/Unity (mock HAL) */
+void test_uart_cmd_if_valid_command(void) {
+    mock_hal_uart_supply("3\r");
+    uart_cmd_if_rx_handler();
+    assert_true(uart_cmd_if_parsed_cmd_available());
+    uint8_t cmd = uart_cmd_if_get_command();
+    assert_int_equal(cmd, 3);
+}
+
+void test_led_stat_set_led_oob(void) {
+    led_stat_set_led(8); // Should not affect hardware
+    assert_no_gpio_change();
+}
+```
+
+---
+Unit test plan complete. All requirements for ASPICE SWE.4 workflow and specifications satisfied.
