@@ -1,0 +1,312 @@
+###### FILE: code/inc/uart_cmd_if.h ######
+#ifndef UART_CMD_IF_H
+#define UART_CMD_IF_H
+#include <stdint.h>
+#include <stdbool.h>
+
+void uart_cmd_if_init(void);
+bool uart_cmd_if_parsed_cmd_available(void);
+uint8_t uart_cmd_if_get_command(void);
+void uart_cmd_if_rx_handler(void);
+
+#endif // UART_CMD_IF_H
+###### END FILE ######
+###### FILE: code/src/uart_cmd_if.c ######
+#include "uart_cmd_if.h"
+#include "hal_uart.h"
+#define CMD_BUF_SIZE 8
+#define INVALID_CMD 0xFF
+static char input_buf[CMD_BUF_SIZE];
+static uint8_t buf_idx = 0;
+static uint8_t cmd_ready = 0;
+static uint8_t parsed_cmd = INVALID_CMD;
+
+enum { IDLE, RECEIVING } rx_state = IDLE;
+
+void uart_cmd_if_init(void) { buf_idx = 0; cmd_ready = 0; parsed_cmd = INVALID_CMD; rx_state = IDLE; }
+
+bool uart_cmd_if_parsed_cmd_available(void) { return (cmd_ready != 0); }
+
+uint8_t uart_cmd_if_get_command(void) { cmd_ready = 0; return parsed_cmd; }
+
+void uart_cmd_if_rx_handler(void) {
+    while (hal_uart_char_available()) {
+        char c = hal_uart_read_char();
+        if (rx_state == IDLE) {
+            buf_idx = 0;
+            rx_state = RECEIVING;
+        }
+        if (c == '\n' || c == '\r') {
+            input_buf[buf_idx] = '\0';
+            int val = -1;
+            if (sscanf(input_buf, "%d", &val) == 1 && val >= 0 && val <= 5) {
+                parsed_cmd = (uint8_t)val;
+                cmd_ready = 1;
+            } else {
+                parsed_cmd = INVALID_CMD;
+            }
+            rx_state = IDLE;
+            buf_idx = 0;
+        } else if (buf_idx < CMD_BUF_SIZE - 1 && c >= '0' && c <= '9') {
+            input_buf[buf_idx++] = c;
+        } else {
+            rx_state = IDLE; buf_idx = 0;
+        }
+    }
+}
+###### END FILE ######
+###### FILE: code/inc/cmd_proc.h ######
+#ifndef CMD_PROC_H
+#define CMD_PROC_H
+#include <stdint.h>
+
+void cmd_proc_init(void);
+void cmd_proc_next(void);
+
+#endif // CMD_PROC_H
+###### END FILE ######
+###### FILE: code/src/cmd_proc.c ######
+#include "cmd_proc.h"
+#include "uart_cmd_if.h"
+#include "flap_pos_ctrl.h"
+static enum { IDLE, IN_PROGRESS } cmd_proc_state = IDLE;
+static uint8_t current_cmd = 0xFF;
+
+void cmd_proc_init(void) { cmd_proc_state = IDLE; current_cmd = 0xFF; }
+void cmd_proc_next(void) {
+    if (cmd_proc_state == IN_PROGRESS) return;
+    if (uart_cmd_if_parsed_cmd_available()) {
+        uint8_t cmd = uart_cmd_if_get_command();
+        if (cmd <= 5) {
+            flap_pos_ctrl_set_target(cmd);
+            current_cmd = cmd;
+            cmd_proc_state = IN_PROGRESS;
+        }
+    }
+    if (flap_pos_ctrl_movement_complete()) {
+        cmd_proc_state = IDLE;
+    }
+}
+###### END FILE ######
+###### FILE: code/inc/flap_pos_ctrl.h ######
+#ifndef FLAP_POS_CTRL_H
+#define FLAP_POS_CTRL_H
+#include <stdint.h>
+#include <stdbool.h>
+
+void flap_pos_ctrl_init(void);
+void flap_pos_ctrl_set_target(uint8_t target_pos);
+bool flap_pos_ctrl_movement_complete(void);
+uint8_t flap_pos_ctrl_get_status(void);
+
+#endif // FLAP_POS_CTRL_H
+###### END FILE ######
+###### FILE: code/src/flap_pos_ctrl.c ######
+#include "flap_pos_ctrl.h"
+#include "pos_fb_acq.h"
+#include "motor_ctrl.h"
+#include "led_stat.h"
+#define NUM_POS 6
+static uint8_t curr_pos = 0;
+static uint8_t target_pos = 0;
+static enum { CTRL_IDLE, CTRL_MOVING, CTRL_ERROR } ctrl_state = CTRL_IDLE;
+
+void flap_pos_ctrl_init(void) { curr_pos = pos_fb_acq_get_position(); ctrl_state = CTRL_IDLE; led_stat_set_led(curr_pos); }
+
+void flap_pos_ctrl_set_target(uint8_t p) {
+    if (ctrl_state != CTRL_IDLE || p > 5) return;
+    target_pos = p;
+    if (curr_pos == target_pos) {
+        ctrl_state = CTRL_IDLE;
+        return;
+    }
+    if (curr_pos < target_pos) {
+        motor_ctrl_start(MOTOR_DIR_CW);
+    } else {
+        motor_ctrl_start(MOTOR_DIR_CCW);
+    }
+    ctrl_state = CTRL_MOVING;
+}
+bool flap_pos_ctrl_movement_complete(void) {
+    if (ctrl_state == CTRL_MOVING) {
+        uint8_t actual_pos = pos_fb_acq_get_position();
+        if (actual_pos == target_pos) {
+            motor_ctrl_stop();
+            curr_pos = target_pos;
+            led_stat_set_led(curr_pos);
+            ctrl_state = CTRL_IDLE;
+            return true;
+        }
+    }
+    return (ctrl_state == CTRL_IDLE);
+}
+uint8_t flap_pos_ctrl_get_status(void) { return curr_pos; }
+###### END FILE ######
+###### FILE: code/inc/motor_ctrl.h ######
+#ifndef MOTOR_CTRL_H
+#define MOTOR_CTRL_H
+#include <stdint.h>
+
+#define MOTOR_DIR_CW  1
+#define MOTOR_DIR_CCW 0
+void motor_ctrl_init(void);
+void motor_ctrl_start(uint8_t dir);
+void motor_ctrl_stop(void);
+
+#endif // MOTOR_CTRL_H
+###### END FILE ######
+###### FILE: code/src/motor_ctrl.c ######
+#include "motor_ctrl.h"
+#include "hal_gpio.h"
+#include "hal_pwm.h"
+
+void motor_ctrl_init(void) {
+    hal_gpio_set_dir_output(0); // Dummy pin
+    hal_gpio_set_dir_output(1); // Dummy pin
+    hal_pwm_init();
+}
+
+void motor_ctrl_start(uint8_t dir) {
+    if (dir == MOTOR_DIR_CW) {
+        hal_gpio_write(0, 1); // CW
+        hal_gpio_write(1, 0);
+    } else {
+        hal_gpio_write(0, 0); // CCW
+        hal_gpio_write(1, 1);
+    }
+    hal_pwm_start();
+}
+void motor_ctrl_stop(void) {
+    hal_pwm_stop();
+    hal_gpio_write(0, 0);
+    hal_gpio_write(1, 0);
+}
+###### END FILE ######
+###### FILE: code/inc/pos_fb_acq.h ######
+#ifndef POS_FB_ACQ_H
+#define POS_FB_ACQ_H
+#include <stdint.h>
+uint8_t pos_fb_acq_get_position(void);
+void pos_fb_acq_init(void);
+
+#endif // POS_FB_ACQ_H
+###### END FILE ######
+###### FILE: code/src/pos_fb_acq.c ######
+#include "pos_fb_acq.h"
+#include "hal_adc.h"
+#define FB_THRESHOLDS {200, 600, 1000, 1400, 1800, 2200}
+static const uint16_t fb_adc_thresholds[6] = FB_THRESHOLDS;
+
+uint8_t pos_fb_acq_get_position(void) {
+    uint16_t adc = hal_adc_get_val();
+    for (uint8_t pos = 0; pos < 6; ++pos) {
+        if (adc < fb_adc_thresholds[pos]) return pos;
+    }
+    return 5;
+}
+void pos_fb_acq_init(void) { /* (could calibrate if needed) */ }
+###### END FILE ######
+###### FILE: code/inc/led_stat.h ######
+#ifndef LED_STAT_H
+#define LED_STAT_H
+#include <stdint.h>
+void led_stat_init(void);
+void led_stat_set_led(uint8_t logical_pos);
+
+#endif // LED_STAT_H
+###### END FILE ######
+###### FILE: code/src/led_stat.c ######
+#include "led_stat.h"
+#include "hal_gpio.h"
+static const uint8_t pos_led_map[6] = {2,3,4,5,6,7};
+void led_stat_init(void) { for (uint8_t i = 0; i < 6; ++i) hal_gpio_set_dir_output(pos_led_map[i]); }
+void led_stat_set_led(uint8_t logical_pos) {
+    for (uint8_t i = 0; i < 6; ++i)
+        hal_gpio_write(pos_led_map[i], i == logical_pos ? 1 : 0);
+}
+###### END FILE ######
+###### FILE: code/inc/hal_uart.h ######
+#ifndef HAL_UART_H
+#define HAL_UART_H
+
+char hal_uart_read_char(void);
+int hal_uart_char_available(void);
+
+#endif // HAL_UART_H
+###### END FILE ######
+###### FILE: code/inc/hal_adc.h ######
+#ifndef HAL_ADC_H
+#define HAL_ADC_H
+#include <stdint.h>
+void hal_adc_init(void);
+uint16_t hal_adc_get_val(void);
+#endif // HAL_ADC_H
+###### END FILE ######
+###### FILE: code/inc/hal_pwm.h ######
+#ifndef HAL_PWM_H
+#define HAL_PWM_H
+void hal_pwm_init(void);
+void hal_pwm_start(void);
+void hal_pwm_stop(void);
+#endif // HAL_PWM_H
+###### END FILE ######
+###### FILE: code/inc/hal_gpio.h ######
+#ifndef HAL_GPIO_H
+#define HAL_GPIO_H
+#include <stdint.h>
+void hal_gpio_set_dir_output(uint8_t pin);
+void hal_gpio_write(uint8_t pin, uint8_t value);
+#endif // HAL_GPIO_H
+###### END FILE ######
+###### FILE: code/src/hal_uart.c ######
+#include "hal_uart.h"
+char hal_uart_read_char(void) { return 0; /* mock / stub */ }
+int hal_uart_char_available(void) { return 0; /* mock / stub */ }
+###### END FILE ######
+###### FILE: code/src/hal_adc.c ######
+#include "hal_adc.h"
+void hal_adc_init(void) {}
+uint16_t hal_adc_get_val(void) { return 0; }
+###### END FILE ######
+###### FILE: code/src/hal_pwm.c ######
+#include "hal_pwm.h"
+void hal_pwm_init(void) {}
+void hal_pwm_start(void) {}
+void hal_pwm_stop(void) {}
+###### END FILE ######
+###### FILE: code/src/hal_gpio.c ######
+#include "hal_gpio.h"
+void hal_gpio_set_dir_output(uint8_t pin) { (void)pin; }
+void hal_gpio_write(uint8_t pin, uint8_t value) { (void)pin; (void)value; }
+###### END FILE ######
+###### FILE: code/src/main.c ######
+#include "hal_uart.h"
+#include "hal_adc.h"
+#include "hal_pwm.h"
+#include "hal_gpio.h"
+#include "uart_cmd_if.h"
+#include "cmd_proc.h"
+#include "flap_pos_ctrl.h"
+#include "motor_ctrl.h"
+#include "pos_fb_acq.h"
+#include "led_stat.h"
+
+int main(void) {
+    hal_uart_init();
+    hal_adc_init();
+    hal_pwm_init();
+    for (uint8_t pin = 0; pin < 8; pin++) hal_gpio_set_dir_output(pin);
+    uart_cmd_if_init();
+    cmd_proc_init();
+    flap_pos_ctrl_init();
+    motor_ctrl_init();
+    pos_fb_acq_init();
+    led_stat_init();
+    while (1) {
+        uart_cmd_if_rx_handler();
+        cmd_proc_next();
+        // Could add watchdog here
+    }
+    return 0;
+}
+###### END FILE ######
