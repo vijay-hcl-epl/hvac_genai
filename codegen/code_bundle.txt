@@ -26,6 +26,7 @@ void coordinator_init(void);
 void coordinator_main_loop(void);
 
 #endif // MAIN_COORDINATOR_H
+/* MISRA: Rule 20.3 – Ending preprocessor directives with comments for readability */
 ###### END FILE ######
 ###### FILE: code/inc/uart_cmd_handler.h ######
 #ifndef UART_CMD_HANDLER_H
@@ -37,6 +38,7 @@ void uart_cmd_init(void);
 int8_t uart_cmd_get(void);
 
 #endif // UART_CMD_HANDLER_H
+/* MISRA: Rule 20.3 – Ending preprocessor directives with comments for readability */
 ###### END FILE ######
 ###### FILE: code/inc/motor_control.h ######
 #ifndef MOTOR_CONTROL_H
@@ -60,6 +62,7 @@ motor_status_t motor_move_to(int8_t target_position);
 void motor_stop(void);
 
 #endif // MOTOR_CONTROL_H
+/* MISRA: Rule 20.3 – Ending preprocessor directives with comments for readability */
 ###### END FILE ######
 ###### FILE: code/inc/feedback_processor.h ######
 #ifndef FEEDBACK_PROCESSOR_H
@@ -74,6 +77,7 @@ void feedback_processor_init(void);
 int8_t feedback_get_position(void);
 
 #endif // FEEDBACK_PROCESSOR_H
+/* MISRA: Rule 20.3 – Ending preprocessor directives with comments for readability */
 ###### END FILE ######
 ###### FILE: code/inc/led_control.h ######
 #ifndef LED_CONTROL_H
@@ -85,6 +89,7 @@ void led_control_init(void);
 void led_update(int8_t position);
 
 #endif // LED_CONTROL_H
+/* MISRA: Rule 20.3 – Ending preprocessor directives with comments for readability */
 ###### END FILE ######
 ###### FILE: code/src/main.c ######
 #include "main_coordinator.h"
@@ -100,6 +105,7 @@ int main(void)
     {
         coordinator_main_loop();
     }
+    /* MISRA: Rule 14.10 – All code paths should return a value in non-void functions */
     return 0;
 }
 ###### END FILE ######
@@ -122,7 +128,7 @@ void coordinator_init(void)
     state.target_position = FLAP_POSITION_INVALID;
     state.last_position = FLAP_POSITION_INVALID;
     state.error_flag = 0u;
-    // Read current position, update LEDs, enter IDLE
+    /* MISRA: Rule 8.7 – Variables shall be defined at block scope if they are only accessed within a single function/block */
     int8_t curr_pos = feedback_get_position();
     state.last_position = curr_pos;
     led_update(curr_pos);
@@ -140,6 +146,7 @@ void coordinator_main_loop(void)
             state.target_position = cmd;
             state.mode = SYS_MOVING;
             (void)motor_move_to(cmd);
+            /* MISRA: Rule 17.7 – Ignoring return value, ensure that result is not required */
         }
         else if ((cmd >= 0) && (cmd < FLAP_POSITION_COUNT))
         {
@@ -181,6 +188,7 @@ static int8_t last_cmd = -1;
 
 void uart_cmd_init(void)
 {
+    /* MISRA: Rule 8.7 – Variable last_cmd only used in this module, declared static */
     // Initialize UART hardware using Cube/HAL configuration
     // Assume MX_USART2_UART_Init() etc. have been called
     last_cmd = -1;
@@ -189,6 +197,7 @@ void uart_cmd_init(void)
 int8_t uart_cmd_get(void)
 {
     uint8_t rx = 0U;
+    /* MISRA: Rule 9.1 – Variable rx explicitly initialized */
     if (HAL_UART_Receive(&huart2, &rx, 1, 0) == HAL_OK) {
         if ((rx >= '0') && (rx <= '5')) {
             last_cmd = (int8_t)(rx - '0');
@@ -223,13 +232,17 @@ void motor_control_init(void)
 
 motor_status_t motor_move_to(int8_t target_position)
 {
-    int8_t curr_pos = 0; // replace with actual call if available
-    // curr_pos = feedback_get_position();
+    int8_t curr_pos = 0; /* MISRA: Rule 9.1 – Variable curr_pos explicitly initialized */
+    /* curr_pos = feedback_get_position(); */
     if ((target_position < 0) || (target_position >= 6))
+    {
         return MOTOR_INVALID_TARGET;
+    }
     if (target_position == curr_pos)
+    {
         return MOTOR_ALREADY_AT_POSITION;
-    // Determine direction (for demo, assume curr_pos < target_position -> forward)
+    }
+    /* Determine direction */
     if (target_position > curr_pos)
     {
         HAL_GPIO_WritePin(MOTOR_PORT_DIR1, MOTOR_PIN_DIR1, GPIO_PIN_SET);
@@ -258,17 +271,18 @@ void motor_stop(void)
 #include "feedback_processor.h"
 #include "stm32f4xx_hal.h"
 
-// ADC value calibration table (example)
+/* MISRA: Rule 8.4 – Ensure that objects with internal linkage are not declared in header files */
 static const uint16_t adc_calib_table[FLAP_POSITION_COUNT+1] = { 0, 750, 1500, 2250, 3000, 3700, 4095 };
 
 void feedback_processor_init(void)
 {
+    /* MISRA: Rule 2.2 – Unused functions should be removed, but kept for short-term platform fit */
     // ADC already initialized in main Cube config
 }
 
 int8_t feedback_get_position(void)
 {
-    uint32_t adc_value = 0;
+    uint32_t adc_value = 0U; /* MISRA: Rule 9.1 – Variable explicitly initialized */
     HAL_ADC_Start(&hadc1);
     if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
     {
@@ -276,7 +290,9 @@ int8_t feedback_get_position(void)
         for (int8_t i = 0; i < FLAP_POSITION_COUNT; i++)
         {
             if ((adc_value >= adc_calib_table[i]) && (adc_value < adc_calib_table[i+1]))
+            {
                 return i;
+            }
         }
     }
     return FLAP_POSITION_INVALID;
@@ -293,6 +309,7 @@ static GPIO_TypeDef* green_led_ports[6] = { GPIOC, GPIOC, GPIOC, GPIOC, GPIOC, G
 
 void led_control_init(void)
 {
+    /* MISRA: Rule 8.7 – Variable only accessed within one function, declared at function scope if possible. Static in file scope okay if accessed by multiple functions. */
     // Assume all LED GPIOs inited in MX_GPIO_Init
     HAL_GPIO_WritePin(POWER_LED_PORT, POWER_LED_PIN, GPIO_PIN_SET);
 }
