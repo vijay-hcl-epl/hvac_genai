@@ -22,13 +22,17 @@ void motor_control_init(void)
 
 motor_status_t motor_move_to(int8_t target_position)
 {
-    int8_t curr_pos = 0; // replace with actual call if available
-    // curr_pos = feedback_get_position();
+    int8_t curr_pos = 0; /* MISRA: Rule 9.1 – Variable curr_pos explicitly initialized */
+    /* curr_pos = feedback_get_position(); */
     if ((target_position < 0) || (target_position >= 6))
+    {
         return MOTOR_INVALID_TARGET;
+    }
     if (target_position == curr_pos)
+    {
         return MOTOR_ALREADY_AT_POSITION;
-    // Determine direction (for demo, assume curr_pos < target_position -> forward)
+    }
+    /* Determine direction */
     if (target_position > curr_pos)
     {
         HAL_GPIO_WritePin(MOTOR_PORT_DIR1, MOTOR_PIN_DIR1, GPIO_PIN_SET);

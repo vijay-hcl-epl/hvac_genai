@@ -25,3 +25,4 @@ void coordinator_init(void);
 void coordinator_main_loop(void);
 
 #endif // MAIN_COORDINATOR_H
+/* MISRA: Rule 20.3 – Ending preprocessor directives with comments for readability */

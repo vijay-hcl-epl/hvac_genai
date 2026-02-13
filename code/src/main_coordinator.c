@@ -16,7 +16,7 @@ void coordinator_init(void)
     state.target_position = FLAP_POSITION_INVALID;
     state.last_position = FLAP_POSITION_INVALID;
     state.error_flag = 0u;
-    // Read current position, update LEDs, enter IDLE
+    /* MISRA: Rule 8.7 – Variables shall be defined at block scope if they are only accessed within a single function/block */
     int8_t curr_pos = feedback_get_position();
     state.last_position = curr_pos;
     led_update(curr_pos);
@@ -34,6 +34,7 @@ void coordinator_main_loop(void)
             state.target_position = cmd;
             state.mode = SYS_MOVING;
             (void)motor_move_to(cmd);
+            /* MISRA: Rule 17.7 – Ignoring return value, ensure that result is not required */
         }
         else if ((cmd >= 0) && (cmd < FLAP_POSITION_COUNT))
         {

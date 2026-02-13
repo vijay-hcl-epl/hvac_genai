@@ -11,5 +11,6 @@ int main(void)
     {
         coordinator_main_loop();
     }
+    /* MISRA: Rule 14.10 – All code paths should return a value in non-void functions */
     return 0;
 }

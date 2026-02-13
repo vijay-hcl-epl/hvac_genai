@@ -19,3 +19,4 @@ motor_status_t motor_move_to(int8_t target_position);
 void motor_stop(void);
 
 #endif // MOTOR_CONTROL_H
+/* MISRA: Rule 20.3 – Ending preprocessor directives with comments for readability */

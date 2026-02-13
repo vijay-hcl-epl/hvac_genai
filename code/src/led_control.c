@@ -8,6 +8,7 @@ static GPIO_TypeDef* green_led_ports[6] = { GPIOC, GPIOC, GPIOC, GPIOC, GPIOC, G
 
 void led_control_init(void)
 {
+    /* MISRA: Rule 8.7 – Variable only accessed within one function, declared at function scope if possible. Static in file scope okay if accessed by multiple functions. */
     // Assume all LED GPIOs inited in MX_GPIO_Init
     HAL_GPIO_WritePin(POWER_LED_PORT, POWER_LED_PIN, GPIO_PIN_SET);
 }
