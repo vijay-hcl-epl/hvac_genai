@@ -1,0 +1,222 @@
+# HVAC Flap Actuator Software Low Level Design (SWE.3)
+
+## Traceability Source
+- SWE-REQs: sw-reqs/sw-reqs.txt SHA 2248027d7bc370a5a35db3d8b1c1bc3326c3432c
+- Architecture: sw-arch/sw-arch.txt SHA 76d64059474b6712d77225831c713d03d54c4081
+
+
+-------------------------------------------------------------------------------
+Software Unit: UART Command Interface
+-------------------------------------------------------------------------------
+1. Responsibilities
+   - Handles parsing numerical flap position commands from UART (0-5).
+   - Ignores non-numeric or out-of-range (not 0–5) values.
+
+2. Internal Data Design
+   - Static buffer for latest command (uint8_t), input UART character buffer (char[8]), parse state enum.
+   - No dynamic memory.
+
+3. State Machine
+   - State: IDLE (waiting), RECEIVING (accumulating chars).
+   - Transitions:
+     - On UART RX event: accumulate char, check for EOL/validity.
+     - On completed parse: set buffer, issue event, return to IDLE.
+
+4. Algorithms & Control Flow
+   - On RX, append byte if numeric; if EOL (\n/\r), attempt numeric conversion.
+   - On valid (0–5), mark as ready; else reset.
+
+5. Interfaces (APIs)
+   - Provides: parsed_cmd_available() bool, get_command() uint8_t
+   - Requires: uart_read_char(), uart_char_available()
+   - Returns: 0–5 on valid parse, INVALID on error.
+
+6. Error Handling
+   - Invalid/overflow input resets state, ignores command.
+
+7. Resource & Timing Considerations
+   - Invoked on UART RX. WCET: <100us/char. Re-entrant per input byte.
+
+8. Traceability
+   - SWE-REQ-001, SWE-REQ-002, SWE-REQ-014
+
+-------------------------------------------------------------------------------
+Software Unit: Command Processor
+-------------------------------------------------------------------------------
+1. Responsibilities
+   - Handles single-command-in-progress policy. Initiates processing, ignores input while busy.
+
+2. Internal Data Design
+   - State: IDLE, IN_PROGRESS, BLOCKED. Command buffer (uint8_t current_cmd).
+
+3. State Machine
+   - IDLE: Accept command if available → IN_PROGRESS
+   - IN_PROGRESS: Ignore new command, wait for completion signal.
+   - On completion, return to IDLE.
+
+4. Algorithms & Control Flow
+   - Poll for available command.
+   - If motor busy, reject input; only accept when not active.
+
+5. Interfaces (APIs)
+   - Provides: proc_next_cmd()
+   - Requires: UART Command, Flap Position Controller status.
+   - Returns: status (OK/BUSY)
+
+6. Error Handling
+   - Invalid command or busy state ignores input.
+
+7. Resource & Timing Considerations
+   - Invoked: main flow. WCET <50us/call. Non-reentrant.
+
+8. Traceability
+   - SWE-REQ-003, SWE-REQ-022
+
+-------------------------------------------------------------------------------
+Software Unit: Flap Position Controller
+-------------------------------------------------------------------------------
+1. Responsibilities
+   - Tracks current logical position, validates commands, triggers actuation and LED status update.
+
+2. Internal Data Design
+   - Variables: uint8_t curr_pos, target_pos. State: IDLE, MOVING, ERROR.
+   - Configuration: static threshold table for ADC.
+
+3. State Machine
+   - IDLE: On new command → MOVING
+   - MOVING: Wait for feedback == target; else monitor timeout/error
+   - ERROR: On feedback invalid/timeout
+   - On success/error → IDLE
+
+4. Algorithms & Control Flow
+   - On valid command, compare curr_pos: if not at target, command motor with desired dir.
+   - On feedback == target, stop motor, update LED.
+
+5. Interfaces (APIs)
+   - Provides: set_target(uint8_t), get_status(), movement_complete() callback
+   - Requires: Position Feedback, Motor Control, LED Status
+
+6. Error Handling
+   - ADC error/feedback invalid triggers safe stop and signals ERROR state.
+
+7. Resource & Timing Considerations
+   - WCET: <500us for all logic. Not re-entrant.
+
+8. Traceability
+   - SWE-REQ-004, SWE-REQ-005, SWE-REQ-021
+
+-------------------------------------------------------------------------------
+Software Unit: Motor Control
+-------------------------------------------------------------------------------
+1. Responsibilities
+   - Enables/disables motor, sets direction, controls PWM for position actuation.
+
+2. Internal Data Design
+   - Static: enum state (OFF, CW, CCW). GPIO/PWM config, static runtime registers.
+
+3. State Machine
+   - State: OFF, RUNNING_CW, RUNNING_CCW
+   - Transitions: ON command from Position Controller, drive until stop event/feedback.
+
+4. Algorithms & Control Flow
+   - On command, set GPIO dir output, enable PWM. On completion/stop, disable PWM.
+
+5. Interfaces (APIs)
+   - Provides: start(dir), stop()
+   - Requires: GPIO/PWM abstraction, Flap Position Controller
+
+6. Error Handling
+   - Instant stop on error event/feedback out of range.
+
+7. Resource & Timing Considerations
+   - WCET: <50us per request. Not re-entrant.
+
+8. Traceability
+   - SWE-REQ-007, SWE-REQ-016
+
+-------------------------------------------------------------------------------
+Software Unit: Position Feedback Acquisition
+-------------------------------------------------------------------------------
+1. Responsibilities
+   - Samples flap position ADC, validates readings, maps to logical position.
+
+2. Internal Data Design
+   - Static: uint16_t last_adc, uint8_t last_pos, config: threshold array (static const).
+
+3. State Machine
+   - None: sample → validate → map → report. Deterministic per call.
+
+4. Algorithms & Control Flow
+   - On poll, read ADC. If in valid range, map to position. Else, flag error.
+
+5. Interfaces (APIs)
+   - Provides: get_position(), read_adc()
+   - Requires: HAL-ADC
+
+6. Error Handling
+   - Value out-of-range: signals error to Flap Position Controller, disables motor.
+
+7. Resource & Timing Considerations
+   - Called on control cycle. WCET <20us/sample. Re-entrant.
+
+8. Traceability
+   - SWE-REQ-008, SWE-REQ-009, SWE-REQ-010, SWE-REQ-026
+
+-------------------------------------------------------------------------------
+Software Unit: LED Status Provider
+-------------------------------------------------------------------------------
+1. Responsibilities
+   - Drives power/status/position LEDs based on flap state. Only one position LED on at a time.
+
+2. Internal Data Design
+   - Static: uint8_t led_state. Mapping table static const.
+
+3. State Machine
+   - None. Maps input status to GPIO control output.
+
+4. Algorithms & Control Flow
+   - On event (startup/position update), set correct GPIO(s) output.
+
+5. Interfaces (APIs)
+   - Provides: set_led(state)
+   - Requires: GPIO abstraction
+
+6. Error Handling
+   - Request for out-of-range LED state ignored, safe-off policy.
+
+7. Resource & Timing Considerations
+   - Invoked on state/event. WCET: <10us. Not re-entrant.
+
+8. Traceability
+   - SWE-REQ-006, SWE-REQ-011, SWE-REQ-012, SWE-REQ-017
+
+-------------------------------------------------------------------------------
+Software Unit: HW Abstraction Layer
+-------------------------------------------------------------------------------
+1. Responsibilities
+   - Uniform interfaces for UART, ADC, PWM, GPIO. Encapsulates raw hardware detail.
+
+2. Internal Data Design
+   - Static: config structures per interface, function pointer table/const.
+
+3. State Machine
+   - None. Each call is independent stateless handler.
+
+4. Algorithms & Control Flow
+   - Each function: calls directly to MCAL/statically-linked register interface.
+
+5. Interfaces (APIs)
+   - Provides: uart_read_char(), adc_get_val(), pwm_set(), gpio_set()/clr(), etc.
+   - Requires: direct register or MCAL accesses.
+
+6. Error Handling
+   - Error return (code/flags) on failure, never asserts/panics.
+
+7. Resource & Timing Considerations
+   - All safe for concurrent static use. WCET <10us per call.
+
+8. Traceability
+   - SWE-REQ-016, SWE-REQ-017
+
+-------------------------------------------------------------------------------
+# End of File
