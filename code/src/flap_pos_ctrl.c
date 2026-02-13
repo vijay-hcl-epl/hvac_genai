@@ -10,7 +10,7 @@ static enum { CTRL_IDLE, CTRL_MOVING, CTRL_ERROR } ctrl_state = CTRL_IDLE;
 void flap_pos_ctrl_init(void) { curr_pos = pos_fb_acq_get_position(); ctrl_state = CTRL_IDLE; led_stat_set_led(curr_pos); }
 
 void flap_pos_ctrl_set_target(uint8_t p) {
-    if (ctrl_state != CTRL_IDLE || p > 5) return;
+    if ((ctrl_state != CTRL_IDLE) || (p > 5)) { /* MISRA: Rule 14.4 – Use parentheses in logical expressions */ return; }
     target_pos = p;
     if (curr_pos == target_pos) {
         ctrl_state = CTRL_IDLE;

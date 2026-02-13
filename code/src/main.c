@@ -13,7 +13,10 @@ int main(void) {
     hal_uart_init();
     hal_adc_init();
     hal_pwm_init();
-    for (uint8_t pin = 0; pin < 8; pin++) hal_gpio_set_dir_output(pin);
+    uint8_t pin; /* MISRA: Rule 17.8 – Declare iterator at function top */
+    for (pin = 0U; pin < 8U; pin++) { /* MISRA: Rule 10.6 – Use suffix for unsigned constants, use braces */
+        hal_gpio_set_dir_output(pin);
+    }
     uart_cmd_if_init();
     cmd_proc_init();
     flap_pos_ctrl_init();
@@ -23,7 +26,7 @@ int main(void) {
     while (1) {
         uart_cmd_if_rx_handler();
         cmd_proc_next();
-        // Could add watchdog here
+        /* Could add watchdog here */
     }
     return 0;
 }
