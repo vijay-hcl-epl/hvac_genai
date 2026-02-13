@@ -1,0 +1,134 @@
+# SWE.4 Unit Test Plan for HVAC Flap Actuator Software
+
+## 1. Software Units (from LLD & Code Structure)
+
+| Unit Name             | Header                      | Source                      | Public APIs / Main Functions          | Responsibility                   |
+|----------------------|-----------------------------|-----------------------------|---------------------------------------|-----------------------------------|
+| Main Control Coordinator | code/inc/main_coordinator.h | code/src/main_coordinator.c | coordinator_init(), coordinator_main_loop() | Overall control, state machine   |
+| UART Command Handler     | code/inc/uart_cmd_handler.h | code/src/uart_cmd_handler.c | uart_cmd_init(), uart_cmd_get()            | Parse UART, validate commands    |
+| Motor Control            | code/inc/motor_control.h    | code/src/motor_control.c    | motor_control_init(), motor_move_to(), motor_stop() | GPIO/PWM for actuator           |
+| Feedback Processor       | code/inc/feedback_processor.h| code/src/feedback_processor.c| feedback_processor_init(), feedback_get_position() | ADC, map feedback               |
+| LED Control              | code/inc/led_control.h      | code/src/led_control.c      | led_control_init(), led_update()              | Update status/position LEDs      |
+
+## 2. Test Case Structure
+
+| Test Case ID | SW Unit              | SW-REQ Ref(s)           | Test Objective                      | Preconditions                   | Input          | Expected Result                  | Pass/Fail Criteria       |
+|--------------|---------------------|-------------------------|-------------------------------------|----------------------------------|----------------|----------------------------------|-------------------------|
+
+---
+
+## 3. Detailed Test Cases
+
+### 3.1 Main Control Coordinator
+
+#### Responsibilities (LLD/LUT): Control flow, state switch, error recovery, invokes subunits
+
+| ID      | SW-REQ      | Objective                              | Pre-conditions      | Input                         | Expected Result                                     | Pass/Fail Criteria  |
+|---------|-------------|----------------------------------------|---------------------|-------------------------------|----------------------------------------------------|--------------------|
+| TC-MC-001 | SWE-REQ-020,021,022 | Startup/init flows        | Power-on/reset state | None                          | All subunits' init functions called, system enters IDLE, motor off | Monitored via mocks, no HW |
+| TC-MC-002 | SWE-REQ-004,005     | Valid/invalid move command| IDLE state           | valid/invalid UART command    | On valid: MOVING state, motor_move_to() called; On invalid: Stay IDLE | State trace, API call log  |
+| TC-MC-003 | SWE-REQ-023,031     | ADC fails/invalid         | MOVING/IDLE           | feedback returns FLAP_POSITION_INVALID | System stops motor, transitions to IDLE with error_flag set         | State/flag checked          |
+
+### 3.2 UART Command Handler
+
+| ID        | SW-REQ        | Objective                                  | Pre-conditions | Input                 | Expected Result                               | Pass/Fail Criteria  |
+|-----------|---------------|--------------------------------------------|----------------|-----------------------|----------------------------------------------|--------------------|
+| TC-UART-001 | SWE-REQ-001,002 | Valid/invalid UART commands parsed | UART idle        | '0'..'5', <other chars>| Returns 0..5 for valid, -1 for invalid         | API output         |
+| TC-UART-002 | SWE-REQ-003     | Error reporting is suppressed           | Any             | invalid char/number     | No error is reported, returns -1               | API output         |
+
+### 3.3 Motor Control
+
+| ID        | SW-REQ        | Objective                                  | Pre-conditions        | Input                        | Expected Result                | Pass/Fail Criteria  |
+|-----------|---------------|--------------------------------------------|-----------------------|------------------------------|-------------------------------|--------------------|
+| TC-MOT-001| SWE-REQ-006,007,008 | Start/stop motor on move/stop      | INIT, IDLE states        | Valid/invalid positions      | PWM/GPIO set or not; return codes; motor_state | Mock HAL, API return |
+| TC-MOT-002| SWE-REQ-017   | Pin usage (GPIO, PWM, disables on stop)  | Any                     | N/A                         | Sets/clears right pins per direction/stop    | GPIO mock trace     |
+
+### 3.4 Feedback Processor
+
+| ID        | SW-REQ        | Objective                                  | Pre-conditions        | Input | Expected Result                | Pass/Fail Criteria  |
+|-----------|---------------|--------------------------------------------|-----------------------|-------|-------------------------------|--------------------|
+| TC-FB-001 | SWE-REQ-009,010,011,016 | ADC samples mapped, bounds checked | Any    | Simulated ADC values   | Returns valid pos or FLAP_POSITION_INVALID | Calibration test   |
+| TC-FB-002 | SWE-REQ-031   | Fault signals, invalid readings           | Any                   | Out-of-range ADC            | Returns FLAP_POSITION_INVALID | Output check       |
+
+### 3.5 LED Control
+
+| ID        | SW-REQ        | Objective                                  | Pre-conditions        | Input                        | Expected Result                | Pass/Fail Criteria  |
+|-----------|---------------|--------------------------------------------|-----------------------|------------------------------|-------------------------------|--------------------|
+| TC-LED-001| SWE-REQ-012,013,014,018 | LED on/position/changes, status  | Any    | State changes, positions | One correct LED is ON, others OFF           | GPIO mock read     |
+| TC-LED-002| SWE-REQ-031   | Invalid position does not corrupt outputs | Any                   | Input out of range          | No LEDs ON except power LED                | GPIO mock read     |
+
+---
+
+## 4. Traceability
+
+### 4.1 SW-REQ to Test Case
+| SW-REQ ID | Test Case IDs         |
+|-----------|----------------------|
+| SWE-REQ-001 | TC-UART-001         |
+| SWE-REQ-002 | TC-UART-001         |
+| SWE-REQ-003 | TC-UART-002         |
+| SWE-REQ-004 | TC-MC-002           |
+| SWE-REQ-005 | TC-MC-002           |
+| SWE-REQ-006 | TC-MOT-001          |
+| SWE-REQ-007 | TC-MOT-001          |
+| SWE-REQ-008 | TC-MOT-001          |
+| SWE-REQ-009 | TC-FB-001           |
+| SWE-REQ-010 | TC-FB-001           |
+| SWE-REQ-011 | TC-FB-001, TC-FB-002|
+| SWE-REQ-012 | TC-LED-001          |
+| SWE-REQ-013 | TC-LED-001          |
+| SWE-REQ-014 | TC-LED-001          |
+| SWE-REQ-015 | TC-UART-001         |
+| SWE-REQ-016 | TC-FB-001           |
+| SWE-REQ-017 | TC-MOT-002          |
+| SWE-REQ-018 | TC-LED-001          |
+| SWE-REQ-021 | TC-MC-001           |
+| SWE-REQ-022 | TC-MC-001           |
+| SWE-REQ-023 | TC-MOT-001, TC-MC-003|
+| SWE-REQ-024 | TC-UART-001         |
+| SWE-REQ-028 | TC-MC-001           |
+| SWE-REQ-030 | TC-UART-001, TC-FB-002, TC-MC-003|
+| SWE-REQ-031 | TC-MC-003, TC-MOT-001, TC-FB-002, TC-LED-002|
+
+### 4.2 SW Unit to Test Case
+| SW Unit              | Test Case IDs                 |
+|----------------------|------------------------------|
+| Main Coordinator     | TC-MC-001, TC-MC-002, TC-MC-003|
+| UART Cmd Handler     | TC-UART-001, TC-UART-002     |
+| Motor Control        | TC-MOT-001, TC-MOT-002       |
+| Feedback Processor   | TC-FB-001, TC-FB-002         |
+| LED Control          | TC-LED-001, TC-LED-002       |
+
+---
+
+## 5. Isolation & Environment
+- All hardware interactions (ADC, GPIO, UART, PWM, TIM) must be mocked/stubbed.
+- No integration/hardware-in-the-loop.
+- Each unit test must be deterministic and repeatable.
+
+## 6. Example Test Code Stub (C + mocks)
+
+```c
+#include "unity.h"
+#include "mock_motor_control.h"
+#include "main_coordinator.h"
+
+void setUp(void) {
+    // Set up state, attach mocks
+}
+void tearDown(void) {
+    // Cleanup
+}
+
+void test_main_coordinator_init_calls_all_sub_inits(void) {
+    uart_cmd_init_Expect();
+    motor_control_init_Expect();
+    feedback_processor_init_Expect();
+    led_control_init_Expect();
+    coordinator_init();
+    // ...assert state...
+}
+```
+
+---
+
