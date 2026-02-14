@@ -1,0 +1,4 @@
+#ifndef STARTUP_H
+#define STARTUP_H
+void Startup_Sequence(void);
+#endif // STARTUP_H
