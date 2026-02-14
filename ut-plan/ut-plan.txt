@@ -1,0 +1,194 @@
+====================
+ASPICE SWE.4 Unit Test Plan
+====================
+
+Scope:
+Covers unit testing for HVAC flap actuator software, as designed in sw-reqs/sw-reqs.txt, sw-lld/sw-lld.txt, and codegen/code_bundle.txt (branch soft-142a).
+
+Isolation Rules:
+- All hardware (ADC, GPIO, PWM, UART) shall be mocked.
+- No integration tests, only functional units.
+- All tests must be deterministic and repeatable.
+
+----------------------------------------
+Software Units (with Responsibilities)
+----------------------------------------
+
+1. Startup/Initialization Sequencer
+   - Handles hardware/config init at power-up. APIs: Startup_Sequence(void)
+2. UART Command Handler
+   - UART RX, command decode/validation/forwarding. APIs: UART_Handler_RxISR, UART_GetCommand
+3. Flap Position Controller
+   - Command/action flow, invokes motor, halts on error/target. APIs: Flap_Ctrl_Tick
+4. Motor Driver
+   - GPIO/PWM motor control. APIs: Motor_Drive_Set, Motor_Drive_Stop
+5. ADC Feedback Handler
+   - ADC, position mapping, out-of-range detect. APIs: ADCFbk_GetPosition
+6. LED Status Indicator
+   - Power/position/error LED control. APIs: LED_SetStatus, LED_SetPowerOn, LED_SetError
+
+-----------------------------------------------------
+FULL TRACEABILITY TABLES
+-----------------------------------------------------
+1. SW-REQ → Test Case Table:
+   [See test cases where each SWE-REQ ID is referenced.]
+2. Unit → Test Case Table:
+   [See test cases grouped below for each unit.]
+
+-------------------------------------------------------------------
+UNIT TEST CASES
+-------------------------------------------------------------------
+
+-------------------------------
+1. Startup/Initialization Sequencer
+-------------------------------
+[Unit: Startup/Initialization Sequencer]
+Responsibility: HW/Software initialization
+Allocated SW-REQs: SWE-REQ-024, SWE-REQ-026, SWE-REQ-027, SWE-REQ-033
+
+Test Case ID: STARTUP_TC_001
+SW-REQ Ref: SWE-REQ-024
+Objective: Verify UART, ADC, GPIO, and PWM initialization routines are called
+Preconditions: All mocks installed
+Input: Call Startup_Sequence()
+Expected Result: All initialization functions called exactly once; system_initialized = true
+Pass/Fail: Each mock called; no error signaled
+
+Test Case ID: STARTUP_TC_002
+SW-REQ Ref: SWE-REQ-027
+Objective: On startup, ensure DC motor is OFF
+Preconditions: Motor driver mock
+Input: Call Startup_Sequence()
+Expected Result: Motor_Drive_Stop is called; No enable signal
+Pass/Fail: Success if no motor enable
+
+... [Further test cases for fault/misconfig handling omitted]
+
+-------------------------------
+2. UART Command Handler
+-------------------------------
+Responsibility: UART RX, command validation/forward
+Allocated SW-REQs: SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-021, SWE-REQ-035
+
+Test Case ID: UART_TC_001
+SW-REQ Ref: SWE-REQ-001, SWE-REQ-002
+Objective: Accept & validate 0-5 numeric command
+Preconditions: UART mock RX provides valid value
+Input: UART_Handler_RxISR() with rx = 2
+Expected Result: latest_cmd=2, cmd_valid=true on get
+Pass/Fail: UART_GetCommand returns 2/true after ISR
+
+Test Case ID: UART_TC_002
+SW-REQ Ref: SWE-REQ-003, SWE-REQ-004, SWE-REQ-035
+Objective: Ignore non-numeric/out-of-range/invalid commands
+Preconditions: UART mock RX provides invalid
+Input: UART_Handler_RxISR() with rx = 9 or alpha
+Expected Result: cmd_valid=false; no forward action
+Pass/Fail: UART_GetCommand returns false; all other units unaffected
+
+Boundary test: UART_TC_003 (value 0/5)
+Fault test: UART_TC_004 (mock UART hardware fails)
+
+-------------------------------
+3. Flap Position Controller
+-------------------------------
+Responsibility: Command/action logic flow
+Allocated SW-REQs: SWE-REQ-006, SWE-REQ-007, SWE-REQ-008, SWE-REQ-009, SWE-REQ-029, SWE-REQ-031, SWE-REQ-034, SWE-REQ-035
+
+Test Case ID: FLAP_TC_001
+SW-REQ Ref: SWE-REQ-006, SWE-REQ-007
+Objective: Initiate flap move to target as per command
+Preconditions: UART and ADC mocks
+Input: UART valid command; current_pos != target_pos
+Expected Result: Motor_Drive_Set called; movement initiated
+Pass/Fail: On diff, drive command
+
+Test Case ID: FLAP_TC_002
+SW-REQ Ref: SWE-REQ-009
+Objective: Ignore if command matches position
+Preconditions: Set positions equal
+Input: UART valid command = current pos
+Expected Result: No drive called; no action_active
+Pass/Fail: Success if no drive
+
+Test Case ID: FLAP_TC_003
+SW-REQ Ref: SWE-REQ-034
+Objective: Stop if ADC error
+Preconditions: ADC mock error
+Input: Flap_Ctrl_Tick
+Expected Result: Motor_Drive_Stop called; error_state set
+Pass/Fail: Success if stopped
+
+Boundary test: FLAP_TC_004 (pos 0↔5)
+
+-------------------------------
+4. Motor Driver
+-------------------------------
+Responsibility: GPIO/PWM motor drive
+Allocated SW-REQs: SWE-REQ-011, SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-040
+
+Test Case ID: MOTOR_TC_001
+SW-REQ Ref: SWE-REQ-012, SWE-REQ-013
+Objective: Command motor & stop on request
+Preconditions: All mocks
+Input: Valid drive/stop call
+Expected Result: Correct GPIO/PWM output sequence
+Pass/Fail: Mock sees correct calls
+
+Boundary test: MOTOR_TC_002 (pwm=0,255)
+Fault: MOTOR_TC_003 (simulate GPIO fail)
+
+-------------------------------
+5. ADC Feedback Handler
+-------------------------------
+Responsibility: ADC acquisition, mapping, error detect
+Allocated SW-REQs: SWE-REQ-015, SWE-REQ-016, SWE-REQ-017, SWE-REQ-032, SWE-REQ-034
+
+Test Case ID: ADC_TC_001
+SW-REQ Ref: SWE-REQ-015, SWE-REQ-016
+Objective: Map ADC raw to pos; flag errors on out-of-range
+Preconditions: ADC mock valid/out-of-range
+Input: ADCFbk_GetPosition
+Expected Result: Correct position/error reporting
+Pass/Fail: As expected per mapped table
+
+Boundary test: ADC_TC_002 (ADC at 0 and max)
+
+-------------------------------
+6. LED Status Indicator
+-------------------------------
+Responsibility: Power/position/error LED display
+Allocated SW-REQs: SWE-REQ-018, SWE-REQ-019, SWE-REQ-020, SWE-REQ-028, SWE-REQ-034
+
+Test Case ID: LED_TC_001
+SW-REQ Ref: SWE-REQ-019, SWE-REQ-028
+Objective: Light correct position LED
+Preconditions: Position supplied
+Input: Call LED_SetStatus(pos)
+Expected Result: Only the correct LED active
+Pass/Fail: Correct mock GPIO/out expected
+
+Test Case ID: LED_TC_002
+SW-REQ Ref: SWE-REQ-020, SWE-REQ-034
+Objective: Show error LED on error
+Preconditions: error state
+Input: Call LED_SetError
+Expected Result: Only error indicator active
+Pass/Fail: Correct mock GPIO/out as expected
+
+------------------------
+Optional Example C Stub:
+------------------------
+#include <CppUTest/TestHarness.h>
+TEST_GROUP(UART){void setup(){} void teardown(){}}
+TEST(UART, AcceptValidCmd){
+    // mock UART rx as '2'
+    UART_Handler_RxISR();
+    uint8_t v; bool ok;
+    UART_GetCommand(&v, &ok);
+    CHECK_TRUE(ok && v == 2);
+}
+
+====================
+END OF PLAN
+====================
