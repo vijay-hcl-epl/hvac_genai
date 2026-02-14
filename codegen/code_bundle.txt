@@ -1,0 +1,208 @@
+###### FILE: code/inc/startup.h ######
+#ifndef STARTUP_H
+#define STARTUP_H
+void Startup_Sequence(void);
+#endif // STARTUP_H
+###### END FILE ######
+###### FILE: code/src/startup.c ######
+#include "startup.h"
+#include "uart_handler.h"
+#include "flap_ctrl.h"
+#include "motor_driver.h"
+#include "adc_feedback.h"
+#include "led_status.h"
+
+void Startup_Sequence(void) {
+    // Call initialization for each software unit
+    UART_Handler_Init();
+    ADCFbk_Init();
+    MotorDriver_Init();
+    LEDStatus_Init();
+    FlapCtrl_Init();
+}
+###### END FILE ######
+###### FILE: code/inc/uart_handler.h ######
+#ifndef UART_HANDLER_H
+#define UART_HANDLER_H
+#include <stdbool.h>
+#include <stdint.h>
+void UART_Handler_Init(void);
+void UART_Handler_RxISR(void);
+void UART_GetCommand(uint8_t *value, bool *valid);
+#endif // UART_HANDLER_H
+###### END FILE ######
+###### FILE: code/src/uart_handler.c ######
+#include "uart_handler.h"
+static const uint8_t valid_commands[] = {0,1,2,3,4,5};
+static uint8_t latest_cmd = 0;
+static bool cmd_valid = false;
+void UART_Handler_Init(void) {
+    // Placeholder for UART peripheral initialization
+}
+void UART_Handler_RxISR(void) {
+    // Simulated UART RX handler
+    uint8_t rx = 0; // = uart_hw_read_byte();
+    if (rx >= 0 && rx <= 5) {
+        latest_cmd = rx;
+        cmd_valid = true;
+    } else {
+        cmd_valid = false;
+    }
+}
+void UART_GetCommand(uint8_t *value, bool *valid) {
+    if (value && valid) {
+        *value = latest_cmd;
+        *valid = cmd_valid;
+        cmd_valid = false;
+    }
+}
+###### END FILE ######
+###### FILE: code/inc/flap_ctrl.h ######
+#ifndef FLAP_CTRL_H
+#define FLAP_CTRL_H
+#include <stdbool.h>
+#include <stdint.h>
+void FlapCtrl_Init(void);
+void Flap_Ctrl_Tick(void);
+#endif // FLAP_CTRL_H
+###### END FILE ######
+###### FILE: code/src/flap_ctrl.c ######
+#include "flap_ctrl.h"
+#include "uart_handler.h"
+#include "adc_feedback.h"
+#include "motor_driver.h"
+#include "led_status.h"
+static uint8_t target_pos = 0;
+static bool action_active = false;
+static bool error_state = false;
+void FlapCtrl_Init(void) {
+    target_pos = 0;
+    action_active = false;
+    error_state = false;
+}
+void Flap_Ctrl_Tick(void) {
+    uint8_t current_pos = 0;
+    bool adc_error = false;
+    uint8_t cmd_val = 0;
+    bool cmd_ok = false;
+    UART_GetCommand(&cmd_val, &cmd_ok);
+    ADCFbk_GetPosition(&current_pos, &adc_error);
+    if (error_state) {
+        LED_SetError();
+        Motor_Drive_Stop();
+        return;
+    }
+    if (cmd_ok && cmd_val != current_pos) {
+        target_pos = cmd_val;
+        action_active = true;
+    }
+    if (adc_error) {
+        error_state = true;
+        LED_SetError();
+        Motor_Drive_Stop();
+        return;
+    }
+    if (action_active) {
+        if (current_pos < target_pos) {
+            Motor_Drive_Set(1, 128); // 1 = forward; 128 = example PWM
+        } else if (current_pos > target_pos) {
+            Motor_Drive_Set(0, 128); // 0 = reverse
+        } else {
+            Motor_Drive_Stop();
+            action_active = false;
+        }
+    }
+    LED_SetStatus(current_pos);
+}
+###### END FILE ######
+###### FILE: code/inc/motor_driver.h ######
+#ifndef MOTOR_DRIVER_H
+#define MOTOR_DRIVER_H
+#include <stdint.h>
+void MotorDriver_Init(void);
+int Motor_Drive_Set(uint8_t direction, uint8_t pwm);
+void Motor_Drive_Stop(void);
+#endif // MOTOR_DRIVER_H
+###### END FILE ######
+###### FILE: code/src/motor_driver.c ######
+#include "motor_driver.h"
+void MotorDriver_Init(void) {
+    // Configure GPIO/PWM
+}
+int Motor_Drive_Set(uint8_t direction, uint8_t pwm) {
+    // GPIO and PWM manipulation placeholder
+    return 0;
+}
+void Motor_Drive_Stop(void) {
+    // De-energize motor
+}
+###### END FILE ######
+###### FILE: code/inc/adc_feedback.h ######
+#ifndef ADC_FEEDBACK_H
+#define ADC_FEEDBACK_H
+#include <stdbool.h>
+#include <stdint.h>
+void ADCFbk_Init(void);
+void ADCFbk_GetPosition(uint8_t *value, bool *error);
+#endif // ADC_FEEDBACK_H
+###### END FILE ######
+###### FILE: code/src/adc_feedback.c ######
+#include "adc_feedback.h"
+static uint16_t adc_raw = 0;
+static uint8_t position = 0;
+static bool error_flag = false;
+void ADCFbk_Init(void) {
+    error_flag = false;
+    position = 0;
+    adc_raw = 0;
+}
+void ADCFbk_GetPosition(uint8_t *value, bool *error) {
+    adc_raw = 2000; // Simulated ADC sample
+    if (adc_raw > 4095) {
+        error_flag = true;
+        position = 0;
+    } else {
+        error_flag = false;
+        position = adc_raw / 700; // Example scale for 0-5
+    }
+    if (value) *value = position;
+    if (error) *error = error_flag;
+}
+###### END FILE ######
+###### FILE: code/inc/led_status.h ######
+#ifndef LED_STATUS_H
+#define LED_STATUS_H
+#include <stdint.h>
+void LEDStatus_Init(void);
+void LED_SetStatus(uint8_t pos);
+void LED_SetPowerOn(void);
+void LED_SetError(void);
+#endif // LED_STATUS_H
+###### END FILE ######
+###### FILE: code/src/led_status.c ######
+#include "led_status.h"
+void LEDStatus_Init(void) {
+    // GPIO config for LEDs
+}
+void LED_SetStatus(uint8_t pos) {
+    // Set relevant LED for current flap pos
+}
+void LED_SetPowerOn(void) {
+    // Power/status LED logic
+}
+void LED_SetError(void) {
+    // Signal error indication via LED
+}
+###### END FILE ######
+###### FILE: code/src/main.c ######
+#include "startup.h"
+#include "flap_ctrl.h"
+int main(void) {
+    Startup_Sequence();
+    while (1) {
+        Flap_Ctrl_Tick();
+        // insert wait/delay
+    }
+    return 0;
+}
+###### END FILE ######
