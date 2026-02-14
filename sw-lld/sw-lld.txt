@@ -1,0 +1,182 @@
+# ASPICE SWE.3 Low-Level Design (LLD)
+# HVAC Flap Actuator Software
+# Branch: hvdemo-142b
+
+This document provides detailed low-level designs for each software unit as defined by the architecture (sw-arch/sw-arch.txt) and in strict accordance with sw-reqs/sw-reqs.txt. All items are fully mapped to SWE.1 requirements. No new units, no code, no scheduling, no OS, no resource/diagnostic expansion.
+
+----------------------------------------------------------------------------
+
+Software Unit: UserCmdHandler
+
+1. Responsibilities
+   - Handles: Receiving UART commands, validating/flitering (0-5), passing new position requests to FlapCtrl
+   - Does not handle: Command echo, UART protocol errors, unsolicited responses, diagnostics
+
+2. Internal Data Design
+   - Variables: last_rx_value (uint8_t), valid_range[2]={0,5} (static const)
+   - No dynamic allocation, no external config
+
+3. State Machine
+   - "none": Unit is event-driven on UART receive; for each value: parse, range-check, forward
+
+4. Algorithms & Control Flow
+   - On UART receive: read value
+     If value in [0..5]: pass to FlapCtrl.NewTargetCmd()
+     Else: discard
+
+5. Interfaces (APIs)
+   - Provided: None (called by UART ISR/driver or upper logic)
+   - Required: FlapCtrl.NewTargetCmd(uint8_t pos)
+     Params: pos [0..5], Returns: status OK/ignored (if desired)
+     No error reporting to UART or user
+
+6. Error Handling
+   - Invalid values discarded silently (SWE-REQ-003, SWE-REQ-028)
+   - UART driver errors not handled by this SW unit (SWE-REQ-034)
+
+7. Resource & Timing Considerations
+   - Invoked on UART data reception only
+   - WCET: << 1 ms; no long-running actions, not re-entrant
+
+8. Traceability
+   - SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-019, SWE-REQ-034
+
+----------------------------------------------------------------------------
+
+Software Unit: FlapCtrl
+
+1. Responsibilities
+   - Handles: Translating target position, single move requests, delegating motor control, tracking state
+   - Does not handle: Command parsing, hardware I/O, timing/delays
+
+2. Internal Data Design
+   - Variables: target_pos (uint8_t), curr_pos (uint8_t), move_active (bool)
+   - No dynamic allocation; all state in stack or static context
+
+3. State Machine
+   - States: Idle, Moving
+     Events: New command, target reached, error/invalid position
+     Transitions: Idle->Moving (valid cmd), Moving->Idle (target reached/invalid)
+
+4. Algorithms & Control Flow
+   - On NewTargetCmd:
+     If (target != curr_pos)
+       Move to Moving, activate motor, poll PosFeedback
+     When PosFeedback==target_pos: deactivate motor, move to Idle
+
+5. Interfaces (APIs)
+   - Provided: NewTargetCmd(uint8_t pos), Idle(), etc.
+   - Required: MotorDriver.SetMotor(dir), PosFeedback.GetPosition(), StatusIndication.SetLed()
+     Params: as above; all error/info via returns or internal state
+
+6. Error Handling
+   - If PosFeedback out of range/invalid: stop motor, Idle (SWE-REQ-033)
+   - No retries or timeouts (SWE-REQ-036)
+
+7. Resource & Timing Considerations
+   - Invoked by UserCmdHandler, or on position feedback events
+   - WCET: <2ms/event; not re-entrant
+
+8. Traceability
+   - SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-024, SWE-REQ-025, SWE-REQ-026, SWE-REQ-027, SWE-REQ-029, SWE-REQ-030, SWE-REQ-031, SWE-REQ-035, SWE-REQ-036, SWE-REQ-037
+
+----------------------------------------------------------------------------
+
+Software Unit: MotorDriver
+
+1. Responsibilities
+   - Handles: Activating/deactivating DC motor via GPIO + PWM, enforcing direction, hardware abstraction
+   - Does not handle: Movement logic or command acceptance
+
+2. Internal Data Design
+   - Variables: none persistent; direction argument per call
+   - No dynamic, no struct config
+
+3. State Machine
+   - "none": stateless; acts as hardware driver called by FlapCtrl
+
+4. Algorithms & Control Flow
+   - On SetMotor(dir): Sets GPIOs, PWM as requested; on stop, disables outputs
+
+5. Interfaces (APIs)
+   - Provided: SetMotor(uint8_t dir)
+   - Required: physical GPIO/PWM API (abstracted)
+
+6. Error Handling
+   - No error/diagnostic handling (SWE-REQ-010, SWE-REQ-034)
+
+7. Resource & Timing Considerations
+   - Called by FlapCtrl only for movement
+   - WCET <0.5ms/call, not re-entrant
+
+8. Traceability
+   - SWE-REQ-008, SWE-REQ-009, SWE-REQ-010, SWE-REQ-011, SWE-REQ-021, SWE-REQ-040, SWE-REQ-041
+
+----------------------------------------------------------------------------
+
+Software Unit: PosFeedback
+
+1. Responsibilities
+   - Handles: ADC sampling, value-to-position mapping, continuous acquisition during move
+   - Does not handle: ADC hardware errors, diagnostics
+
+2. Internal Data Design
+   - Variables: adc_value (uint16_t), position (uint8_t), range_table[6][2]=static const for thresholds
+
+3. State Machine
+   - "none": simple fetch+map, no persistent state, function call per poll
+
+4. Algorithms & Control Flow
+   - On GetPosition(): samples ADC, compares to each static range
+   - If match: returns index (0..5)
+   - If no match: Reports invalid/out-of-range status
+
+5. Interfaces (APIs)
+   - Provided: GetPosition() -> pos/int, InRange() bool
+   - Required: ADC (hardware abstraction)
+
+6. Error Handling
+   - On out-of-range: FlapCtrl commanded to idle, movement stopped (SWE-REQ-015, SWE-REQ-033)
+
+7. Resource & Timing Considerations
+   - Called during movement polling by FlapCtrl
+   - WCET <1ms/call, not re-entrant
+
+8. Traceability
+   - SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-015, SWE-REQ-020, SWE-REQ-030
+
+----------------------------------------------------------------------------
+
+Software Unit: StatusIndication
+
+1. Responsibilities
+   - Handles: GPIO drive for LEDs, setting power/status outputs only
+   - Does not handle: errors/diagnostics, indication other than as required
+
+2. Internal Data Design
+   - Variables: led_states[6] (bool), powered_on (bool)
+
+3. State Machine
+   - "none": stateless, called on position/state change to update
+
+4. Algorithms & Control Flow
+   - On SetLed(pos): sets only the specified position LED ON, others OFF
+   - On PowerLed(state): sets "power ON" indicator
+
+5. Interfaces (APIs)
+   - Provided: SetLed(uint8_t pos), PowerLed(bool state)
+   - Required: GPIO hardware abstraction
+
+6. Error Handling
+   - Invalid position: ignore or set all LEDs OFF (never crash/hang)
+
+7. Resource & Timing Considerations
+   - Called after startup/position change (by FlapCtrl)
+   - WCET <0.2ms/call, not re-entrant
+
+8. Traceability
+   - SWE-REQ-016, SWE-REQ-017, SWE-REQ-018, SWE-REQ-022, SWE-REQ-023, SWE-REQ-041, SWE-REQ-044
+
+----------------------------------------------------------------------------
+
+# [END OF DOCUMENT]
