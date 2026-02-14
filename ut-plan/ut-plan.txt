@@ -1,0 +1,175 @@
+# ASPICE SWE.4 Unit Test Plan
+# HVAC Flap Actuator Software
+# Branch: hvdemo-142b
+
+## 1. Software Units Under Test (per LLD/code bundle)
+- UserCmdHandler
+- FlapCtrl
+- MotorDriver
+- PosFeedback
+- StatusIndication
+
+Derived from:
+- sw-reqs/sw-reqs.txt
+- sw-lld/sw-lld.txt
+- codegen/code_bundle.txt
+
+---
+
+## 2. Unit-Wise Test Cases
+
+### 2.1 UserCmdHandler
+- **Responsibility**: Handles UART user commands, validates 0-5, rejects invalid, sends target to FlapCtrl.
+- **Allocated SW-REQs**: SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-019, SWE-REQ-034
+
+| Test Case ID    | SW-REQ | Objective                                | Preconditions    | Input  | Expected Result                   | Pass/Fail                    |
+|-----------------|--------|------------------------------------------|------------------|--------|-----------------------------------|------------------------------|
+| UCH-TC-01       | 001,019| Accept command 0-5, pass to FlapCtrl     | Initialized      | 2      | FlapCtrl called, value 2          | Function called, input valid |
+| UCH-TC-02       | 003,004,028,034 | Ignore invalid command (<0 or >5)  | Initialized      | 6      | FlapCtrl NOT called, ignored      | No call/side effect          |
+| UCH-TC-03       | 002    | Test all valid positions                 | Initialized      | 0-5    | Each triggers FlapCtrl call       | All valid mapped             |
+
+**Isolation**: Mock UART, FlapCtrl. No UART/ISR/RTOS present. Only value injection, observe calls.
+
+---
+
+### 2.2 FlapCtrl
+- **Responsibility**: Translate targets; single move; manage state; delegate MotorDriver, StatusIndication.
+- **Allocated SW-REQs**: SWE-REQ-005,006,007,024-027,029-031,035-037
+
+| Test Case ID    | SW-REQ | Objective                                         | Preconditions    | Input    | Expected Result          | Pass/Fail                  |
+|-----------------|--------|---------------------------------------------------|------------------|----------|-------------------------|----------------------------|
+| FC-TC-01        | 005,006| Move initiates once to new position, no repeats   | Idle, known pos  | new pos  | MotorDriver called, stop| Called once                |
+| FC-TC-02        | 007,026| Ignore repeated same-position command             | Idle, pos=3      | pos=3    | No move, state unchanged| No movement                |
+| FC-TC-03        | 035    | If not reaching pos, system does not hang/crash   | Active           | bad pos  | System handles error    | No crash/hang, idle        |
+| FC-TC-04        | 029,031| Only one move at a time                          | Active           | multi    | No overlap, one at time | Sequence OK                |
+| FC-TC-05        | 033,036| Invalid feedback halts, idles                    | Moving, feedback | Out-range| Motor stops, idle       | Immediate stop, idle       |
+
+**Isolation**: Mock MotorDriver, PosFeedback, StatusIndication.
+
+---
+
+### 2.3 MotorDriver
+- **Responsibility**: Activate motor, direction, ensure correct actuation only for valid commands.
+- **Allocated SW-REQs**: 008,009,010,011,021,040,041
+
+| Test Case ID    | SW-REQ | Objective                          | Preconditions   | Input     | Expected Result       | Pass/Fail                |
+|-----------------|--------|------------------------------------|-----------------|-----------|----------------------|--------------------------|
+| MD-TC-01        | 008    | Motor forwards on dir=1            | Idle            | dir=1     | hw_motor_forward()   | Function called          |
+| MD-TC-02        | 008    | Motor reverse on dir=-1            | Idle            | dir=-1    | hw_motor_reverse()   | Function called          |
+| MD-TC-03        | 009,011| Motor stops on dir=0               | Moving/Idle     | dir=0     | hw_motor_stop()      | Output OFF, stable       |
+| MD-TC-04        | 010    | No other signals toggled           | Any             | Any       | Only motor HW calls  | No GPIO misuse           |
+
+**Isolation**: Mock hw_motor_xxx functions. No hardware access, GPIO state observed.
+
+---
+
+### 2.4 PosFeedback
+- **Responsibility**: Read ADC, map value, handle out-of-range/error, drive continuous position updates.
+- **Allocated SW-REQs**: 012-015,020,030
+
+| Test Case ID    | SW-REQ | Objective                               | Preconditions    | Input      | Expected Result      | Pass/Fail             |
+|-----------------|--------|-----------------------------------------|------------------|------------|---------------------|-----------------------|
+| PF-TC-01        | 012    | Correct ADC value returns valid pos     | ADC ready        | {100,350}  | pos=0               | Each range correct    |
+| PF-TC-02        | 013,014| All ranges mapped, continuous           | During move      | {601,650}  | pos=2               | Continuous, mapped    |
+| PF-TC-03        | 015,033| Out of range - feedback fails           | Any              | 90/1700    | returns 0xFF        | Correct error code    |
+| PF-TC-04        | 020    | Uses mocked ADC API                     | ---              | value      | Only hw_adc_read()  | API called, returns   |
+
+**Isolation**: Mock hw_adc_read, test with all static adc_ranges per code.
+
+---
+
+### 2.5 StatusIndication
+- **Responsibility**: Map position to LED(s), power ON LED, no extra indications, graceful error on invalid pos.
+- **Allocated SW-REQs**: 016-018,022,023,041,044
+
+| Test Case ID    | SW-REQ | Objective                          | Preconditions      | Input     | Expected Result                 | Pass/Fail              |
+|-----------------|--------|------------------------------------|--------------------|-----------|---------------------------------|------------------------|
+| SI-TC-01        | 016,022| Power ON LED set after init        | After Init         | true      | hw_set_power_led(true)          | Called                 |
+| SI-TC-02        | 017    | Only one position LED ON           | Flap pos=4        | 4         | Only LED 4 ON, others OFF       | States correct         |
+| SI-TC-03        | 018,023| Ignore invalid pos, do not hang    | pos=7              | 7         | No change or all OFF            | No crash/hang          |
+
+**Isolation**: Mock hw_set_led, hw_set_power_led.
+
+---
+
+## 3. Traceability Tables
+
+### 3.1 SW-REQ to Test Case
+
+| SW-REQ    | Test Case IDs                  |
+|-----------|-------------------------------|
+| SWE-REQ-001 | UCH-TC-01                    |
+| SWE-REQ-002 | UCH-TC-03                    |
+| SWE-REQ-003 | UCH-TC-02                    |
+| SWE-REQ-004 | UCH-TC-02                    |
+| SWE-REQ-005 | FC-TC-01                     |
+| SWE-REQ-006 | FC-TC-01                     |
+| SWE-REQ-007 | FC-TC-02                     |
+| SWE-REQ-008 | MD-TC-01, MD-TC-02           |
+| SWE-REQ-009 | MD-TC-03                     |
+| SWE-REQ-010 | MD-TC-04                     |
+| SWE-REQ-011 | MD-TC-03                     |
+| SWE-REQ-012 | PF-TC-01                     |
+| SWE-REQ-013 | PF-TC-02                     |
+| SWE-REQ-014 | PF-TC-02                     |
+| SWE-REQ-015 | PF-TC-03                     |
+| SWE-REQ-016 | SI-TC-01                     |
+| SWE-REQ-017 | SI-TC-02                     |
+| SWE-REQ-018 | SI-TC-03                     |
+| SWE-REQ-019 | UCH-TC-01                    |
+| SWE-REQ-020 | PF-TC-04                     |
+| SWE-REQ-021 | MD-TC-03                     |
+| SWE-REQ-022 | SI-TC-01                     |
+| SWE-REQ-023 | SI-TC-03                     |
+| SWE-REQ-024 | FC-TC-01                     |
+| SWE-REQ-025 | FC-TC-01                     |
+| SWE-REQ-026 | FC-TC-02                     |
+| SWE-REQ-027 | FC-TC-01                     |
+| SWE-REQ-029 | FC-TC-04                     |
+| SWE-REQ-030 | PF-TC-01, PF-TC-02           |
+| SWE-REQ-031 | FC-TC-04                     |
+| SWE-REQ-033 | PF-TC-03, FC-TC-05           |
+| SWE-REQ-034 | UCH-TC-02                    |
+| SWE-REQ-035 | FC-TC-03                     |
+| SWE-REQ-036 | FC-TC-05                     |
+| SWE-REQ-037 | FC-TC-01                     |
+| SWE-REQ-040 | MD-TC-01, MD-TC-02, MD-TC-03 |
+| SWE-REQ-041 | MD-TC-04, SI-TC-01           |
+| SWE-REQ-044 | SI-TC-03                     |
+
+### 3.2 SW Unit to Test Case
+
+| SW Unit          | Test Case IDs                              |
+|------------------|--------------------------------------------|
+| UserCmdHandler   | UCH-TC-01, UCH-TC-02, UCH-TC-03            |
+| FlapCtrl         | FC-TC-01, FC-TC-02, FC-TC-03, FC-TC-04, FC-TC-05 |
+| MotorDriver      | MD-TC-01, MD-TC-02, MD-TC-03, MD-TC-04     |
+| PosFeedback      | PF-TC-01, PF-TC-02, PF-TC-03, PF-TC-04     |
+| StatusIndication | SI-TC-01, SI-TC-02, SI-TC-03               |
+
+---
+
+## 4. Example Unit Test Stub (C, Mocked APIs)
+
+```c
+#include "UserCmdHandler.h"
+#include "mock_FlapCtrl.h"
+#include <assert.h>
+
+void test_UserCmdHandler_OnUartRx_valid(void) {
+    mock_FlapCtrl_expect_NewTargetCmd(2); // expect call with 2
+    UserCmdHandler_OnUartRx(2);           // invoke with valid value
+    mock_FlapCtrl_verify();
+}
+
+void test_UserCmdHandler_OnUartRx_invalid(void) {
+    UserCmdHandler_OnUartRx(99); // Out of range; should NOT call FlapCtrl
+    mock_FlapCtrl_verify();       // No calls expected
+}
+```
+
+---
+
+**All tests mock MCU/peripheral interfaces and verify call outcomes, never real hardware.**
+
+# END OF DOCUMENT
