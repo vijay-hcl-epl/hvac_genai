@@ -1,0 +1,193 @@
+====================
+Low-Level Design (SWE.3)
+====================
+All content strictly derived from:
+- sw-reqs/sw-reqs.txt (commit SHA: 79c4885e8e58b587f1bf1875a812fa36b8e6ea1b)
+- sw-arch/sw-arch.txt (commit SHA: 79c4885e8e58b587f1bf1875a812fa36b8e6ea1b)
+
+NO UNITS ADDED; NO ARCHITECTURE CHANGED; NO CODE WRITTEN.
+Target: MISRA-style embedded C, static only.
+
+====================
+Software Unit: Startup/Initialization Sequencer
+====================
+1. Responsibilities
+   - handles all hardware and config initialization at power-up
+   - does not handle runtime operations, error handling, or peripheral re-init
+2. Internal Data Design
+   - static peripheral config structures: UART, ADC, GPIO, PWM
+   - system_initialized (bool)
+3. State Machine
+   - state: none
+   - executes once at power-up, then exits
+4. Algorithms & Control Flow
+   - On power-up: set system_initialized = false
+   - initialize UART, ADC, GPIO, PWM using tables
+   - call init on all downstream units (UART Command Handler, Flap Position Controller, Motor Driver, ADC Feedback Handler, LED Status Indicator)
+   - set system_initialized = true
+5. Interfaces (APIs)
+   - provided: Startup_Sequence(void)
+   - required: unit-initialization entrypoints of all downstream units
+   - returns: void
+   - error reporting: none; fatal error halts system
+6. Error Handling
+   - Stops system on fatal init error (hardware check/config mismatch)
+   - Otherwise, all errors escalate to hardware/system fault
+7. Resource & Timing Considerations
+   - called ONCE, after power-on only
+   - Worst-Case Execution Time (WCET): < 10ms on target MCU total
+   - Not re-entrant
+8. Traceability
+   - SWE-REQ-024, SWE-REQ-026, SWE-REQ-027, SWE-REQ-033
+
+====================
+Software Unit: UART Command Handler
+====================
+1. Responsibilities
+   - handles RX of UART, command decoding, and validation/forwarding
+   - does not handle command execution, error handling beyond masking
+2. Internal Data Design
+   - static const valid_commands[] = { 0,1,2,3,4,5 }
+   - latest_cmd (uint8), cmd_valid (bool)
+3. State Machine
+   - none; processes as input arrives
+4. Algorithms & Control Flow
+   - On RX: fetch UART data
+   - If data numeric 0-5, set latest_cmd/cmd_valid, clear error
+   - If non-numeric/out-of-range, mask input, don’t signal downstream
+   - If valid, forward to Flap Position Controller
+5. Interfaces (APIs)
+   - provided: UART_Handler_RxISR(void), UART_GetCommand(uint8 *value, bool *valid)
+   - required: UART hardware API
+   - returns: command value, validity flag
+   - error reporting: does not indicate error externally
+6. Error Handling
+   - on invalid input, masks value, does nothing else
+7. Resource & Timing Considerations
+   - called from UART RX ISR and polled by Flap Position Controller
+   - WCET: < 500us per RX
+   - Re-entrant for RX; GetCommand is non-reentrant
+8. Traceability
+   - SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-021, SWE-REQ-035
+
+====================
+Software Unit: Flap Position Controller
+====================
+1. Responsibilities
+   - handles command/action flow, invokes motor on valid request, halts on error/target
+   - does not handle signal acquisition, UART RX, PWM/LED drive
+2. Internal Data Design
+   - target_pos (uint8), current_pos (uint8), action_active (bool)
+3. State Machine
+   - states: idle, moving, error
+   - transitions: idle->moving (valid cmd), moving->idle (target reached), any->error (ADC error)
+   - actions: on moving, drive motor according to target/current; on error, stop motor, signal status
+4. Algorithms & Control Flow
+   - poll UART Command Handler: if cmd valid & != current_pos, set target/action_active
+   - poll ADC Feedback Handler: get current_pos
+   - if action_active: drive Motor Driver to target; stop if current_pos == target_pos
+   - on error from ADC: stop motor, enter error state
+5. Interfaces (APIs)
+   - provided: Flap_Ctrl_Tick(void)
+   - required: UART, ADC, Motor Driver, LED APIs
+   - returns: void
+   - error reporting: via status variable to LED unit
+6. Error Handling
+   - on ADC error: issue stop to Motor Driver, set error state, update LED status
+   - ignores UART input if error active
+7. Resource & Timing Considerations
+   - called periodically in main loop or from scheduler
+   - WCET: < 1ms per tick
+   - Not re-entrant
+8. Traceability
+   - SWE-REQ-006, SWE-REQ-007, SWE-REQ-008, SWE-REQ-009, SWE-REQ-029, SWE-REQ-031, SWE-REQ-034, SWE-REQ-035
+
+====================
+Software Unit: Motor Driver
+====================
+1. Responsibilities
+   - handles GPIO/PWM control to drive DC motor per command
+   - does not handle error logic, command acceptance
+2. Internal Data Design
+   - direction (enum), enable (bool), pwm_val (uint8)
+3. State Machine
+   - "none"; invoked per Flap Position Controller request
+4. Algorithms & Control Flow
+   - Set direction and enable/status via GPIO/PWM
+   - On stop, clear enable, zero PWM
+5. Interfaces (APIs)
+   - provided: Motor_Drive_Set(dir, pwm), Motor_Drive_Stop(void)
+   - required: GPIO, PWM hardware API
+   - returns: status (ok/fail)
+   - error reporting: via return value
+6. Error Handling
+   - On failure of GPIO/PWM, returns error status but does not retry
+7. Resource & Timing Considerations
+   - invocation on any move/stop command
+   - WCET: < 100us per action
+   - Not re-entrant
+8. Traceability
+   - SWE-REQ-011, SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-040
+
+====================
+Software Unit: ADC Feedback Handler
+====================
+1. Responsibilities
+   - handles ADC acquisition, position mapping, out-of-range detection
+   - does not handle command control, error recovery
+2. Internal Data Design
+   - adc_raw (uint16), position (uint8), error_flag (bool)
+   - static config for channel mapping, thresholds
+3. State Machine
+   - "none"; state implied by data variables
+4. Algorithms & Control Flow
+   - Acquire ADC
+   - Map raw to position using table/thresholds
+   - If value out-of-bounds, set error_flag
+   - Provide current position to Flap Position Controller
+5. Interfaces (APIs)
+   - provided: ADCFbk_GetPosition(uint8 *value, bool *error)
+   - required: ADC hardware API
+   - returns: latest pos, error flag
+   - error reporting: error_flag
+6. Error Handling
+   - on out-of-range: set error_flag; up to Flap Position Controller for action
+7. Resource & Timing Considerations
+   - acquisition periodic (same as main tick)
+   - WCET: < 100us per acq
+   - Not re-entrant
+8. Traceability
+   - SWE-REQ-015, SWE-REQ-016, SWE-REQ-017, SWE-REQ-032, SWE-REQ-034
+
+====================
+Software Unit: LED Status Indicator
+====================
+1. Responsibilities
+   - handles power/status and position indication LEDs only per requirements
+   - does not handle blinking, animation, or error signaling by other means
+2. Internal Data Design
+   - active_led_id (uint8), pin_cfg[] (static table)
+3. State Machine
+   - none; explicit set/clear only
+4. Algorithms & Control Flow
+   - On request: set specified LED, clear others
+   - On error indication: activate only error LED if present
+5. Interfaces (APIs)
+   - provided: LED_SetStatus(uint8 pos), LED_SetPowerOn(void), LED_SetError(void)
+   - required: GPIO hardware API
+   - returns: void
+   - error reporting: none
+6. Error Handling
+   - only one LED set at any time; error condition overrides position indication
+7. Resource & Timing Considerations
+   - called on every status/reporting event
+   - WCET: < 50us per change
+   - Not re-entrant
+8. Traceability
+   - SWE-REQ-018, SWE-REQ-019, SWE-REQ-020, SWE-REQ-028, SWE-REQ-034
+
+====================
+GENERAL EXCLUSIONS
+====================
+No C code, hardware register detail, or unit/integration test detail included. No dynamic memory.
+All features, data, and logic strictly trace to requirements above. No tasking, scheduling or time-base logic invented.
