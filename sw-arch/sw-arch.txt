@@ -1,0 +1,109 @@
+====================
+HVAC Flap Actuator Software Architecture (SWE.2)
+====================
+
+All content below is strictly derived from supplied software requirements (sw-reqs.txt) and system requirements (sys-reqs.txt). No additional features, behavior, or infrastructure are invented or assumed. All traceability refers to SWE-REQ-XX requirement IDs.
+
+--------------------------------------------------------------------------------
+ARCHITECTURE STYLE SELECTION
+--------------------------------------------------------------------------------
+
+Candidate Styles Considered:
+ 1. Layered Architecture
+ 2. Component-Based Architecture (Modular, functional units)
+ 3. Monolithic (single block, all-in-one)
+
+Evaluation:
+- System complexity is modest; feature set is simple, interactions are clear and sequential (see SWE-REQ-030, SWE-REQ-031).
+- HW interaction is direct: UART, ADC, PWM, and GPIO are simple and distinct (SWE-REQ-021 to SWE-REQ-024).
+- Testability is mandated by SWE-REQ-042, best served by a modular/component breakdown where each hardware-related feature is a clear unit.
+- Maintainability/modifiability are explicitly required (SWE-REQ-010, SWE-REQ-032, SWE-REQ-040).
+- ASPICE L3 expects decomposition with clear unit responsibility and interface delineation (even if only for a prototype).
+
+Decision:
+Selected: Component-Based (Functional Modular) Architecture.
+- Reject Layered: No multiple abstraction layers due to lack of complex stack/protocols. Layers would add unneeded separation (lack of multi-app separation, OS, or network stack; see SWE-REQ-025, SWE-REQ-033).
+- Reject Monolithic: Hurts traceability, modular change, explicit testing and violates ASPICE L3 and SWE.1 modifiability/testability constraints.
+
+Justification: Each required behavioral/IO aspect maps to a unit; all are traceable to SWE.1. This style directly supports maintainability, modifiability, and testability.
+
+--------------------------------------------------------------------------------
+SOFTWARE ARCHITECTURE DEFINITION
+--------------------------------------------------------------------------------
+
+Software Units (All fulfilling one or more SWE-REQ-XX):
+
+1. UART Command Handler
+   - Responsibilities: Receive, decode & validate commands (SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-021)
+   - Interfaces provided: Command RX/validation API
+   - Interfaces used: UART hardware
+
+2. Flap Position Controller
+   - Responsibilities: Decide when and how to move flap, initiate/stop movement, manage command state (SWE-REQ-006, SWE-REQ-007, SWE-REQ-008, SWE-REQ-009)
+   - Interfaces provided: Flap movement initiation, status state
+   - Interfaces used: UART Command Handler, Motor Driver, ADC Feedback Handler
+
+3. Motor Driver
+   - Responsibilities: Control motor direction and enable via GPIO/PWM; ensure motor is OFF as required (SWE-REQ-011, SWE-REQ-012, SWE-REQ-013, SWE-REQ-014)
+   - Interfaces provided: Motor ON/OFF/direction API
+   - Interfaces used: GPIO, PWM hardware
+
+4. ADC Feedback Handler
+   - Responsibilities: Periodically acquire ADC value, map to position, error detect out-of-range (SWE-REQ-015, SWE-REQ-016, SWE-REQ-017, SWE-REQ-032)
+   - Interfaces provided: Position data & status
+   - Interfaces used: ADC hardware
+
+5. LED Status Indicator
+   - Responsibilities: Control power and position LEDs only as specified (no animation, no multi-LED logic)
+     (SWE-REQ-018, SWE-REQ-019, SWE-REQ-020)
+   - Interfaces provided: Set/clear LEDs
+   - Interfaces used: GPIO hardware
+
+6. Startup/Initialization Sequencer
+   - Responsibilities: On power-up, initialize all required peripherals and verify initial system state per requirements (SWE-REQ-026, SWE-REQ-027, SWE-REQ-033, SWE-REQ-024)
+   - Interfaces provided: Startup sequencing
+   - Interfaces used: All other units
+
+INTERFACES BETWEEN UNITS:
+- UART Command Handler → Flap Position Controller: passes validated target command, triggers new action
+- Flap Position Controller ↔ Motor Driver: instruct motor action (move, stop, direction)
+- Flap Position Controller ↔ ADC Feedback Handler: request position update, receive current position
+- Flap Position Controller → LED Status Indicator: update LEDs reflecting command & action
+- Startup/Initialization Sequencer → All units: initial configuration/activation
+
+Execution Model Statement:
+"No explicit execution model or scheduling policy is mandated by the requirements at this stage. Control is implicitly main-loop-driven, event-based, or similar simple embedded sequencing, but specifics are not defined by SWE-1."
+
+--------------------------------------------------------------------------------
+A. TEXT-BASED ARCHITECTURE DIAGRAM
+--------------------------------------------------------------------------------
+
+[Startup/Initialization Sequencer]
+          |
+          v
+[UART Command Handler] ---> [Flap Position Controller] --+--> [Motor Driver] (GPIO/PWM)
+                       |                                 |
+                       v                                 +--> [ADC Feedback Handler] (ADC)
+                [LED Status Indicator] <------------------+
+
+Note: Per requirements, all arrows represent permitted (not assumed) communication paths. No implicit services or infrastructure exist outside these units.
+
+--------------------------------------------------------------------------------
+B. ARCHITECTURE TABLE
+--------------------------------------------------------------------------------
+
+| Software Unit              | Responsibilities                                                           | Interfaces Provided              | Interfaces Used                          |
+|----------------------------|-----------------------------------------------------------------------------|-----------------------------------|------------------------------------------|
+| Startup/Initialization     | Power-up HW init, initial state, static config                              | Startup sequence                  | All other units                          |
+| UART Command Handler       | Receive/decode UART cmd, input validation, command hand-off                 | Command RX/validation API         | UART hardware                            |
+| Flap Position Controller   | Command process, movement control, stop on error/target, command completion | Flap movement API, status         | UART Handler, Motor Driver, ADC Handler  |
+| Motor Driver               | Motor ON/OFF, direction, PWM control                                        | Motor control API                 | GPIO, PWM hardware                       |
+| ADC Feedback Handler       | Acquire ADC, decode position, range/error, position state                   | Current position state            | ADC hardware                             |
+| LED Status Indicator       | Drive/clear LEDs ONLY as allowed (no blinking, 1-of-N position rule)        | Set/cleared LED API               | GPIO hardware                            |
+
+--------------------------------------------------------------------------------
+TRACEABILITY
+All assignments, interfaces, and absence of features or interactions is justified and/or constrained exclusively by the supplied SWE-REQ-XX requirements.
+
+--------------------------------------------------------------------------------
+END OF FILE
