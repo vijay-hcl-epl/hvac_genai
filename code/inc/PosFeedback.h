@@ -5,4 +5,4 @@
 void PosFeedback_Init(void);
 uint8_t PosFeedback_GetPosition(void);
 bool PosFeedback_InRange(void);
-#endif // POSFEEDBACK_H
+#endif /* MISRA: Rule 20.5 – Preprocessor #endif should have comment */

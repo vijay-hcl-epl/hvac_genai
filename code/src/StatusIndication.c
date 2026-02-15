@@ -5,7 +5,7 @@ void StatusIndication_Init(void) {
     hw_init_leds();
 }
 void StatusIndication_SetLed(uint8_t pos) {
-    for (uint8_t i = 0; i < NUM_LEDS; ++i) {
+    for (uint8_t i = 0U; i < NUM_LEDS; ++i) { /* MISRA: Rule 10.3 – Use unsigned int constant */
         hw_set_led(i, i == pos);
     }
 }
