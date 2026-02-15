@@ -3,14 +3,22 @@
 #include "motor_ctrl.h"
 #include "led_stat.h"
 #define NUM_POS 6
-static uint8_t curr_pos = 0;
-static uint8_t target_pos = 0;
+static uint8_t curr_pos = 0U;
+static uint8_t target_pos = 0U;
 static enum { CTRL_IDLE, CTRL_MOVING, CTRL_ERROR } ctrl_state = CTRL_IDLE;
 
-void flap_pos_ctrl_init(void) { curr_pos = pos_fb_acq_get_position(); ctrl_state = CTRL_IDLE; led_stat_set_led(curr_pos); }
+void flap_pos_ctrl_init(void)
+{
+    curr_pos = pos_fb_acq_get_position();
+    ctrl_state = CTRL_IDLE;
+    led_stat_set_led(curr_pos);
+}
 
-void flap_pos_ctrl_set_target(uint8_t p) {
-    if ((ctrl_state != CTRL_IDLE) || (p > 5)) { /* MISRA: Rule 14.4 – Use parentheses in logical expressions */ return; }
+void flap_pos_ctrl_set_target(uint8_t p)
+{
+    if ((ctrl_state != CTRL_IDLE) || (p > 5U)) {
+        return;
+    }
     target_pos = p;
     if (curr_pos == target_pos) {
         ctrl_state = CTRL_IDLE;
@@ -23,7 +31,8 @@ void flap_pos_ctrl_set_target(uint8_t p) {
     }
     ctrl_state = CTRL_MOVING;
 }
-bool flap_pos_ctrl_movement_complete(void) {
+bool flap_pos_ctrl_movement_complete(void)
+{
     if (ctrl_state == CTRL_MOVING) {
         uint8_t actual_pos = pos_fb_acq_get_position();
         if (actual_pos == target_pos) {

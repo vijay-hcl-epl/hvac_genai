@@ -9,12 +9,13 @@
 #include "pos_fb_acq.h"
 #include "led_stat.h"
 
-int main(void) {
+int main(void)
+{
     hal_uart_init();
     hal_adc_init();
     hal_pwm_init();
-    uint8_t pin; /* MISRA: Rule 17.8 – Declare iterator at function top */
-    for (pin = 0U; pin < 8U; pin++) { /* MISRA: Rule 10.6 – Use suffix for unsigned constants, use braces */
+    uint8_t pin;
+    for (pin = 0U; pin < 8U; pin++) {
         hal_gpio_set_dir_output(pin);
     }
     uart_cmd_if_init();

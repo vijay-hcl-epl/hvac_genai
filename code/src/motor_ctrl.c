@@ -2,24 +2,27 @@
 #include "hal_gpio.h"
 #include "hal_pwm.h"
 
-void motor_ctrl_init(void) {
-    hal_gpio_set_dir_output(0); /* MISRA: Rule 17.2 – Side effect in statement, comment for clarity */
-    hal_gpio_set_dir_output(1); /* MISRA: Rule 17.2 – Side effect in statement, comment for clarity */
+void motor_ctrl_init(void)
+{
+    hal_gpio_set_dir_output(0U);
+    hal_gpio_set_dir_output(1U);
     hal_pwm_init();
 }
 
-void motor_ctrl_start(uint8_t dir) {
+void motor_ctrl_start(uint8_t dir)
+{
     if (dir == MOTOR_DIR_CW) {
-        hal_gpio_write(0, 1); /* MISRA: Rule 17.7 – Non-const arguments clarity */
-        hal_gpio_write(1, 0);
+        hal_gpio_write(0U, 1U);
+        hal_gpio_write(1U, 0U);
     } else {
-        hal_gpio_write(0, 0);
-        hal_gpio_write(1, 1);
+        hal_gpio_write(0U, 0U);
+        hal_gpio_write(1U, 1U);
     }
     hal_pwm_start();
 }
-void motor_ctrl_stop(void) {
+void motor_ctrl_stop(void)
+{
     hal_pwm_stop();
-    hal_gpio_write(0, 0);
-    hal_gpio_write(1, 0);
+    hal_gpio_write(0U, 0U);
+    hal_gpio_write(1U, 0U);
 }
