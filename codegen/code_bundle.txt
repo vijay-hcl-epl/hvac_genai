@@ -1,3 +1,33 @@
+===== MISRA REPORT =====
+- FILE: code/inc/startup.h
+  - Violation: Rule 8.4 - Declaration of function without prototype - Line: 3
+- FILE: code/src/startup.c
+  - Violation: Rule 8.4 - The definition of function 'Startup_Sequence' must match its declaration - Line: 7
+- FILE: code/inc/uart_handler.h
+  - Violation: Rule 8.4 - Declaration of function without prototype - Line: 4
+- FILE: code/src/uart_handler.c
+  - Violation: Rule 9.3 - Uninitialized static variable 'latest_cmd' - Line: 3
+  - Violation: Rule 9.3 - Uninitialized static variable 'cmd_valid' - Line: 4
+  - Violation: Rule 14.2 - Assignment in 'if' condition - Line: 13
+- FILE: code/inc/flap_ctrl.h
+  - Violation: Rule 8.4 - Declaration of function without prototype - Line: 4
+- FILE: code/src/flap_ctrl.c
+  - Violation: Rule 13.5 - Assignment in conditional expression - Line: 17
+- FILE: code/inc/motor_driver.h
+  - Violation: Rule 8.4 - Declaration of function without prototype - Line: 4
+- FILE: code/src/motor_driver.c
+  - Violation: Rule 8.4 - The definition of function 'MotorDriver_Init', 'Motor_Drive_Set', or 'Motor_Drive_Stop' must match its declaration - Line: 3
+- FILE: code/inc/adc_feedback.h
+  - Violation: Rule 8.4 - Declaration of function without prototype - Line: 4
+- FILE: code/src/adc_feedback.c
+  - Violation: Rule 9.3 - Uninitialized static variable 'adc_raw', 'position', 'error_flag' - Line: 2
+- FILE: code/inc/led_status.h
+  - Violation: Rule 8.4 - Declaration of function without prototype - Line: 5
+- FILE: code/src/led_status.c
+  - Violation: Rule 8.4 - The definition of function 'LEDStatus_Init', 'LED_SetStatus', 'LED_SetPowerOn', or 'LED_SetError' must match its declaration - Line: 2
+- FILE: code/src/main.c
+  - Violation: Rule 2.2 - Empty infinite loop in main - Line: 5
+===== END MISRA REPORT =====
 ###### FILE: code/inc/startup.h ######
 #ifndef STARTUP_H
 #define STARTUP_H
@@ -13,7 +43,7 @@ void Startup_Sequence(void);
 #include "led_status.h"
 
 void Startup_Sequence(void) {
-    // Call initialization for each software unit
+    /* MISRA: Violation not auto-fixed – manual review required */
     UART_Handler_Init();
     ADCFbk_Init();
     MotorDriver_Init();
@@ -42,6 +72,7 @@ void UART_Handler_Init(void) {
 void UART_Handler_RxISR(void) {
     // Simulated UART RX handler
     uint8_t rx = 0; // = uart_hw_read_byte();
+    /* MISRA: Violation not auto-fixed – manual review required */
     if (rx >= 0 && rx <= 5) {
         latest_cmd = rx;
         cmd_valid = true;
@@ -50,7 +81,7 @@ void UART_Handler_RxISR(void) {
     }
 }
 void UART_GetCommand(uint8_t *value, bool *valid) {
-    if (value && valid) {
+    if (value != (void*)0 && valid != (void*)0) {
         *value = latest_cmd;
         *valid = cmd_valid;
         cmd_valid = false;
@@ -92,21 +123,21 @@ void Flap_Ctrl_Tick(void) {
         Motor_Drive_Stop();
         return;
     }
-    if (cmd_ok && cmd_val != current_pos) {
+    if ((cmd_ok != 0) && (cmd_val != current_pos)) {
         target_pos = cmd_val;
         action_active = true;
     }
-    if (adc_error) {
+    if (adc_error != 0) {
         error_state = true;
         LED_SetError();
         Motor_Drive_Stop();
         return;
     }
-    if (action_active) {
+    if (action_active != 0) {
         if (current_pos < target_pos) {
-            Motor_Drive_Set(1, 128); // 1 = forward; 128 = example PWM
+            Motor_Drive_Set(1, 128); /* 1 = forward; 128 = example PWM */
         } else if (current_pos > target_pos) {
-            Motor_Drive_Set(0, 128); // 0 = reverse
+            Motor_Drive_Set(0, 128); /* 0 = reverse */
         } else {
             Motor_Drive_Stop();
             action_active = false;
@@ -157,16 +188,16 @@ void ADCFbk_Init(void) {
     adc_raw = 0;
 }
 void ADCFbk_GetPosition(uint8_t *value, bool *error) {
-    adc_raw = 2000; // Simulated ADC sample
-    if (adc_raw > 4095) {
+    adc_raw = 2000U; /* Simulated ADC sample */
+    if (adc_raw > 4095U) {
         error_flag = true;
-        position = 0;
+        position = 0U;
     } else {
         error_flag = false;
-        position = adc_raw / 700; // Example scale for 0-5
+        position = (uint8_t)(adc_raw / 700U); /* Example scale for 0-5 */
     }
-    if (value) *value = position;
-    if (error) *error = error_flag;
+    if (value != (void*)0) { *value = position; }
+    if (error != (void*)0) { *error = error_flag; }
 }
 ###### END FILE ######
 ###### FILE: code/inc/led_status.h ######
@@ -201,7 +232,7 @@ int main(void) {
     Startup_Sequence();
     while (1) {
         Flap_Ctrl_Tick();
-        // insert wait/delay
+        /* MISRA: Violation not auto-fixed – manual review required */
     }
     return 0;
 }
