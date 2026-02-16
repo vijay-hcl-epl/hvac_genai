@@ -19,13 +19,13 @@ void flap_actuator_controller_init(void) {
 }
 
 void process_uart_command(int cmd) {
-    if (ctrl_state == CTRL_IDLE && !command_in_progress) {
-        if (cmd < 0 || cmd > 100) {
+    if ((ctrl_state == CTRL_IDLE) && (!command_in_progress)) {
+        if ((cmd < 0) || (cmd > 100)) {
             error_flag = true;
             ctrl_state = CTRL_ERROR;
             return;
         }
-        if (cmd == current_position) return; // already at position
+        if (cmd == current_position) { return; }
         target_position = cmd;
         command_in_progress = true;
         ctrl_state = CTRL_PROCESSING;
@@ -41,7 +41,6 @@ void flap_actuator_controller_task(void) {
             }
             break;
         case CTRL_PROCESSING:
-            // Move to target
             if (current_position < target_position) {
                 move_motor_to(target_position, MOTOR_DIR_FWD);
                 ctrl_state = CTRL_WAIT_MOVEMENT;
@@ -54,7 +53,6 @@ void flap_actuator_controller_task(void) {
             }
             break;
         case CTRL_WAIT_MOVEMENT:
-            // Ask position monitor if reached
             current_position = get_current_position();
             if (current_position == target_position) {
                 stop_motor();
@@ -70,7 +68,6 @@ void flap_actuator_controller_task(void) {
         case CTRL_ERROR:
             set_led_status(false);
             command_in_progress = false;
-            // Remain in error until cleared
             break;
         default:
             break;

@@ -7,13 +7,12 @@
 static bool init_ok = false;
 
 void system_init(void) {
-    // Call init for all modules
     uart_command_handler_init();
     led_indication_init();
     position_monitor_init();
     motor_control_init();
     flap_actuator_controller_init();
-    init_ok = true; // Always true if all init as stub returns void
+    init_ok = true;
 }
 
 bool system_is_init_ok(void) {

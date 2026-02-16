@@ -2,7 +2,7 @@
 #include <string.h>
 #include <ctype.h>
 
-#define UART_RX_BUF_SIZE 8
+#define UART_RX_BUF_SIZE (8)
 static char rx_buffer[UART_RX_BUF_SIZE];
 static int rx_pos = 0;
 static int parsed_command = 0;
@@ -13,27 +13,26 @@ void uart_command_handler_init(void) {
     rx_pos = 0;
     command_ready = false;
     status = UART_CMD_OK;
-    memset(rx_buffer, 0, sizeof(rx_buffer));
+    (void)memset(rx_buffer, 0, sizeof(rx_buffer));
 }
 
 void uart_rx_callback(unsigned char byte) {
-    if (command_ready) return;
-    if (byte == '\n' || byte == '\r') {
-        // parse buffer
-        if (rx_pos == 0) return;
+    if (command_ready) { return; }
+    if ((byte == '\n') || (byte == '\r')) {
+        /* MISRA: Violation not auto-fixed – manual review required */
+        if (rx_pos == 0) { return; }
         rx_buffer[rx_pos] = '\0';
-        // all numeric?
         int i;
         for (i = 0; i < rx_pos; i++) {
             if (!isdigit((unsigned char)rx_buffer[i])) {
                 status = UART_CMD_ERROR;
                 rx_pos = 0;
-                memset(rx_buffer, 0, sizeof(rx_buffer));
+                (void)memset(rx_buffer, 0, sizeof(rx_buffer));
                 return;
             }
         }
-        int val = atoi(rx_buffer);
-        if (val >= 0 && val <= 100) { // assume 0..100 valid
+        int val = atoi(rx_buffer); /* MISRA: Violation not auto-fixed – manual review required */
+        if ((val >= 0) && (val <= 100)) {
             parsed_command = val;
             command_ready = true;
             status = UART_CMD_OK;
@@ -41,13 +40,14 @@ void uart_rx_callback(unsigned char byte) {
             status = UART_CMD_OOR;
         }
         rx_pos = 0;
-        memset(rx_buffer, 0, sizeof(rx_buffer));
-    } else if (rx_pos < UART_RX_BUF_SIZE-1) {
-        rx_buffer[rx_pos++] = (char)byte;
+        (void)memset(rx_buffer, 0, sizeof(rx_buffer));
+    } else if (rx_pos < (UART_RX_BUF_SIZE - 1)) {
+        rx_buffer[rx_pos] = (char)byte;
+        rx_pos++;
     } else {
         status = UART_CMD_ERROR;
         rx_pos = 0;
-        memset(rx_buffer, 0, sizeof(rx_buffer));
+        (void)memset(rx_buffer, 0, sizeof(rx_buffer));
     }
 }
 
@@ -56,7 +56,7 @@ bool is_command_ready(void) {
 }
 
 int get_parsed_command(void) {
-    command_ready = false; // clear ready when read
+    command_ready = false;
     return parsed_command;
 }
 
@@ -68,5 +68,5 @@ void uart_command_reset(void) {
     rx_pos = 0;
     command_ready = false;
     status = UART_CMD_OK;
-    memset(rx_buffer, 0, sizeof(rx_buffer));
+    (void)memset(rx_buffer, 0, sizeof(rx_buffer));
 }
