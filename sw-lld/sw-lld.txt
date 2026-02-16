@@ -1,0 +1,254 @@
+# HVAC Flap Actuator Software Low-Level Design (SWE.3)
+
+## Introduction
+This document details the Low-Level Software Design for the HVAC Flap Actuator, directly derived from the SWE.1 Software Requirements and SWE.2 Architecture. It conforms strictly to ASPICE Level 3, project, and customer rules. No new units or architecture changes are introduced. Target: MISRA-like embedded C, static allocation, single actuator, single flap, single MCU.
+
+--------------------------------------------------------------------------------
+
+## SOFTWARE UNITS
+
+--------------------------------------------------------------------------------
+
+### Software Unit: UART Command Handler
+
+1. Responsibilities
+   - Handles decoding and validation of UART commands.
+   - Does not act on (ignores) malformed commands or those out of bound.
+   - Passes validated command(s) to the controller.
+
+2. Internal Data Design
+   - RX buffer (fixed size, static allocation).
+   - Command parsing state (e.g., enum for NONE, RECEIVING, READY_TO_PARSE).
+   - Temporary buffer for parsed numeric value.
+
+3. State Machine
+   - States: WAIT_FOR_START, RECEIVE, PARSE, ERROR (parsing error), READY.
+   - Events: UART RX event, buffer overrun, parse complete, invalid character.
+   - Transitions: WAIT_FOR_START→RECEIVE (RX), RECEIVE→PARSE (on delimiter or max count), PARSE→READY or ERROR (success/fail), ERROR→WAIT_FOR_START (reset).
+   - Actions: Accept input, parse integer, validate range, set status for controller.
+
+4. Algorithms & Control Flow
+   - On UART RX: store in buffer. If delimiter or max bytes reached, parse as integer.
+   - Validate: If numeric, check against bounds. If valid, set to READY and signal controller.
+   - If out of range or non-numeric, ignore and reset buffer/state.
+
+5. Interfaces (APIs)
+   - Provided: get_parsed_command(), is_command_ready()
+     - Params: none
+     - Returns: int (cmd); bool (ready status)
+   - Required: uart_rx_callback()
+     - Params: byte
+     - Returns: void
+   - Error reporting: status enum (e.g., OK, ERROR, OOR).
+
+6. Error Handling
+   - Command parsing error resets internal state and buffer without side effects.
+
+7. Resource & Timing Considerations
+   - Invoked only on UART RX interrupts or polling.
+   - WCET per command: O(buffer size).
+   - Re-entrancy: Not reentrant (one command in-progress). Locks state during parse.
+
+8. Traceability
+   - SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-017, SWE-REQ-033
+
+--------------------------------------------------------------------------------
+
+### Software Unit: Flap Actuator Controller
+
+1. Responsibilities
+   - Handles main sequencing, target/actual/command status, command arbitration.
+   - Processes only one command at a time.
+   - Invokes requests to actuator units.
+
+2. Internal Data Design
+   - State: IDLE, PROCESSING, WAIT_MOVEMENT, ERROR
+   - Current position (enum/int).
+   - Target position (enum/int).
+   - Command in-progress flag; error flag.
+
+3. State Machine
+   - States: IDLE, ARBITRATING, MOVE, VERIFY, ERROR
+   - Events: command ready, position reached, OOR, error from feedback/motor.
+   - Transitions: idle to arbitrating (cmd ready), move to verify (motor reports stop), verify to idle (ok), any to error (flag/error from other units).
+   - Actions: On command, validate and request to move if target ≠ current. Handle completion/error.
+
+4. Algorithms & Control Flow
+   - On command ready: if in IDLE, parse and check command. If valid and new, initiate MOVE.
+   - During MOVE: monitor feedback, signal motor start/stop, verify result.
+   - On error: set error flag, report to indication unit, halt sequence.
+
+5. Interfaces (APIs)
+   - Provided: process_uart_command(cmd), get_status(), clear_error()
+   - Required: position_monitor_get_current(), motor_control_move(target), led_indicate_status()
+   - Params: as above. Returns: flags/enums/status.
+   - Error reporting: error flag, status API.
+
+6. Error Handling
+   - On feedback or command error, halts ongoing sequence, sets error, updates LEDs.
+
+7. Resource & Timing Considerations
+   - Exclusive access (no preemption).
+   - WCET per event: O(state transitions), implementation bounded.
+   - Not reentrant.
+
+8. Traceability
+   - SWE-REQ-004, SWE-REQ-005, SWE-REQ-006, SWE-REQ-021, SWE-REQ-024, SWE-REQ-025, SWE-REQ-026, SWE-REQ-029, SWE-REQ-031
+
+--------------------------------------------------------------------------------
+
+### Software Unit: Motor Control Unit
+
+1. Responsibilities
+   - Handles low-level output for motor movement/stop.
+   - Drives direction, on/off as commanded by controller only.
+
+2. Internal Data Design
+   - Direction (FORWARD/REVERSE/STOP).
+   - Motor status/state.
+   - Output: PWM/gpio value caches (static vars).
+
+3. State Machine
+   - State: STOPPED, MOVING, ERROR
+   - Events: move command, stop command, hardware fault.
+   - Actions: Set PWM, direction; stop on command or error.
+   - State “none” for feedback, direct mapping from command.
+
+4. Algorithms & Control Flow
+   - On move: set direction/output, enable PWM.
+   - On stop: disable PWM.
+   - Fault: on command only; no diagnosis.
+
+5. Interfaces (APIs)
+   - Provided: move_to(target), stop(), get_motor_status()
+   - Required: None
+   - Error reporting: status enum (OK, ERROR)
+
+6. Error Handling
+   - On error/stop: output disables PWM, sets error.
+
+7. Resource & Timing Considerations
+   - Only acts when commanded. Assumes single, exclusive control.
+   - WCET: O(set PWM/gpio).
+   - Not reentrant.
+
+8. Traceability
+   - SWE-REQ-008, SWE-REQ-009, SWE-REQ-010, SWE-REQ-019, SWE-REQ-032
+
+--------------------------------------------------------------------------------
+
+### Software Unit: Position Monitoring Unit
+
+1. Responsibilities
+   - ADC acquisition, mapping logic, out-of-bounds/error detection.
+   - Tracks current, target, error states for feedback.
+
+2. Internal Data Design
+   - ADC value cache (static).
+   - Position mapping table or constants.
+   - Error/flag field.
+
+3. State Machine
+   - State “none” (called on request, maintains last state)
+   - Flow: On get_current(), samples ADC, maps to position, checks bounds.
+
+4. Algorithms & Control Flow
+   - On sample: read ADC, map value, if OOR set error.
+   - APIs return last mapped position + error flag.
+
+5. Interfaces (APIs)
+   - Provided: get_current_position(), is_in_valid_range(), get_error_flag()
+   - Required: adc_read()
+   - Error reporting: flag (OOR, ERROR)
+
+6. Error Handling
+   - If map fails/OOR: set error, report, no C code retry.
+
+7. Resource & Timing Considerations
+   - Invoked by controller only; samples on demand.
+   - WCET: O(adc sample + map).
+   - Not reentrant.
+
+8. Traceability
+   - SWE-REQ-011, SWE-REQ-012, SWE-REQ-013, SWE-REQ-018, SWE-REQ-028, SWE-REQ-029, SWE-REQ-032
+
+--------------------------------------------------------------------------------
+
+### Software Unit: LED Indication (Status & Position)
+
+1. Responsibilities
+   - Controls all LEDs (power-on, position indication only).
+   - Updates LEDs when status/position changes.
+
+2. Internal Data Design
+   - LED state cache (for each output pin, static vars).
+   - Mapping array: position → LED.
+
+3. State Machine
+   - State “none” (direct mapping from logic)
+   - Flow: On update, set all LED outputs per request.
+
+4. Algorithms & Control Flow
+   - update_status_led(on/off), update_position_led(position)
+   - Called by controller at init/change.
+
+5. Interfaces (APIs)
+   - Provided: set_led_status(), set_led_position(pos)
+   - Required: None
+   - Error reporting: none if GPIO fails, update ignored.
+
+6. Error Handling
+   - Ignores physical failures; no retries; assumes working hardware.
+
+7. Resource & Timing Considerations
+   - Only set when commanded; one operation per transition.
+   - WCET: O(GPIO set).
+   - Not reentrant.
+
+8. Traceability
+   - SWE-REQ-014, SWE-REQ-015, SWE-REQ-016, SWE-REQ-020, SWE-REQ-039
+
+--------------------------------------------------------------------------------
+
+### Software Unit: System Initialization
+
+1. Responsibilities
+   - Initializes all drivers (UART, ADC, GPIO) and state.
+   - Ensures safe system start and reports power-on.
+
+2. Internal Data Design
+   - Init flags (per driver/unit).
+   - Initial position value/led state/data.
+
+3. State Machine
+   - State “none” (single-pass on reset/boot)
+   - One-way, no recursion.
+
+4. Algorithms & Control Flow
+   - On boot: init all hardware, confirm status, request initial position, clear errors, set init LEDs.
+
+5. Interfaces (APIs)
+   - Provided: system_init()
+   - Required: uart_init(), gpio_init(), adc_init(), etc.
+   - Error reporting: fatal error flag if any required init fails.
+
+6. Error Handling
+   - If init failure: sets fatal error, keeps system in safe state (motor off, LEDs error).
+
+7. Resource & Timing Considerations
+   - Only runs at startup/reset.
+   - WCET: O(all driver inits + position check).
+   - Not reentrant.
+
+8. Traceability
+   - SWE-REQ-021, SWE-REQ-022, SWE-REQ-023
+
+--------------------------------------------------------------------------------
+
+## Constraints and Exclusions
+- No units added/removed, no new architecture.
+- No C code, registers, or HW timing/logical scheduling models defined.
+- All interfaces, flows, and errors are bounded and mapped to static design elements.
+- All elements are traceable to SWE.1 and architecture.
+
+# End of Document
