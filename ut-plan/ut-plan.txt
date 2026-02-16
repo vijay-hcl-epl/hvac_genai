@@ -1,0 +1,177 @@
+# SWE.4 Unit Test Plan — HVAC Flap Actuator (ASPICE Level 3)
+
+## 1. Introduction
+This SWE.4 Unit Test Plan verifies each software unit (as mapped in LLD/code) in isolation, per ASPICE and project rules. Tests are derived directly from software requirements (SWE.1) and LLD responsibilities, implemented using mocks/stubs for all external interfaces (e.g., ADC, UART, GPIO/PWM). No integration testing or hardware access is performed.
+
+## 2. Software Units (as parsed from bundle)
+1. UART Command Handler
+2. Flap Actuator Controller
+3. Motor Control Unit
+4. Position Monitoring Unit
+5. LED Indication
+6. System Initialization
+
+---
+
+## 3. Unit-Wise Responsibilities and Allocated SW-REQs
+
+| Unit | Responsibilities | Allocated SW-REQ IDs |
+|---|---|---|
+| UART Command Handler | UART decoding, validation, error handling | SWE-REQ-001,002,003,017,033 |
+| Flap Actuator Controller | Command arbitration/sequencing, error/status, one-at-a-time execution | SWE-REQ-004,005,006,021,024,025,026,029,031 |
+| Motor Control Unit | Motor direction, on/off, error path | SWE-REQ-008,009,010,019,032 |
+| Position Monitoring Unit | ADC read, logical mapping, OOR/invalid detect | SWE-REQ-011,012,013,018,028,029,032 |
+| LED Indication | Status/power and position display | SWE-REQ-014,015,016,020,039 |
+| System Initialization | Full-system init, safe startup, init error | SWE-REQ-021,022,023 |
+
+---
+
+## 4. Test Cases (Unit-wise Tables)
+(IDs: UTC-<UnitNum>-XX)
+
+### 4.1 UART Command Handler
+
+| Test Case ID | SW-REQ | Objective | Preconditions | Input | Expected Result | Pass Criteria |
+|---|---|---|---|---|---|---|
+| UTC-1-01 | SWE-REQ-001 | Accept valid command | Ready | "42\n" | command_ready==true, parsed_command==42, status==OK | As expected |
+| UTC-1-02 | SWE-REQ-002 | Out-of-range command | Ready | "150\n" | status==OOR, command_ready==false | As expected |
+| UTC-1-03 | SWE-REQ-003 | Malformed command | Ready | "ab\n" | status==ERROR, command_ready==false | As expected |
+| UTC-1-04 | SWE-REQ-017 | UART protocol (newline-delim) | Ready | "99\n" | command_ready==true | As expected |
+| UTC-1-05 | SWE-REQ-033 | RX overrun | Buffer full | send >8 chars | status==ERROR, command_ready==false | As expected |
+
+_Isolation_: All UART/ISR calls mocked, data structures fully controlled
+
+### 4.2 Flap Actuator Controller
+
+| Test Case ID | SW-REQ | Objective | Preconditions | Input | Expected Result | Pass Criteria |
+|---|---|---|---|---|---|---|
+| UTC-2-01 | SWE-REQ-004 | Only one cmd at a time | Idle, command in-progress | "cmd A then B" | only A is processed | As expected |
+| UTC-2-02 | SWE-REQ-005 | Valid move sequence | Ready, different curr/target | "new cmd" | MOVE issued; state==PROCESSING | As expected |
+| UTC-2-03 | SWE-REQ-029 | State tracked | Sequence issue | cmds in, state updated | state transitions strictly | As expected |
+| UTC-2-04 | SWE-REQ-026 | Invalid command ignored | Idle | "bad cmd" | no move, error flagged | As expected |
+| UTC-2-05 | SWE-REQ-031 | Error stops sequence | Active move, mock error | simulate error from Position Monitor | move stops, error_flag==true | As expected |
+
+_Isolation_: Motor/monitor/LED mocked, no real actuator or integration
+
+### 4.3 Motor Control Unit
+
+| Test Case ID | SW-REQ | Objective | Preconditions | Input | Expected Result | Pass Criteria |
+|---|---|---|---|---|---|---|
+| UTC-3-01 | SWE-REQ-008 | Move forward | Stopped | move_motor_to(target, FWD) | state==MOVING, dir==FWD | As expected |
+| UTC-3-02 | SWE-REQ-010 | Stop | Moving | stop_motor() | state==STOPPED, dir==OFF | As expected |
+| UTC-3-03 | SWE-REQ-032 | Error on mock fault | Moving | inject error | state==ERROR | As expected |
+
+_All outputs mocked. No PWM/GPIO real calls._
+
+### 4.4 Position Monitoring Unit
+
+| Test Case ID | SW-REQ | Objective | Preconditions | Input | Expected Result | Pass Criteria |
+|---|---|---|---|---|---|---|
+| UTC-4-01 | SWE-REQ-011 | Valid feedback | Any | mock ADC=37 | get_current_position()==37, status==OK | As expected |
+| UTC-4-02 | SWE-REQ-013 | OOR feedback | Any | mock ADC=200 | status==OOR | As expected |
+| UTC-4-03 | SWE-REQ-032 | Error state | Any | force error | get_position_status()==ERROR | As expected |
+
+### 4.5 LED Indication
+
+| Test Case ID | SW-REQ | Objective | Preconditions | Input | Expected Result | Pass Criteria |
+|---|---|---|---|---|---|---|
+| UTC-5-01 | SWE-REQ-014 | Power LED on | After init | set_led_status(true) | power_led==true | As expected |
+| UTC-5-02 | SWE-REQ-015 | Position LED update | Any | set_led_position(42) | pos_led==42 | As expected |
+| UTC-5-03 | SWE-REQ-020 | GPIO logic | Any | toggle functions | LED mock mutated | As expected |
+
+### 4.6 System Initialization
+
+| Test Case ID | SW-REQ | Objective | Preconditions | Input | Expected Result | Pass Criteria |
+|---|---|---|---|---|---|---|
+| UTC-6-01 | SWE-REQ-021 | All units init | Pre-init | system_init() | all modules inited | As expected |
+| UTC-6-02 | SWE-REQ-023 | Post-init state | After init | none | safe state (motor off, no error) | As expected |
+
+---
+
+## 5. Traceability Matrices
+
+### 5.1 SW-REQ to Test Case
+| SW-REQ | Unit | Test Case(s) |
+|---|---|---|
+| SWE-REQ-001 | UART Command Handler | UTC-1-01 |
+| SWE-REQ-002 | UART Command Handler | UTC-1-02 |
+| SWE-REQ-003 | UART Command Handler | UTC-1-03 |
+| SWE-REQ-004 | Flap Actuator Controller | UTC-2-01 |
+| SWE-REQ-005 | Flap Actuator Controller | UTC-2-02 |
+| SWE-REQ-008 | Motor Control Unit | UTC-3-01 |
+| SWE-REQ-009 | Motor Control Unit | (env. design) |
+| SWE-REQ-010 | Motor Control Unit | UTC-3-02 |
+| SWE-REQ-011 | Position Monitoring Unit | UTC-4-01 |
+| SWE-REQ-012 | Position Monitoring Unit | (env. design) |
+| SWE-REQ-013 | Position Monitoring Unit | UTC-4-02 |
+| SWE-REQ-014 | LED Indication | UTC-5-01 |
+| SWE-REQ-015 | LED Indication | UTC-5-02 |
+| SWE-REQ-016 | LED Indication | UTC-5-03 |
+| SWE-REQ-017 | UART Command Handler | UTC-1-04 |
+| SWE-REQ-018 | Position Monitoring Unit | (env. design) |
+| SWE-REQ-019 | Motor Control Unit | UTC-3-01 |
+| SWE-REQ-020 | LED Indication | UTC-5-03 |
+| SWE-REQ-021 | System Initialization | UTC-6-01 |
+| SWE-REQ-022 | System Initialization | (env. design) |
+| SWE-REQ-023 | System Initialization | UTC-6-02 |
+| SWE-REQ-024 | Flap Actuator Controller | UTC-2-02 |
+| SWE-REQ-025 | Flap Actuator Controller | UTC-2-03 |
+| SWE-REQ-026 | Flap Actuator Controller | UTC-2-04 |
+| SWE-REQ-029 | Flap Actuator Controller | UTC-2-03 |
+| SWE-REQ-031 | Flap Actuator Controller | UTC-2-05 |
+| SWE-REQ-032 | Motor Control Unit/Pos Mon. Unit | UTC-3-03/UTC-4-03 |
+| SWE-REQ-033 | UART Command Handler | UTC-1-05 |
+| SWE-REQ-039 | LED Indication | UTC-5-03 |
+
+### 5.2 SW Unit to Test Case
+| Unit | Test Case IDs |
+|---|---|
+| UART Command Handler | UTC-1-01,02,03,04,05 |
+| Flap Actuator Controller | UTC-2-01..05 |
+| Motor Control Unit | UTC-3-01..03 |
+| Position Monitoring Unit | UTC-4-01..03 |
+| LED Indication | UTC-5-01..03 |
+| System Initialization | UTC-6-01, 02 |
+
+---
+
+## 6. Example Test Stubs (C, using Mock)
+
+// Example for UART Command Handler
+#include "unity.h"
+#include "uart_command_handler.h"
+
+void test_valid_command(void) {
+    uart_command_handler_init();
+    uart_rx_callback('4'); uart_rx_callback('2'); uart_rx_callback('\n');
+    TEST_ASSERT_TRUE(is_command_ready());
+    TEST_ASSERT_EQUAL(42, get_parsed_command());
+    TEST_ASSERT_EQUAL(UART_CMD_OK, get_uart_cmd_status());
+}
+
+void test_invalid_command(void) {
+    uart_command_handler_init();
+    uart_rx_callback('x'); uart_rx_callback('\n');
+    TEST_ASSERT_FALSE(is_command_ready());
+    TEST_ASSERT_EQUAL(UART_CMD_ERROR, get_uart_cmd_status());
+}
+
+// Example for Motor Control Unit
+#include "motor_control_unit.h"
+void test_motor_move(void) {
+    motor_control_init();
+    move_motor_to(10, MOTOR_DIR_FWD);
+    TEST_ASSERT_EQUAL(MOTOR_MOVING, get_motor_status());
+    stop_motor();
+    TEST_ASSERT_EQUAL(MOTOR_STOPPED, get_motor_status());
+}
+
+---
+
+## 7. Isolation/Execution Notes
+- All HW/driver calls MUST be mocked (ADC, UART, GPIO, PWM).
+- Each test must be deterministic, self-checking, and repeatable.
+- Never call or require actual hardware/MCU.
+- Test code organization should follow one test file per unit.
+
+# END OF SWE.4 UNIT TEST PLAN
