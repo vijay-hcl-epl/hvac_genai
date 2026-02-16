@@ -140,7 +140,7 @@ void uart_rx_callback(unsigned char byte) {
                 return;
             }
         }
-        int val = atoi(rx_buffer);
+        int val = atoi(rx_buffer); /* MISRA: Violation not auto-fixed – manual review required */
         if ((val >= 0) && (val <= 100)) {
             parsed_command = val;
             command_ready = true;
