@@ -1,0 +1,120 @@
+Technical References Used:
+- High-Level Informal Requirements – HVAC Flap Actuator (/1771312245971/high-lvl-reqs -JE Infineon.txt)
+- System Requirements: sys-reqs/sys-reqs.txt (branch: tle-hvac-172a)
+- Software Requirements: sw-reqs/sw-reqs.txt (branch: tle-hvac-172a)
+- MOTIX™ TLE985xQX User Manual, Rev. 2.0 (2023-08-09), Section 4, 7, 9, 10; Special Function Register Map (pp. 172–204)
+- TLE985xQX Series Datasheet: Table 4/5.x (Electrical Characteristics)
+  — All hardware register/bitfield/electrical references directly from user manual/datasheet as per RAG.
+- [No speculative values used. Any missing hardware data is marked [TBD — Not in source].]
+
+---------------------------------------------------------------------------------------
+ARCHITECTURE STYLE SELECTION
+
+1. Candidate Styles:
+   - Monolithic
+   - Layered (Logical separation: Interface, Control, Drivers)
+   - Component-Based (Component for motor, interface, feedback, etc.)
+
+2. Evaluation:
+   - Complexity: Modest, but mandates interface/logic separation (SWE-REQ-041)
+   - HW Interactions: Modular driver blocks for ADC/UART/LIN, per requirements
+   - Testability: Layered or Component styles allow isolated testing (SWE-REQ-042, SWE-REQ-043)
+   - Maintainability: Both Layered and Component styles support modular growth
+   - ASPICE L3: Demands traceable, modular, and testable design
+
+3. Selection & Justification:
+   - The Layered architecture is selected.
+     - Rationale: Separates HW abstraction (drivers), logic (flap control, state management), and interface (UART/LIN, status), matching maintainability and ASPICE trace goals.
+   - Rejections:
+     - Monolithic: Fails modularity/maintainability/testability requirements.
+     - Pure Component: For this low-complexity, single-actuator use-case, logical layering is more appropriate.
+---------------------------------------------------------------------------------------
+
+ARCHITECTURE DEFINITION
+
+A. SOFTWARE UNITS & RESPONSIBILITIES
+
+Layer 1: Hardware Abstraction Layer (HAL)
+- UART/LIN Driver: Abstracts UART1/UART2 and LIN 2.2 slave. [SWE-REQ-017, 018]
+- ADC Driver: Manages ADC1 (10-bit), starts conversions, acquires potentiometer values. [SWE-REQ-020]
+- Motor Driver: Commands integrated half-bridge via PWM. [SWE-REQ-019, 009]
+- GPIO/LED/HS Driver: Controls position/status outputs. [SWE-REQ-021, 014]
+
+Layer 2: Flap Actuator Control and State Logic
+- Command Interpreter: Validates and decodes position commands (0–5). [SWE-REQ-001, 002, 026]
+- Flap Position Controller: Compares requested vs. measured position, triggers movement/stop. [SWE-REQ-005, 006, 027]
+- State Manager: Governs Idle, Moving, Target Reached, Fault, Sleep/Stop states. [SWE-REQ-025, 027, 028, 031]
+- Fault Handler: Monitors driver/ADC/watchdog, executes stop and reports. [SWE-REQ-011, 030, 036, 037, 038]
+
+Layer 3: Application Interface and Status Indication
+- User Interface Handler: Accepts user commands, relays debug/status info (UART, LIN, LED, digital out). [SWE-REQ-015, 016, 043]
+- Test-and-Monitor Interface: Enables test, monitoring, and debug for bench/field. [SWE-REQ-004, 044, 045]
+
+B. INTERFACES BETWEEN UNITS
+
+- Commanded position traverses: Application → Command Interpreter → State Manager
+- Status updates traverse: State Manager → User Interface Handler → (UART/LIN/LED)
+- ADC reads: ADC Driver → Flap Position Controller → State Manager
+- Motor control signals: Flap Position Controller → Motor Driver/HAL
+- Fault signals: Driver/ADC → Fault Handler → State Manager/User Interface
+
+---------------------------------------------------------------------------------------
+EXECUTION MODEL
+
+No explicit execution model or scheduling policy is mandated by the requirements at this stage.
+
+---------------------------------------------------------------------------------------
+REPRESENTATION
+
+A) TEXT-BASED ARCHITECTURE DIAGRAM
+
+[Application Interface & Status]
+         │
+   ┌───────────────┐
+   │ User Cmd &    │
+   │  Status I/F   │
+   └────┬─▲───┬────┘
+        │ │   │
+        │ │   │
+        ▼ │   ▼
+   ┌───────────────┐
+   │   State &     │
+   │  Command Mgr  │
+   └────┬──▲─┬─────┘
+        │  │ │
+        ▼  │ ▼
+   ┌───────────────┐
+   │ Flap Ctrl,    │
+   │  FaultHandler │
+   └────┬──▲─┬─────┘
+        │  │ │
+    ----▼--▼-▼---- (Interfaces with HAL) ---
+        │  │ │
+ [UART/LIN][ADC][Motor Driver][LED/HS]
+---------------------------------------------------------------------------------------
+
+B) ARCHITECTURE UNIT TABLE
+
+| Software Unit                 | Responsibilities                                               | Interfaces Provided          | Interfaces Used                        |
+|-------------------------------|---------------------------------------------------------------|------------------------------|----------------------------------------|
+| UART/LIN Driver (HAL)         | Manages LIN/UART comm                                        | UART/LIN Rx/Tx               | HW registers (see refs), Cmd I/F       |
+| ADC Driver (HAL)              | Acquire flap position                                        | ADC value                    | HW registers (ADC_CTRL, pg. 187–198)   |
+| Motor Driver (HAL)            | PWM-based DC motor ctrl                                      | Motor control signals        | HW registers (PWM_CTRLx), Fault input  |
+| GPIO/LED/HS Driver (HAL)      | Visual status outputs                                        | GPIO highside switch         | HW registers (see refs)                |
+| Command Interpreter           | Decodes user/host commands                                   | Logical cmd to State Mgr     | UART/LIN input, ADC                    |
+| Flap Position Controller      | Logical mapping ADC to position, triggers move/stop          | Motor commands               | ADC Driver, Motor Driver               |
+| State Manager                 | State machine for operation modes                            | State signals                | Command Interpreter, Fault Handler     |
+| Fault Handler                 | Monitors for faults, stops actions as needed                 | Fault events/indications     | Motor/ADC/Diagnostic in HAL            |
+| User Interface Handler        | Status/debug output, test/monitor functions                  | UART/LIN/LED debug/feedback  | State Manager, Command Interpreter     |
+| Test-and-Monitor Interface    | Enables bench/manual/monitor observation (no runtime config) | Observation points           | UART/LIN/ADC, State signals            |
+
+---------------------------------------------------------------------------------------
+CONSTRAINTS (per instructions and traces)
+- All mappings, unit boundaries, and data flows strictly correspond to traced SWE.1 requirements.
+- No safety, security, or diagnostic extension added.
+- No code, implementation detail, or unit-level execution described.
+- No registers, bitfields, or electrical values have been invented; all hardware details trace to RAG sections or marked [TBD — Not in source] where missing.
+
+---------------------------------------------------------------------------------------
+
+This document is prepared per ASPICE SWE.2 workflow, as per the instructions. All operations complete and compliant.
