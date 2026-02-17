@@ -1,0 +1,107 @@
+Technical References Used:
+- High-Level Informal Requirements – HVAC Flap Actuator (Source: /1771312245971/high-lvl-reqs -JE Infineon.txt)
+- [No RAG hardware-specific documentation was found for this domain; all values/elements strictly from provided source.]
+
+=======================
+1.0 Software Scope & Responsibility
+=======================
+The software implements the control logic for the HVAC flap actuator using the MOTIX™ TLE9851QXW MCU. It receives user commands (UART or LIN), controls the DC motor through the internal bridge driver, processes ADC feedback from the flap potentiometer, and provides status indication via LED/GPIO and debug interfaces. The software ensures state management, error handling, and supports testability as mandated by the system requirements.
+
+=======================
+2.0 Software Functional Requirements
+=======================
+2.1 User Commands
+- SWE-REQ-001: The software SHALL accept flap position commands (0–5) from UART or LIN as selected at build time. [Trace: SYS-REQ-018, SYS-REQ-020, SYS-REQ-021]
+- SWE-REQ-002: The software SHALL ignore user commands outside the range [0–5] without system reset or unsafe action. [Trace: SYS-REQ-019, SYS-REQ-027]
+- SWE-REQ-003: The software SHALL support both PC host UART input and LIN bus communication (LIN slave node). [Trace: SYS-REQ-020, SYS-REQ-021]
+- [Implied] SWE-REQ-004: The software SHALL allow manual user testing over UART or LIN. [Trace: SYS-REQ-042]
+
+2.2 Flap Control
+- SWE-REQ-005: The software SHALL drive the flap to the commanded position in the range 0–5 by controlling the DC motor. [Trace: SYS-REQ-005, SYS-REQ-010, SYS-REQ-011]
+- SWE-REQ-006: The software SHALL stop motor operation once target position (per ADC) is attained. [Trace: SYS-REQ-006, SYS-REQ-013]
+- SWE-REQ-007: The software SHALL implement position-to-ADC threshold mapping using Flash-stored values. [Trace: SYS-REQ-007, SYS-REQ-016]
+- SWE-REQ-008: The software SHALL map the ADC value to logical positions (0–5) without runtime adaptation. [Trace: SYS-REQ-008, SYS-REQ-016]
+
+2.3 Motor Control
+- SWE-REQ-009: The software SHALL command the internal bridge driver for clockwise and anti-clockwise motion. [Trace: SYS-REQ-010, SYS-REQ-011]
+- SWE-REQ-010: The software SHALL utilize PWM signals (CCU6) for speed control. [Trace: SYS-REQ-012]
+- SWE-REQ-011: The software SHALL stop the motor if (a) target reached, (b) fault detected, or (c) ADC invalid. [Trace: SYS-REQ-013, SYS-REQ-028, SYS-REQ-037]
+
+2.4 Feedback Processing
+- SWE-REQ-012: The software SHALL process ADC1 readings from the potentiometer, interpret the current flap position, and identify valid/invalid states. [Trace: SYS-REQ-014, SYS-REQ-015, SYS-REQ-016]
+- [Implied] SWE-REQ-013: Software will NOT support secondary/redundant sensors. [Trace: SYS-REQ-017]
+
+2.5 Status Indication
+- SWE-REQ-014: The software SHALL control a GPIO/High-Side switch to indicate flap status, ensuring at most one output active at any time. [Trace: SYS-REQ-022]
+- SWE-REQ-015: The software SHALL provide status/debug info via UART and/or LIN when enabled. [Trace: SYS-REQ-023]
+- [Implied] SWE-REQ-016: The software SHALL enable monitoring of system state visually or digitally. [Trace: SYS-REQ-024]
+
+=======================
+3.0 Software Interface Requirements
+=======================
+- SWE-REQ-017: The software SHALL implement UART (UART1/UART2) logical interface for command input and debug output. [Trace: SYS-REQ-029a]
+- SWE-REQ-018: The software SHALL support LIN 2.2 logical interface for command input and status output. [Trace: SYS-REQ-029b]
+- SWE-REQ-019: The software SHALL control the integrated half-bridge driver for DC motor outputs. [Trace: SYS-REQ-029c]
+- SWE-REQ-020: The software SHALL process analog flap position input from ADC1 (10-bit). [Trace: SYS-REQ-029d]
+- SWE-REQ-021: The software SHALL control GPIO/High-Side outputs for visual status indication. [Trace: SYS-REQ-029e]
+- SWE-REQ-022: The software SHALL NOT implement any CAN interface. [Trace: SYS-REQ-030]
+- [Implied] SWE-REQ-023: All hardware interface parameters marked [TBD — Not in source] if not explicitly shown in system requirements.
+
+=======================
+4.0 Software Behavioral Requirements
+=======================
+Startup
+- SWE-REQ-024: At power-up, the software SHALL initialize all MCU peripherals (voltage regulators, clocks, ADC, UART/LIN, bridge driver), perform initial ADC read, then enter Idle state with the motor deactivated. [Trace: SYS-REQ-026]
+Normal Operation
+- SWE-REQ-025: The software SHALL command the flap to requested position when a valid user command is received. [Trace: SYS-REQ-005]
+Command Handling
+- SWE-REQ-026: The software SHALL ignore out-of-range or malformed commands and remain in current state. [Trace: SYS-REQ-019, SYS-REQ-027]
+Movement to Target
+- SWE-REQ-027: The software SHALL transit from Idle to Moving state, run the motor as needed, and stop when the measured position matches target. [Trace: SYS-REQ-025, SYS-REQ-006]
+Target Reached
+- SWE-REQ-028: The software SHALL enter Target Reached state on matching ADC, and indicate completion by status interface. [Trace: SYS-REQ-025, SYS-REQ-015]
+Invalid Input
+- SWE-REQ-029: The software SHALL ignore invalid input and SHALL NOT cause any uncommanded motor movement or unsafe state. [Trace: SYS-REQ-019, SYS-REQ-027]
+Fault/Event
+- SWE-REQ-030: On detecting a fault (motor, ADC, software/hardware), the software SHALL stop the motor and provide a fault status. [Trace: SYS-REQ-013, SYS-REQ-036, SYS-REQ-028]
+Sleep/Stop
+- SWE-REQ-031: The software SHALL support low-power sleep and stop modes, transitioning as established in system requirements. [Trace: SYS-REQ-025]
+- [Implied] SWE-REQ-032: No cyclic/polling/thread/timing assumptions are implemented unless stated in system requirements.
+
+=======================
+5.0 Software Data & Configuration
+=======================
+- SWE-REQ-033: Position mapping ADC thresholds SHALL be defined in Flash memory and SHALL NOT be subject to runtime modification. [Trace: SYS-REQ-007, SYS-REQ-016]
+- SWE-REQ-034: All user and threshold configurations SHALL be fixed at build time. [Trace: SYS-REQ-008, SYS-REQ-033]
+- [Implied] SWE-REQ-035: All calibration mechanisms not explicitly specified SHALL be excluded. [Trace: SYS-REQ-033]
+
+=======================
+6.0 Software Error Handling
+=======================
+- SWE-REQ-036: The software SHALL detect and handle motor driver faults (short circuit, open-load, over-temp) by stopping the motor and reporting via status interface. [Trace: SYS-REQ-036]
+- SWE-REQ-037: The software SHALL detect ADC out-of-range and deactivate motor output until valid data resumes. [Trace: SYS-REQ-037]
+- SWE-REQ-038: The software SHALL use window watchdog and brownout reset mechanisms as required. [Trace: SYS-REQ-038, SYS-REQ-039]
+
+=======================
+7.0 Performance & Responsiveness
+=======================
+- SWE-REQ-039: The software SHALL respond to valid user commands within 100 ms (excluding hardware latencies). [Trace: SYS-REQ-035]
+- [Implied] SWE-REQ-040: No execution model (e.g., periodic scheduling) SHALL be assumed except as mandated by system requirements.
+
+=======================
+8.0 Resource Constraints
+=======================
+- SWE-REQ-041: The software SHALL operate within MCU resource constraints: max 40 MHz CPU, 64 KB Flash, 4 KB RAM. [Trace: SYS-REQ-040]
+- SWE-REQ-042: The software SHALL use bounded and efficient execution/memory strategies. [Trace: SYS-REQ-040]
+
+=======================
+9.0 Testability
+=======================
+- SWE-REQ-043: The software SHALL allow observation of ADC value, command position, flap state, and all fault/status via debug interface. [Trace: SYS-REQ-042]
+- SWE-REQ-044: The software SHALL support testing of all relevant functions via manual UART/LIN input. [Trace: SYS-REQ-042]
+- [Implied] SWE-REQ-045: Optional bench test features MAY be implemented as build/config-time options. [Trace: SYS-REQ-043]
+
+=======================
+10.0 Implied Requirements
+=======================
+- [Implied] SWE-REQ-046: The software SHALL not implement any features, algorithms, or interfaces not explicitly required above. [Trace: All]
