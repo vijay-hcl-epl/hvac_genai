@@ -1,0 +1,277 @@
+==============================
+SOFTWARE LOW-LEVEL DESIGN (SWE.3)
+HVAC FLAP ACTUATOR
+==============================
+
+---
+Software Unit: Command Handler
+------------------------------
+1. Responsibilities
+   - Handles: Accepts, decodes, and validates user commands to move the flap. Ignores/report malformed/unsupported commands. Routes valid commands to Position Control. Provides status and error feedback over UART.  [SWE-REQ-001, SWE-REQ-002, SWE-REQ-003]
+
+2. Internal Data Design
+   - Variables: cmd_buffer[UART_RX_LEN], valid_cmd_flag, last_cmd_status, command_history[]
+   - Config: Supported command set struct; command decode table; command/error status codes
+
+3. State Machine
+   - States: Idle, AwaitingCommand, Processing, Error
+   - Events: UART receive, valid/invalid decode, error acknowledgment
+   - Transitions/Actions: On UART RX->decode; if valid, ->Processing else ->Error. After Processing, send status/return to AwaitingCommand.
+
+4. Algorithms & Control Flow
+   - Pseudocode: Wait for UART RX; decode command; if supported and within bounds, set valid_cmd_flag, update history, pass to Position Control; else, flag error.
+   - Bound: Command parsed within 2ms; reject if malformed or unsupported.
+
+5. Interfaces (APIs)
+   - Provided: init(), handle_uart_rx(), get_last_cmd_status(), send_status_response()
+   - Required: read_uart_data(), send_uart_response()
+   - Params/Returns: init(void); handle_uart_rx(uint8_t* buf, size_t len);
+   - Error reporting: Returns status/error codes directly via UART/status struct
+
+6. Error Handling
+   - Detects unsupported commands, buffer overflows; signals error state and reports via error message
+
+7. Resource & Timing Considerations
+   - Invoked on UART RX; nominal parse/route latency 2ms (<<200ms system); Not re-entrant; buffer statically allocated.
+
+8. Traceability
+   - SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-015
+---
+Software Unit: Position Control
+------------------------------
+1. Responsibilities
+   - Handles: Verifies command targets; checks mechanical bounds; initiates valid flap movement; updates position variable; enforces accuracy
+   - Does not handle: direct motor operation (delegates), error/fault management (delegates)
+
+2. Internal Data Design
+   - Variables: target_position, pos_verify_result, current_position
+   - Configuration: bounds/min/max via struct, position tolerance param
+
+3. State Machine
+   - States: Idle, Moving, TargetReached, Fault
+   - Events: New valid command/target, Feedback update, Error event, Target achieved
+   - Transitions/Actions: On new target, verify & trigger Motor Control; on Feedback, monitor accuracy; on error, transition to Fault
+
+4. Algorithms & Control Flow
+   - Stepwise logic: On new command, check bounds, compute trajectory, set target, invoke Motor Control, poll for Feedback update, check position error, stop Motor on arrival.
+   - Bound: Must update position within 15ms loop.
+
+5. Interfaces (APIs)
+   - Provided: set_target(int pos), get_status(), update_on_feedback(int pos)
+   - Required: Motor Control start/stop, Feedback Acquisition
+   - Params/Returns: set_target(int); get_status(void)
+   - Error: Returns error code/status on illegal/unsafe target
+
+6. Error Handling
+   - Invalid position triggers error, moves to Fault
+
+7. Resource & Timing Considerations
+   - Invoked by Command Handler/Feedback; statically allocated data; not re-entrant.
+
+8. Traceability
+   - SWE-REQ-004, SWE-REQ-005, SWE-REQ-006, SWE-REQ-007
+---
+Software Unit: Motor Control
+------------------------------
+1. Responsibilities
+   - Handles: Initiates/stops motor drive with direction; protects against overcurrent/stall. Executes Position Control requests.
+   - Does not handle: Trajectory, high-level commands, direct user interface.
+
+2. Internal Data Design
+   - Variables: motor_state, drive_direction, overcurrent_flag, motor_config struct
+
+3. State Machine
+   - States: Idle, Driving, Stopping, Fault
+   - Events: Start, Stop, Overcurrent/Stall detected, Target reached
+   - Actions: On Start, set GPIOs per direction; on Stop/Fault, disable motor driver via GPIO
+
+4. Algorithms & Control Flow
+   - Stepwise: Receive start/stop/direction; configure GPIO, monitor motor_status (Feedback); shutdown on fault/target.
+
+5. Interfaces (APIs)
+   - Provided: start_drive(dir), stop_drive(), get_motor_status()
+   - Required: HAL GPIO, System Data Mgmt
+   - Params: start_drive(enum dir)
+   - Error: Returns status/error via get_motor_status()
+
+6. Error Handling
+   - Detects overcurrent/stall (via Feedback/HAL), disables output, flags error to Error Handling.
+
+7. Resource & Timing Considerations
+   - Invoked by Position Control; quick GPIO control (<1ms)
+
+8. Traceability
+   - SWE-REQ-008, SWE-REQ-009, SWE-REQ-010, SWE-REQ-011
+---
+Software Unit: Feedback Acquisition
+------------------------------
+1. Responsibilities
+   - Handles: Acquires ADC position feedback, filters/validates sensor data, detects sensor faults.
+
+2. Internal Data Design
+   - Variables: adc_result, filtered_position, sensor_status
+   - Config: filter coefficients, min/max range
+
+3. State Machine
+   - None—executed by periodic call or event; if sensor error, update sensor_status.
+
+4. Algorithms & Control Flow
+   - Stepwise: Initiate ADC read, filter value, compare to expected bounds, flag error if out-of-bounds.
+
+5. Interfaces (APIs)
+   - Provided: read_position(), get_sensor_status()
+   - Required: HAL ADC
+   - Params: none
+   - Error: Sensor fault sets sensor_status
+
+6. Error Handling
+   - Flags out-of-range/invalid sensor, signals to Error Handling
+
+7. Resource & Timing Considerations
+   - Cycle < 5ms; called by Position Control
+
+8. Traceability
+   - SWE-REQ-012, SWE-REQ-013, SWE-REQ-016
+---
+Software Unit: Status Indication
+------------------------------
+1. Responsibilities
+   - Handles: Drives LEDs/GPIOs for normal/target/error display
+
+2. Internal Data Design
+   - Variables: led_state, status_config
+
+3. State Machine
+   - States: Off, Normal, TargetReached, Error
+   - Events: Status change/event from Error Handling, Position Control
+
+4. Algorithms & Control Flow
+   - Set GPIO/LED outputs per status event
+
+5. Interfaces (APIs)
+   - Provided: set_indication(enum state)
+   - Required: HAL GPIO
+   - Params: set_indication
+
+6. Error Handling
+   - Receives error state flag for indication
+
+7. Resource & Timing Considerations
+   - Immediate update (<1ms)
+
+8. Traceability
+   - SWE-REQ-014, SWE-REQ-017
+---
+Software Unit: Error Handling
+------------------------------
+1. Responsibilities
+   - Handles: Collects/reports all system errors; mediates safety intervention; error codes exposed for self-test.
+
+2. Internal Data Design
+   - Variables: error_flags, error_counter[], last_error_code
+
+3. State Machine
+   - States: NoError, ErrorPresent, Latched, Recovered
+   - Events: New error, Clear error/acknowledge
+
+4. Algorithms & Control Flow
+   - On error event, set flag/code, invoke safe state, signal Status, Command Handler
+
+5. Interfaces (APIs)
+   - Provided: report_error(error_code), clear_error()
+   - Required: all units can invoke reporting
+   - Params: error_code
+
+6. Error Handling
+   - Centralizes all detection/reporting
+
+7. Resource & Timing Considerations
+   - Non-reentrant; called on error path
+
+8. Traceability
+   - SWE-REQ-020, SWE-REQ-023, SWE-REQ-024
+---
+Software Unit: System Data Management
+------------------------------
+1. Responsibilities
+   - Handles: Stores runtime variables (current/target position, flags, config params)
+
+2. Internal Data Design
+   - Variables: system_data struct, error_log[], param_store[]
+
+3. State Machine
+   - None; passive storage and API
+
+4. Algorithms & Control Flow
+   - set/get interface for runtime data
+
+5. Interfaces (APIs)
+   - Provided: set_data(key, value), get_data(key)
+   - Required: called by all logic units
+
+6. Error Handling
+   - Detects invalid access, range
+
+7. Resource & Timing Considerations
+   - N/A
+
+8. Traceability
+   - SWE-REQ-021, SWE-REQ-022, SWE-REQ-026
+---
+Software Unit: HAL (Hardware Abstraction Layer)
+------------------------------
+1. Responsibilities
+   - Handles: Abstract all direct hardware access—UART, ADC, GPIO
+
+2. Internal Data Design
+   - Variables: hal_uart_cfg, hal_adc_cfg, hal_gpio_state
+
+3. State Machine
+   - None; per-invocation/peripheral
+
+4. Algorithms & Control Flow
+   - On config/init, set up each hardware interface; driver wrappers for use above
+
+5. Interfaces (APIs)
+   - Provided: uart_read/write(), adc_read(), gpio_set/clr()
+   - Required: only by internal drivers, never user
+
+6. Error Handling
+   - Detects hardware error/status flag
+
+7. Resource & Timing Considerations
+   - Non-blocking; worst-case IO <2ms
+
+8. Traceability
+   - SWE-REQ-015, SWE-REQ-016, SWE-REQ-017, SWE-REQ-027
+---
+Software Unit: Test Hooks Interface
+------------------------------
+1. Responsibilities
+   - Handles: Enables simulation/monitoring of APIs, exposes test/diagnostic controls, fault injection
+
+2. Internal Data Design
+   - Variables: test_mode_flag, inject_error_params[]
+
+3. State Machine
+   - None; invoked in test builds only
+
+4. Algorithms & Control Flow
+   - Overrides/redirects calls for test, collect output data, force error states
+
+5. Interfaces (APIs)
+   - Provided: test_set_cmd(), test_inject_fault(), test_read_status()
+   - Required: none public
+
+6. Error Handling
+   - Test-only; all errors returned as codes
+
+7. Resource & Timing Considerations
+   - Not built/invoked in production; test cycle <5ms
+
+8. Traceability
+   - SWE-REQ-028
+
+==============================
+END OF LOW LEVEL DESIGN (sw-lld/sw-lld.txt)
+==============================
