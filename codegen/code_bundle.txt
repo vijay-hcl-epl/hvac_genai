@@ -1,0 +1,362 @@
+###### FILE: code/inc/command_interface.h ######
+// Command Interface Unit Header
+#ifndef COMMAND_INTERFACE_H
+#define COMMAND_INTERFACE_H
+#include <stdint.h>
+#include <stdbool.h>
+
+#define CMD_BUFFER_SIZE 8
+
+typedef enum {
+    CMD_NO_ERROR = 0,
+    CMD_FORMAT_ERROR,
+    CMD_RANGE_ERROR
+} CommandError_t;
+
+typedef struct {
+    uint8_t target_position;
+    bool    valid;
+    CommandError_t error_code;
+} Command_t;
+
+void command_interface_init(void);
+void command_check_uart(void);
+bool get_validated_command(Command_t *cmd);
+
+#endif // COMMAND_INTERFACE_H
+###### END FILE ######
+###### FILE: code/inc/flap_position_controller.h ######
+// Flap Position Controller Header
+#ifndef FLAP_POSITION_CONTROLLER_H
+#define FLAP_POSITION_CONTROLLER_H
+#include <stdint.h>
+#include <stdbool.h>
+#include "command_interface.h"
+#include "feedback_processing.h"
+#include "motor_control.h"
+
+typedef enum {
+    MOVE_IDLE = 0,
+    MOVE_IN_PROGRESS,
+    MOVE_DONE,
+    MOVE_LIMIT_ERROR
+} MoveStatus_t;
+
+void flap_position_controller_init(void);
+void process_command(const Command_t *cmd);
+MoveStatus_t get_move_status(void);
+
+#endif // FLAP_POSITION_CONTROLLER_H
+###### END FILE ######
+###### FILE: code/inc/motor_control.h ######
+// Motor Control Unit Header
+#ifndef MOTOR_CONTROL_H
+#define MOTOR_CONTROL_H
+#include <stdint.h>
+
+typedef enum {
+    MOTOR_STOPPED = 0,
+    MOTOR_RUNNING_FWD,
+    MOTOR_RUNNING_REV,
+    MOTOR_FAULT
+} MotorState_t;
+
+typedef struct {
+    MotorState_t state;
+    uint8_t config;
+    uint8_t fault_flags;
+} MotorControlStatus_t;
+
+void motor_control_init(void);
+void motor_drive(int8_t direction);
+MotorControlStatus_t get_fault_flags(void);
+
+#endif // MOTOR_CONTROL_H
+###### END FILE ######
+###### FILE: code/inc/feedback_processing.h ######
+// Feedback Processing Unit Header
+#ifndef FEEDBACK_PROCESSING_H
+#define FEEDBACK_PROCESSING_H
+#include <stdint.h>
+#include <stdbool.h>
+
+typedef enum {
+    SENSOR_OK = 0,
+    SENSOR_RANGE_ERROR,
+    SENSOR_FAULT
+} SensorStatus_t;
+
+void feedback_processing_init(void);
+uint16_t get_position(void);
+SensorStatus_t get_sensor_status(void);
+
+#endif // FEEDBACK_PROCESSING_H
+###### END FILE ######
+###### FILE: code/inc/status_indication.h ######
+// Status Indication Unit Header
+#ifndef STATUS_INDICATION_H
+#define STATUS_INDICATION_H
+#include <stdint.h>
+#include <stdbool.h>
+
+typedef enum {
+    STATUS_IDLE = 0,
+    STATUS_MOVING,
+    STATUS_ERROR,
+    STATUS_STARTUP
+} SystemStatus_t;
+
+void status_indication_init(void);
+void set_status(SystemStatus_t status);
+void report_error(uint8_t error);
+void signal_startup(void);
+
+#endif // STATUS_INDICATION_H
+###### END FILE ######
+###### FILE: code/inc/config_diag.h ######
+// Configuration & Diagnostics Unit Header
+#ifndef CONFIG_DIAG_H
+#define CONFIG_DIAG_H
+#include <stdint.h>
+#include <stdbool.h>
+
+typedef struct {
+    uint8_t cal_low;
+    uint8_t cal_high;
+    uint8_t config_crc;
+} ConfigData_t;
+
+typedef enum {
+    DIAG_OK = 0,
+    DIAG_NV_ERROR,
+    DIAG_TEST_FAIL
+} DiagResult_t;
+
+void config_diag_init(void);
+const ConfigData_t *get_config(void);
+void log_event(uint8_t code);
+DiagResult_t invoke_diagnostic(void);
+
+#endif // CONFIG_DIAG_H
+###### END FILE ######
+###### FILE: code/src/command_interface.c ######
+// Command Interface Unit
+#include "command_interface.h"
+#include <string.h>
+
+static uint8_t rx_buffer[CMD_BUFFER_SIZE];
+static Command_t last_cmd = {0};
+
+void command_interface_init(void) {
+    memset(rx_buffer, 0, sizeof(rx_buffer));
+    last_cmd.valid = false;
+}
+
+static bool uart_read(uint8_t *data, uint8_t *len) {
+    // [TBD — Not found in technical source] UART RX implementation is MCU-specific
+    // Dummy stub for compilation
+    return false;
+}
+
+void command_check_uart(void) {
+    uint8_t len = 0;
+    if (uart_read(rx_buffer, &len) && len == 2) { // Assume [cmd][target_pos]
+        last_cmd.target_position = rx_buffer[1];
+        if (last_cmd.target_position > 100) { // Example range limit
+            last_cmd.valid = false;
+            last_cmd.error_code = CMD_RANGE_ERROR;
+        } else {
+            last_cmd.valid = true;
+            last_cmd.error_code = CMD_NO_ERROR;
+        }
+    } else {
+        last_cmd.valid = false;
+        last_cmd.error_code = CMD_FORMAT_ERROR;
+    }
+}
+
+bool get_validated_command(Command_t *cmd) {
+    if (cmd) {
+        memcpy(cmd, &last_cmd, sizeof(Command_t));
+        return last_cmd.valid;
+    }
+    return false;
+}
+###### END FILE ######
+###### FILE: code/src/flap_position_controller.c ######
+// Flap Position Controller
+#include "flap_position_controller.h"
+#include <string.h>
+
+static uint8_t current_position = 0;
+static uint8_t target_position = 0;
+static MoveStatus_t move_status = MOVE_IDLE;
+
+void flap_position_controller_init(void) {
+    current_position = 0;
+    target_position = 0;
+    move_status = MOVE_IDLE;
+}
+
+void process_command(const Command_t *cmd) {
+    if (!cmd || !cmd->valid) {
+        move_status = MOVE_IDLE;
+        return;
+    }
+    if (cmd->target_position > 100) {
+        move_status = MOVE_LIMIT_ERROR;
+    } else {
+        target_position = cmd->target_position;
+        move_status = MOVE_IN_PROGRESS;
+        // Request motor start: forward/reverse
+        // Direction logic based on position difference
+        int8_t dir = ((int16_t)target_position - (int16_t)current_position) > 0 ? 1 : -1;
+        motor_drive(dir);
+    }
+}
+
+MoveStatus_t get_move_status(void) {
+    // Simplified: compare target and current
+    if (current_position == target_position) {
+        move_status = MOVE_DONE;
+    }
+    return move_status;
+}
+###### END FILE ######
+###### FILE: code/src/motor_control.c ######
+// Motor Control Unit
+#include "motor_control.h"
+// [TBD — Not found in technical source] GPIO/PWM register details
+
+static MotorControlStatus_t status = {MOTOR_STOPPED, 0, 0};
+
+void motor_control_init(void) {
+    status.state = MOTOR_STOPPED;
+    status.config = 0;  // [TBD — Not found in technical source]
+    status.fault_flags = 0;
+}
+
+void motor_drive(int8_t direction) {
+    // [TBD — Not found in technical source] Enable/disable motor GPIO/PWM
+    if (direction > 0) {
+        status.state = MOTOR_RUNNING_FWD;
+    } else if (direction < 0) {
+        status.state = MOTOR_RUNNING_REV;
+    } else {
+        status.state = MOTOR_STOPPED;
+    }
+}
+
+MotorControlStatus_t get_fault_flags(void) {
+    // [TBD — Not found in technical source] Fault flag logic
+    return status;
+}
+###### END FILE ######
+###### FILE: code/src/feedback_processing.c ######
+// Feedback Processing Unit
+#include "feedback_processing.h"
+// [TBD — Not found in technical source] ADC peripheral details
+
+static uint16_t last_adc = 0;
+static SensorStatus_t sensor_status = SENSOR_OK;
+
+void feedback_processing_init(void) {
+    last_adc = 0;
+    sensor_status = SENSOR_OK;
+}
+
+uint16_t get_position(void) {
+    // [TBD — Not found in technical source] Read ADC
+    return last_adc;
+}
+
+SensorStatus_t get_sensor_status(void) {
+    // [TBD — Not found in technical source] Sensor plausibility/check
+    return sensor_status;
+}
+###### END FILE ######
+###### FILE: code/src/status_indication.c ######
+// Status Indication Unit
+#include "status_indication.h"
+// [TBD — Not found in technical source] UART, LED interface details
+
+static SystemStatus_t sys_status = STATUS_IDLE;
+
+void status_indication_init(void) {
+    sys_status = STATUS_STARTUP;
+    // [TBD — Not found in technical source] Initialize LEDs/UART
+}
+
+void set_status(SystemStatus_t status) {
+    sys_status = status;
+    // [TBD — Not found in technical source] Update/out
+}
+
+void report_error(uint8_t error) {
+    // [TBD — Not found in technical source] Error propagation
+}
+
+void signal_startup(void) {
+    sys_status = STATUS_STARTUP;
+}
+###### END FILE ######
+###### FILE: code/src/config_diag.c ######
+// Configuration & Diagnostics Unit
+#include "config_diag.h"
+// [TBD — Not found in technical source] NV memory, CRC, diag logic
+
+static ConfigData_t config = {0};
+
+void config_diag_init(void) {
+    config.cal_low = 0; // [TBD]
+    config.cal_high = 100; // [TBD]
+    config.config_crc = 0; // [TBD]
+}
+
+const ConfigData_t *get_config(void) {
+    return &config;
+}
+
+void log_event(uint8_t code) {
+    // [TBD — Not found in technical source] Event log logic
+}
+
+DiagResult_t invoke_diagnostic(void) {
+    // [TBD — Not found in technical source] Diagnostics
+    return DIAG_OK;
+}
+###### END FILE ######
+###### FILE: code/src/main.c ######
+// Main Entry Point
+#include "command_interface.h"
+#include "flap_position_controller.h"
+#include "motor_control.h"
+#include "feedback_processing.h"
+#include "status_indication.h"
+#include "config_diag.h"
+
+int main(void) {
+    command_interface_init();
+    flap_position_controller_init();
+    motor_control_init();
+    feedback_processing_init();
+    status_indication_init();
+    config_diag_init();
+
+    // Run self-diagnostic at startup
+    invoke_diagnostic();
+    signal_startup();
+
+    for (;;) {
+        command_check_uart();
+        Command_t cmd;
+        if (get_validated_command(&cmd)) {
+            process_command(&cmd);
+        }
+        MoveStatus_t move_status = get_move_status();
+        set_status(move_status == MOVE_IN_PROGRESS ? STATUS_MOVING : STATUS_IDLE);
+        // Error/status checks, feedback, and periodic can be placed here
+    }
+    return 0;
+}
+###### END FILE ######
