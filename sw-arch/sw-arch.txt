@@ -1,0 +1,111 @@
+=========================
+HVAC Flap Actuator Software Architecture (SWE.2)
+=========================
+
+DERIVATION BASIS
+------------------
+Derived strictly and only from system requirements (sys-reqs/sys-reqs.txt) and software requirements (sw-reqs/sw-reqs.txt) in branch hvdemo-144b. All decisions traced to explicit SWE.1 (sw-reqs) IDs. No new behavior or cross-cutting concerns added.
+
+ARCHITECTURE STYLE SELECTION
+-----------------------------
+1. Candidate Styles Considered:
+   a) Monolithic (single program flow)
+   b) Layered
+   c) Component-based (decomposed components with abstracted interactions)
+
+2. Evaluation:
+   - System complexity is moderate, involving actuator command logic, motor control, feedback processing, and status feedback (not simple enough for strict monolith).
+   - Interactions with hardware (UART, ADC, GPIO), command interface, and testability requirement (SWE-REQ-028) suggest need for clear modularity.
+   - Maintainability and independent updates for modules (SWE-REQ-033, SWE-REQ-028) favor explicit interfaces over a flat monolithic style.
+   - ASPICE L3 expects modular decomposition, interface exposure, and allocation of requirements.
+   - Testability: strong requirement for exposed/testable interfaces, simulation, and monitoring (SWE-REQ-028, implied from SYS-REQ-033).
+
+3. Chosen Style:
+   COMPONENT-BASED—each functional cluster is a software unit with clear interface. Rejected monolithic (not testable/maintainable enough); layered (less clear for hardware-near modules and test hooks).
+
+SOFTWARE ARCHITECTURE DEFINITION
+--------------------------------
+
+No explicit execution model or scheduling policy is mandated by the requirements at this stage.
+
+Software Units:
+- Command Handler
+- Position Control
+- Motor Control
+- Feedback Acquisition
+- Status Indication
+- Error Handling
+- System Data Management
+- Hardware Abstraction Layer (HAL)
+- Test Hooks Interface
+
+Text-based Architecture Diagram:
+--------------------------------
+
++-------------------+
+|   Command Handler |
++-------------------+
+         |
+         v
++-------------------+
+|  Position Control |
++-------------------+
+      |      |   ^
+      v      |   |
++-----------+|   |
+| Motor     ||   |
+| Control   ||   |
++-----------+|   |
+      |      |   |
+      v      |   |
++---------------+|
+| Feedback      |<+
+| Acquisition   |
++---------------+
+         |
+         v
++---------------------+
+| Status Indication   |
++---------------------+
+         |
+         v
++---------------------+
+| Error Handling      |
++---------------------+
+         |
+         v
++---------------------+
+| System Data Mgmt    |
++---------------------+
+         |
+         v
++---------------------+
+| HAL                 |
++---------------------+
+         |
+         v
++---------------------+
+| Test Hooks Interface|
++---------------------+
+
+<<All communication interfaces (UART, ADC, GPIO) via HAL>>
+
+SOFTWARE ARCHITECTURE TABLE:
+----------------------------
+| Software Unit         | Responsibilities                                                                               | Interfaces Provided               | Interfaces Used    |
+|---------------------- |----------------------------------------------------------------------------------------------|-----------------------------------|--------------------|
+| Command Handler       | Accept/validate user cmds, routing, error decode [SWE-REQ-001,002]                            | Command decode/status API         | UART (HAL)         |
+| Position Control      | Safe move/target logic, position verification [SWE-REQ-004,005,007]                           | Positioning API                   | Motor Control, Feedback Acquisition, System Data Management |
+| Motor Control         | Issue drive/stop/dir to DC motor; state protect [SWE-REQ-008,009,011]                         | Motor drive API                   | Position Control, GPIO (HAL) |
+| Feedback Acquisition  | Acquire/process sensor data, filter, validate [SWE-REQ-012,013]                               | Position feedback API             | ADC (HAL)          |
+| Status Indication     | LED/GPIO display of state [SWE-REQ-014]                                                       | Status indication API              | GPIO (HAL), Error Handling, Command Handler |
+| Error Handling        | Detect/report fault conditions, enforce safety [SWE-REQ-023,024]                              | Error API                         | System Data Management, All Units |
+| System Data Mgmt      | Parameter storage, error flags, runtime config [SWE-REQ-021,022]                              | Data/configuration API            | All                |
+| HAL                  | Abstract hardware (UART, GPIO, ADC/motor driver) [SWE-REQ-015,016,017,027]                    | HW Abstraction Layer API           | MCU peripherals    |
+| Test Hooks Interface  | Expose test hooks for simulation, monitoring, and fault injection [SWE-REQ-028]               | Test API, simulation, fault-inject | All test-enabled units |
+
+TRACEABILITY
+------------
+All structure and responsibilities are mapped to specific SWE.1 IDs as noted above. No new behavior, safety/cyber, or unsupported requirements introduced. No detailed scheduling, threading, or code-level mechanisms described (requirement compliance only).
+
+END OF ARCHITECTURE (sw-arch/sw-arch.txt)
