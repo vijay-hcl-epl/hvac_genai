@@ -1,86 +1,80 @@
 SOFTWARE REQUIREMENTS DOCUMENT – HVAC FLAP ACTUATOR (MOTIX™ TLE9851QXW)
 
 1.0 Software Scope & Responsibility
-This software implements command handling, actuator control, feedback acquisition, and status indication for the single-flap HVAC air management system using the Infineon TLE9851QXW MCU. Firmware responsibility includes processing user or LIN commands, driving the DC motor, and providing position/status reporting, with all required MCU interface handling. Implementation excludes scheduling, RTOS, and safety constructs, except as specified at system level.
+The software SHALL implement the control of a single HVAC air flap position using a DC motor and Infineon TLE9851QXW MCU, provide interfaces for command/feedback, and satisfy all allocated system requirements (see SYS-REQ-001…048, sys-reqs.txt).
 
 2.0 Software Functional Requirements
-2.1 User Commands
-SWE-REQ-001: The software SHALL accept position commands (0…5) via UART1, UART2, or LIN transceiver using an 8-bit numeric protocol. [Traces: SYS-REQ-002, SYS-REQ-016, SYS-REQ-017]
-SWE-REQ-002: Invalid or out-of-range commands SHALL be ignored with no software reset or crash. [SYS-REQ-018, SYS-REQ-028]
-[Implied] SWE-REQ-003: All command interfaces SHALL operate with continuous MCU supply (no runtime reconfiguration). [SYS-REQ-036]
+2.1 User Command Handling
+SWE-REQ-001: The software SHALL parse and validate incoming position commands (0-5) from UART or LIN interfaces. [SYS-REQ-002,016,017]
+SWE-REQ-002: The software SHALL reject and indicate any out-of-range or malformed user command. [SYS-REQ-018,028]
+SWE-REQ-003: [Implied] Command parsing logic SHALL be table-driven for future extensibility.
 
-2.2 Flap Control
-SWE-REQ-004: The software SHALL process valid position commands and signal the control processor to move the flap accordingly. [SYS-REQ-004, SYS-REQ-025]
-SWE-REQ-005: The software SHALL signal holding status only after confirming actual position matches commanded. [SYS-REQ-005, SYS-REQ-027]
-SWE-REQ-006: Upon successful movement, software SHALL not issue further motor commands until new input is received. [SYS-REQ-006]
+2.2 Flap Position Control
+SWE-REQ-004: The software SHALL implement control logic to move the flap to a commanded discrete position (0-5). [SYS-REQ-004,025,026,027]
+SWE-REQ-005: The software SHALL maintain the flap in target position after movement. [SYS-REQ-005]
+SWE-REQ-006: The software SHALL stop motor drive when feedback matches the commanded position within configured thresholds. [SYS-REQ-006,027]
+SWE-REQ-007: The software SHALL stop the motor in case of fault, invalid feedback, or upon explicit system fault detection (driver, over-temp, ADC, supply, etc.). [SYS-REQ-009,029,041,042]
+SWE-REQ-008: [Implied] Movement algorithm SHALL permit monotonic approach to target, direction decided per feedback delta.
 
 2.3 Motor Control
-SWE-REQ-007: Software SHALL output motor driver signals to enable/disable, set direction (CW/CCW), and pulse-width modulation as requested. [SYS-REQ-007, SYS-REQ-008, SYS-REQ-010]
-SWE-REQ-008: In case of detected fault, software SHALL immediately stop motor output signals. [SYS-REQ-009, SYS-REQ-029, SYS-REQ-042]
-SWE-REQ-009: The software SHALL never enable the motor output unless initialization is complete. [SYS-REQ-021]
+SWE-REQ-009: The software SHALL interface with the MCU half-bridge outputs to control direction and PWM duty cycle of the DC motor. [SYS-REQ-007,008,010]
+SWE-REQ-010: The software SHALL permit only one direction (CW/CCW) to be active per actuation. [SYS-REQ-008]
+SWE-REQ-011: [Implied] Motor driver enable/disable logic SHALL be abstracted for hardware changes.
 
-2.4 Feedback Processing
-SWE-REQ-010: Software SHALL periodically sample the potentiometer feedback through the integrated ADC1 (≥10 bits). [SYS-REQ-011, SYS-REQ-012, SYS-REQ-015]
-SWE-REQ-011: Position thresholds SHALL be loaded from Flash and used to map actual feedback to discrete position. [SYS-REQ-013, SYS-REQ-036]
-SWE-REQ-012: No runtime re-learning or calibration SHALL be implemented in feedback path. [SYS-REQ-014, SYS-REQ-039]
-SWE-REQ-013: The measured position SHALL be internally available to status output and diagnostics functions. [SYS-REQ-014, SYS-REQ-019]
+2.4 Position Feedback Processing
+SWE-REQ-012: The software SHALL acquire flap position by triggering ADC1 on the potentiometer feedback channel. [SYS-REQ-011,015]
+SWE-REQ-013: Feedback SHALL use ≥10 bits ADC value and compare to configured thresholds (Flash). [SYS-REQ-012,013]
+SWE-REQ-014: [Implied] ADC reading validation logic SHALL mask glitches/spikes using a median or averaging filter.
 
 2.5 Status Indication
-SWE-REQ-014: Software SHALL drive only one position indication output at a time: GPIO-controlled LED, High-Side Switch, UART or LIN frame. [SYS-REQ-019, SYS-REQ-020]
-SWE-REQ-015: Status messages SHALL indicate valid/invalid command or detected system fault when possible. [SYS-REQ-041, SYS-REQ-047]
-
-[Implied] SWE-REQ-016: Support for automated bench testing (status/command hooks) is recommended as a software extension. [SYS-REQ-048]
+SWE-REQ-015: The software SHALL signal the current flap position using one output channel: LED, GPIO, UART, or LIN. [SYS-REQ-019,020]
+SWE-REQ-016: [Implied] Status output routing SHALL be configurable at build time (compile-time flag or Flash constant).
 
 3.0 Software Interface Requirements
-SWE-REQ-017: The software SHALL implement UART1/UART2 receive/transmit for commands and debug frames as per mapping table. [SYS-REQ-016, SYS-REQ-031]
-SWE-REQ-018: The software SHALL implement LIN 2.2 protocol - slave mode only. [SYS-REQ-017, SYS-REQ-032]
-SWE-REQ-019: ADC1 SHALL be set for potentiometer feedback, minimum 10 bits resolution, channel selection as per hardware config. [SYS-REQ-011, SYS-REQ-033]
-SWE-REQ-020: At least 5 GPIOs SHALL be software-configurable for status or external control. [SYS-REQ-034]
-SWE-REQ-021: All logical mapping/tables for serial commands, feedback thresholds, and indication selection SHALL be loaded from Flash at startup. [SYS-REQ-013, SYS-REQ-036]
-
-[Implied] SWE-REQ-022: LIN, UART, and ADC1 interface error handling is required for robustness, except for ignored invalid commands. [SYS-REQ-041, SYS-REQ-042]
+SWE-REQ-017: The software UART driver SHALL provide RX for user commands and TX for debug/status. [SYS-REQ-016,031]
+SWE-REQ-018: LIN stack SHALL act as 2.2-compliant slave, linking command and status variables to LIN frames. [SYS-REQ-017,032]
+SWE-REQ-019: Software SHALL configure ADC1 to acquire position and (optionally) current sense. [SYS-REQ-011,033]
+SWE-REQ-020: Up to 5 GPIOs SHALL be mapped as digital outputs for status, indication, or test points. [SYS-REQ-034]
+SWE-REQ-021: [Implied] All hardware interface mappings SHALL use symbolic defines for portability.
 
 4.0 Software Behavioral Requirements
-SWE-REQ-023: On MCU power-up/reset, firmware SHALL initialize all HW resources: clocks, peripherals, port assignments, Flash/config load, and leave motor off until ADC feedback and command logic are verified. [SYS-REQ-021]
-SWE-REQ-024: After initialization, software SHALL sample the actual flap position and make it available. [SYS-REQ-022]
-SWE-REQ-025: The software SHALL wait for valid command and not activate movement logic unless a command is received. [SYS-REQ-025, SYS-REQ-023]
-SWE-REQ-026: Any ongoing movement SHALL be canceled and motor stopped as soon as target is reached or a fault is detected. [SYS-REQ-006, SYS-REQ-029, SYS-REQ-042]
-SWE-REQ-027: The system SHALL not require mechanical homing at startup (all logic uses current measured position as valid). [SYS-REQ-024]
-SWE-REQ-028: Sleep/Stop MCU modes MAY be supported if device low-power features are enabled, but are not required for operation. [SYS-REQ-030]
-
-[Implied] SWE-REQ-029: No explicit task/thread or scheduler is implemented in the software logic. [SYS-REQ-024]
+SWE-REQ-022: On power-up, software SHALL initialize the MCU, clocks, UART(s), LIN, GPIO, and ADC, with motor drive disabled. [SYS-REQ-021]
+SWE-REQ-023: After boot, software SHALL sample and store the initial flap position via ADC1. [SYS-REQ-022]
+SWE-REQ-024: Software SHALL idle, awaiting user commands until a valid movement request is received. [SYS-REQ-023,025]
+SWE-REQ-025: During movement, software SHALL monitor feedback and determine when target is reached per thresholds. [SYS-REQ-026,027,006]
+SWE-REQ-026: On command error, software SHALL remain in current state without MCU reset. [SYS-REQ-028]
+SWE-REQ-027: Software SHALL stop the motor on any system-detected or command-induced fault. [SYS-REQ-029,042,043]
+SWE-REQ-028: [Implied] Sleep/Stop entry/exit SHALL only occur if commanded from host or under fault conditions.
 
 5.0 Software Data & Configuration
-SWE-REQ-030: All command mappings, LIN node ID, UART settings, and position thresholds SHALL be stored in non-volatile Flash and read only at startup. [SYS-REQ-013, SYS-REQ-036]
-SWE-REQ-031: Flap position configuration data SHALL be modifiable only through defined engineering process (compile-/flash-time). [SYS-REQ-036]
-SWE-REQ-032: No runtime dynamic memory or buffer allocation SHALL be used anywhere in the software. [SYS-REQ-045]
+SWE-REQ-029: UART, LIN, and ADC configuration parameters SHALL be stored in MCU Flash and not written at runtime. [SYS-REQ-036]
+SWE-REQ-030: Position mapping thresholds SHALL be configurable in Flash, not RAM. [SYS-REQ-013,036]
+SWE-REQ-031: [Implied] System calibration tables SHALL be modifiable only at build/programming time.
 
 6.0 Software Error Handling
-SWE-REQ-033: The software SHALL detect and handle command input, feedback, and driver faults per mapped codes. [SYS-REQ-041]
-SWE-REQ-034: Upon any detected dangerous motor driver, ADC, or supply fault, the software SHALL stop the actuator and report fault status. [SYS-REQ-042, SYS-REQ-043]
-
-[Implied] SWE-REQ-035: Fault handling is restricted to reporting and actuator shut-off—no software-initiated recovery, limp, or fallback.
+SWE-REQ-032: Software SHALL detect and indicate all supported fault classes: supply, ADC, motor, driver, logic. [SYS-REQ-041]
+SWE-REQ-033: On detected dangerous fault conditions, software SHALL instantly disable the motor. [SYS-REQ-029,042]
+SWE-REQ-034: [Implied] Error states SHALL set a status/error output and inhibit all control actuation.
 
 7.0 Performance & Responsiveness
-SWE-REQ-036: The software SHALL respond to valid position command within 100 ms under nominal conditions. [SYS-REQ-040]
-SWE-REQ-037: Control and feedback loops SHALL be implemented to ensure the system is responsive as required, but without hardcoded polling interval or task slot structure. [SYS-REQ-040]
+SWE-REQ-035: Software SHALL process a valid user command and begin actuator movement within 100 ms of reception under normal load. [SYS-REQ-040]
+SWE-REQ-036: [Implied] All feedback/control actions SHALL complete within available MCU clock cycles without blocking any interface.
 
 8.0 Resource Constraints
-SWE-REQ-038: The software plus tables/configuration SHALL not exceed 64 KB Flash and 4 KB RAM on the MCU. [SYS-REQ-044]
-SWE-REQ-039: No use of dynamic memory or heap is allowed in the implementation. [SYS-REQ-045]
+SWE-REQ-037: Software code and data footprint SHALL not exceed 64 KB Flash and 4 KB RAM. [SYS-REQ-044]
+SWE-REQ-038: No dynamic memory allocation (heap) SHALL be used in any software module. [SYS-REQ-045]
+SWE-REQ-039: [Implied] Stack and statically-allocated data usage SHALL be bounded and analyzed per build.
 
 9.0 Testability
-SWE-REQ-040: All software functions SHALL be testable by issuing UART/LIN commands and observing outputs or faults via debug mechanisms, GPIOs, or motor movement. [SYS-REQ-047]
-[Implied] SWE-REQ-041: Manual and scripted test harness hooks MAY be implemented, but are not strictly required. [SYS-REQ-048]
+SWE-REQ-040: Software SHALL expose all command/feedback/status to UART/LIN for integration and test. [SYS-REQ-047]
+SWE-REQ-041: [Implied] Diagnostic functions (motor test, signal test, fault injection) SHALL be optionally compiled-in for lab/bench.
 
-10.0 Implied Requirements
-[Implied] All requirements explicitly marked above or stated within section-level implied requirements.
+10.0 Implied Software Requirements
+SWE-REQ-042: Software functional partitioning SHALL permit later adaptation to different MCU or system product lines. [Implied][SYS-REQ-046]
+SWE-REQ-043: Software SHALL have documented APIs and module interface definitions. [Implied][SYS-REQ-046]
 
 ===============
-Traceability Table
-Each SWE-REQ has explicit SYS-REQ trace. No new SYS behavior described. MCU interfaces limited to UART, ADC, LIN, GPIO as required, all architecture-neutral as per SWE.1 workflow specification.
+Traceability Note
+This Software Requirements Document is traceable to system requirements (sys-reqs/sys-reqs.txt, version as of SHA e729425cbef501c15b4d0db0daa2b13ffada3e42, branch hvdemo-feb18).
+Reference time: [2024-06-18]
 ===============
-
-Reference time: 2024-06-18
-Branch: hvdemo-feb18
-Inputs: sys-reqs/sys-reqs.txt (SHA: 9aa71625472a92e1d5e57195d045131b1af9f63a)
