@@ -1,0 +1,102 @@
+SYSTEM REQUIREMENTS SPECIFICATION
+
+Automotive HVAC Flap Actuator — System Requirements
+Target Platform: MOTIX™ TLE9851QXW
+Branch: hvdemo-143b
+
+---
+
+1.0 System Overview
+SYS-REQ-001: The system SHALL interface with a single HVAC air flap and control its position according to external user commands.
+SYS-REQ-002: The system SHALL be based on the Infineon MOTIX™ TLE9851QXW MCU, leveraging integrated drivers, ADCs, communication, and monitoring features only.
+SYS-REQ-003: The system SHALL NOT rely on any external CAN, L298N, or non-integrated motor driver ICs for primary function execution. [Implied]
+
+2.0 Flap Position Control
+SYS-REQ-010: The system SHALL support six discrete logical positions (0–5) for the flap: fully closed (0), slightly open (1), medium (2), more open (3), mostly open (4), fully open (5).
+SYS-REQ-011: The system SHALL drive the flap motor such that commanded positions correspond to pre-defined ADC threshold values stored in Flash memory.
+SYS-REQ-012: The system SHALL stop motor motion once the ADC feedback indicates the requested position has been reached.
+SYS-REQ-013: The system SHALL ignore invalid commands (not in 0–5) and leave the flap in its prior state.
+SYS-REQ-014: The system SHALL not require mechanical homing and SHALL enter idle upon startup.
+SYS-REQ-015: The system SHALL use only either UART or LIN as the exclusive user command interface at a time. [Implied]
+
+3.0 Motor Control
+SYS-REQ-020: The system SHALL use only the on-chip half-bridge NFET motor driver and charge pump to drive the DC motor.
+SYS-REQ-021: The system SHALL support clockwise and anti-clockwise DC motor operation to reach the desired flap position.
+SYS-REQ-022: The system SHALL support stopping the motor through PWM drive deactivation upon target/invalid/fault conditions.
+SYS-REQ-023: The system SHALL enter Hold or Brake mode after target is reached if configured.
+SYS-REQ-024: The motor SHALL be immediately stopped when a driver or ADC fault is detected.
+
+4.0 Position Feedback Acquisition & Processing
+SYS-REQ-030: The system SHALL measure flap position via a potentiometer interfaced to the 10-bit on-chip ADC (ADC1).
+SYS-REQ-031: The system SHALL map ADC raw values to flap logical positions using fixed thresholds defined in Flash.
+SYS-REQ-032: The system SHALL continuously sample the flap position during active or moving states.
+SYS-REQ-033: The system SHALL detect and flag position sensor open/short or out-of-range ADC values as faults.
+SYS-REQ-034: In case of out-of-range ADC values, the motor SHALL be shut off.
+
+5.0 User Command Interface
+SYS-REQ-040: The system SHALL accept target flap position commands (0–5) via either UART or LIN but not both simultaneously.
+SYS-REQ-041: In UART mode, the system SHALL decode ASCII or binary numeric commands on UART1 or UART2.
+SYS-REQ-042: In LIN mode, the system SHALL operate as a LIN slave node, accepting position commands via LIN 2.2-compliant frames.
+SYS-REQ-043: The system SHALL ignore malformed, out-of-range, or unsupported commands, providing no control response.
+
+6.0 Status Indication
+SYS-REQ-050: The system SHALL support user-visible status in the form of a single active position-indicator output (GPIO-controlled LED or high-side driver output) at any time.
+SYS-REQ-051: The system SHALL provide position/status feedback via UART messages and/or LIN status frames.
+SYS-REQ-052: The system SHALL provide a fault status indicator (LED or output) as specified.
+
+7.0 System Behavior (Power-up, Idle, Normal, Target Reached, Invalid Input)
+SYS-REQ-060: On power-up, the system SHALL initialize all required on-chip peripheral hardware, then enter idle state.
+SYS-REQ-061: During idle, the system SHALL continuously monitor flap position and await valid move commands.
+SYS-REQ-062: Upon receiving a valid command, the system SHALL move the flap until the requested position is reached and then stop.
+SYS-REQ-063: On reaching the target, the system SHALL indicate completion, then return to idle or hold mode.
+SYS-REQ-064: If an invalid command is received, the system SHALL maintain previous state and indicate error if possible.
+SYS-REQ-065: The system SHALL use only the chip’s integrated power management for entering sleep and stop modes.
+SYS-REQ-066: The system SHALL recover from power, brownout, or watchdog reset to idle with actuator/motor off.
+
+8.0 Interfaces (UART, Motor Driver, ADC, LEDs)
+SYS-REQ-070: The system SHALL use only the Infineon TLE9851QXW UART(s) and integrated LIN for all serial communication.
+SYS-REQ-071: The motor actuator SHALL only be driven via the integrated half-bridge driver; no external power stage allowed. [Implied]
+SYS-REQ-072: Flap position feedback input SHALL be sampled only via the on-chip ADC, using a potentiometer only. [Implied]
+SYS-REQ-073: System status indication outputs SHALL use only available GPIO and/or the high-side switch (LED drive up to 150 mA).
+
+9.0 Constraints & Assumptions
+SYS-REQ-080: The system SHALL operate within a supply voltage range of 5.5 V to 28 V, consistent with automotive requirements.
+SYS-REQ-081: The system SHALL NOT require any dynamic, in-field calibration or learning for the actuator.
+SYS-REQ-082: Only one flap actuator, DC motor, and LIN node are supported per system instance.
+SYS-REQ-083: The hardware and PCB are assumed to follow automotive best practices for correct sensor, motor, and power paths. [Implied]
+
+10.0 Non-Functional Requirements
+10.1 Responsiveness
+SYS-REQ-100: The system SHALL achieve <100 ms command-to-motion initiation for all valid user commands under normal operation.
+
+10.2 Error Handling & Edge Cases
+SYS-REQ-110: The system SHALL detect motor driver faults (short, open-load, overtemperature) via integrated hardware and stop the motor on fault.
+SYS-REQ-111: The system SHALL detect ADC out-of-range or plausibility failures and stop the motor.
+SYS-REQ-112: The system SHALL service the watchdog unless deliberately stopped by command, error, or reset event.
+SYS-REQ-113: The system SHALL attempt to fail safe (stop motor) on any unhandled fault in control, supply, or feedback circuits.
+
+10.3 Resource Constraints
+SYS-REQ-120: The system SHALL fit entirely within the on-chip Flash, RAM, and peripherals of the TLE9851QXW. [Implied]
+SYS-REQ-121: The maximum supported PWM frequency for motor drive SHALL be consistent with TLE9851QXW and application requirements.
+
+10.4 Maintainability & Modularity
+SYS-REQ-130: The system-level requirements SHALL NOT express or constrain software architecture, module layouts, or internal scheduling.
+SYS-REQ-131: All requirements in this specification SHALL be atomic, verifiable, and not duplicate functional logic from implementation.
+
+10.5 Testability
+SYS-REQ-140: All user commands, sensor readings, and system states SHALL be externally observable via UART, LIN, GPIO, or status outputs to facilitate system test and validation.
+SYS-REQ-141: The system design SHALL enable explicit observation of fault handling and watchdog behavior.
+
+---
+[Implied] requirements are inferred from context but not explicitly stated in project assumptions.
+
+ARCHITECTURE-RELEVANT CONSIDERATIONS DERIVED FROM SYSTEM REQUIREMENTS
+
+- Concurrency: System interaction is event-driven (commands, ADC conversion complete, fault signals). Only one active flap actuator permitted; no requirements for multi-threading.
+- Interaction Complexity: Interactions between input (UART/LIN/ADC), motor driver, and status indication are sequential and dispatch-based. Fault-handling must be globally prioritized.
+- Control Complexity: System exhibits moderate control complexity due to state management, fault handling, and user interface; no dynamic scheduling or complex multi-path flows.
+- Expandability: Requirements constrain system to a single actuator, motor, flap, and user interface at once. Adding further actuators or interfaces would require significant requirement/architecture revision.
+
+---
+
+Note: This requirements document is generated for and shall be committed to the vijay-hcl-epl/hvac_genai repository, branch hvdemo-143b, at sys-reqs/sys-reqs.txt. All content follows project workflow and ASPICE compliance guidelines.
