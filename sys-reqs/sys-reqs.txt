@@ -1,0 +1,107 @@
+SYSTEM REQUIREMENTS SPECIFICATION - HVAC FLAP ACTUATOR SYSTEM (MOTIX™ TLE9851QXW)
+
+1.0 System Overview
+SYS-REQ-001: The system SHALL control one HVAC flap actuator for automotive air distribution using a DC motor and a rotary potentiometer for position feedback.
+SYS-REQ-002: The system SHALL use the Infineon MOTIX™ TLE9851QXW as the primary microcontroller and integrated half-bridge driver for all control, sensing, and communication functions.
+SYS-REQ-003: The system SHALL operate reliably within an automotive voltage range of VS = 5.5 V to 28 V.
+SYS-REQ-004: The system SHALL be designed as a prototype/learning ECU, not intended for series production or safety-critical use.
+
+[Implied]
+SYS-REQ-005: The system environment SHALL assume standard automotive ambient temperature ranges and mechanical stability as per datasheet recommendations.
+
+2.0 Flap Position Control
+SYS-REQ-006: The system SHALL accept flap position commands in discrete steps 0–5, corresponding to logical positions from fully closed to fully open.
+SYS-REQ-007: The system SHALL map commanded logical positions to ADC thresholds residing in non-volatile memory.
+SYS-REQ-008: The system SHALL not require dynamic calibration or runtime position tuning.
+
+[Implied]
+SYS-REQ-009: The closed-loop position control SHALL halt actuation once the monitored feedback position reaches or exceeds the commanded value.
+
+3.0 Motor Control
+SYS-REQ-010: The system SHALL drive the DC motor using the integrated half-bridge MOSFET driver of the TLE9851QXW, with direction control for both clockwise and anti-clockwise rotation.
+SYS-REQ-011: The system SHALL support PWM-based speed modulation of the motor via the CCU6 PWM generator module.
+SYS-REQ-012: The system SHALL provide Brake and Hold modes for stopping or holding the flap, as supported by hardware capability.
+SYS-REQ-013: The system SHALL turn off motor drive in the event of detected faults or invalid feedback readings.
+
+4.0 Position Feedback Acquisition & Processing
+SYS-REQ-014: The system SHALL measure flap position via a rotary potentiometer connected to a 10-bit ADC input (ADC1) on the microcontroller.
+SYS-REQ-015: The system SHALL process ADC1 readings and convert to logical positions using pre-defined, fixed thresholds.
+SYS-REQ-016: The system SHALL regularly monitor for out-of-range or invalid ADC readings and respond according to error handling requirements.
+
+5.0 User Command Interface
+SYS-REQ-017: The system SHALL support user command input for flap position via UART (ASCII numeric 0-5) or LIN (position value encoded in LIN frame).
+SYS-REQ-018: The system SHALL ignore unsupported or out-of-bounds commands without causing reset or undefined behavior.
+SYS-REQ-019: The system SHALL provide a mode to select between UART and LIN as the primary command interface.
+
+6.0 Status Indication
+SYS-REQ-020: The system SHALL indicate operating status (e.g., current flap position, error states) by:
+- GPIO-driven LEDs, and/or
+- High-Side switch output (min. 150 mA capability for driving LED)
+SYS-REQ-021: The system SHALL provide status messages over UART or via periodic LIN status frame (if LIN is active).
+SYS-REQ-022: At most one position status indicator SHALL be active at any given time.
+
+7.0 System Behavior
+SYS-REQ-023: On power-up, the system SHALL initialize voltage regulators, perform necessary start-up diagnostics, set outputs to a safe state, and enter Idle until a user command is received.
+SYS-REQ-024: In Idle state, the system SHALL monitor inputs and only activate the motor when a new, valid command is received.
+SYS-REQ-025: During normal operating mode, the system SHALL drive the motor toward the target position and monitor feedback for target achievement or fault.
+SYS-REQ-026: The system SHALL enter a Target Reached state once feedback matches the commanded position and stop the motor.
+SYS-REQ-027: If an invalid input, hardware fault, or ADC error is detected at any time, the system SHALL immediately halt actuation and indicate a fault.
+
+[Implied]
+SYS-REQ-028: The system SHALL require no mechanical homing cycle on startup and may use feedback as absolute from power-on.
+SYS-REQ-029: The watchdog SHALL be initialized and regularly serviced during active operation.
+
+8.0 Interfaces (UART, Motor Driver, ADC, LEDs)
+SYS-REQ-030: The system SHALL interface with the PC or LIN Master via UART1/2 or the integrated LIN transceiver.
+SYS-REQ-031: The system SHALL use GPIO pins with sufficient drive strength for status LEDs or the integrated High-Side switch for higher current indicator loads.
+SYS-REQ-032: The ADC1 module SHALL be used exclusively for analog position sensor inputs (potentiometer and monitoring voltages).
+SYS-REQ-033: All system signals SHALL comply with pinout, I/O, and electrical thresholds/specifications detailed in the TLE9851QXW datasheet.
+
+[Implied]
+SYS-REQ-034: System debug access SHALL be possible via the SWD interface without impacting primary functionality.
+
+9.0 Constraints & Assumptions
+SYS-REQ-035: The system SHALL be limited to a single actuator, single motor, and single LIN node.
+SYS-REQ-036: The PCB and wiring harness SHALL provide proper supply decoupling, pin assignment, and all external components recommended by the datasheet.
+SYS-REQ-037: No CAN, ASIL, or full automotive diagnostics (e.g., UDS) are required.
+SYS-REQ-038: External hardware is assumed to be correctly specified for the prototype environment.
+
+10.0 Non-Functional Requirements
+10.1 Responsiveness
+SYS-REQ-039: The system SHALL respond to user flap position commands within 100 ms under normal conditions.
+
+10.2 Error Handling & Edge Cases
+SYS-REQ-040: The system SHALL detect and handle the following fault events with safe system reaction:
+- Motor driver short circuit
+- Open-load
+- Overtemperature
+- Power undervoltage/overvoltage
+- ADC out-of-range
+- Watchdog timeout
+SYS-REQ-041: Upon fault detection, the system SHALL stop actuation, signal fault status, and remain idle until a reset or valid command is received.
+SYS-REQ-042: The system SHALL not attempt to self-recover from persistent hardware faults.
+
+10.3 Resource Constraints
+SYS-REQ-043: System operation SHALL fit within the available 64 KB Flash and 4 KB RAM of the TLE9851QXW.
+10.4 Maintainability & Modularity
+SYS-REQ-044: The system requirements, MIDIware, and system partitioning SHALL be documented clearly such that functional updates or enhancements may be added with traceable change control.
+
+10.5 Testability
+SYS-REQ-045: The system SHALL be verifiable by:
+- Sending commands via UART/LIN and observing actuator, status output, and ADC responses
+- Simulating all error cases and verifying safe error reaction per above
+- Verifying watchdog servicing and reset response
+
+========================================================
+ARCHITECTURE-RELEVANT CONSIDERATIONS DERIVED FROM SYSTEM REQUIREMENTS
+
+Concurrency: Only minimal concurrency is anticipated—the system must monitor user command input and feedback sensor data while driving the motor, but no explicit parallelism is enforced at the requirements level.
+
+Interaction Complexity: The primary system interactions involve command reception, actuation control, feedback monitoring, and status indication. Signal and control flow are direct with minimal protocol/state machine interaction (besides the communication handler and central state management).
+
+Control Complexity: Position control, fault detection, and error handling are straightforward and bounded. All actuation and feedback are single-channel, no multi-axis logic or arbitration.
+
+Expandability: The system is restricted by design to a single actuator/motor/node context. Expansion to more nodes or higher-level protocols (e.g., CAN, multiple flaps, full vehicle networking) is intentionally out of scope.
+
+========================================================
+Note: For traceability, requirements above were derived strictly from the provided high-level description and Infineon TLE9851QXW datasheet in context of ASPICE-like formal process, without architecture or implementation speculation, as mandated.
