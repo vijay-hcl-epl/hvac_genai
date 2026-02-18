@@ -1,0 +1,203 @@
+SOFTWARE LOW-LEVEL DESIGN SPECIFICATION
+
+Automotive HVAC Flap Actuator — Detailed Low-Level Design
+Target Platform: Infineon MOTIX™ TLE9851QXW
+Branch: hvdemo-143b
+
+---
+
+1.0 Low-Level Design Overview
+This document presents the detailed low-level design for each software unit in the HVAC Flap Actuator. Every design aspect below is strictly derived from and traceable to SWE.1 and SWE.2 outputs, per ASPICE L3, with no additional units, scheduling, or implementation not present in the architecture.
+
+---
+
+UNIT 1: User Command Interface Handler
+1. Responsibilities:
+   - Handles: UART/LIN RX, command frame parsing, value validation, interface state control.
+   - Does not handle: message framing/baudrate setup outside specification, concurrent multi-source reception.
+2. Internal Data Design:
+   - RX buffer (fixed-size, no dynamic alloc)
+   - Parsed value (uint8_t: 0–5)
+   - Validation flag
+   - State: inactive/receiving/parsed/error
+3. State Machine:
+   - States: IDLE, RECEIVING, PARSE, ERROR
+   - Transitions: IDLE→RECEIVING on RX, RECEIVING→PARSE on complete, PARSE→IDLE/ERROR, ERROR→IDLE
+4. Algorithms & Control Flow:
+   - On RX event, store byte in buffer
+   - On EOL/complete, parse as uint8_t, check 0–5
+   - If valid, set parsed value & valid flag
+   - If error/malformed, set ERROR state
+5. Interfaces (APIs):
+   - provide: get_valid_cmd() → (parsed value/none), get_rx_status() → (enum)
+   - require: receive_byte(uint8_t), reset_rx()
+   - error: error status via get_rx_status()
+6. Error Handling:
+   - Malformed/disallowed frames set ERROR state; system maintains previous actuator state
+7. Resource & Timing:
+   - Invoked on RX event or polling
+   - WCET per parse call <10us
+   - Non-reentrant, no global state
+8. Traceability:
+   - SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-040
+
+UNIT 2: Flap Position Control Logic
+1. Responsibilities:
+   - Handles: target mapping, flap movement control, position state mgmt
+   - Does not handle: direct hardware PWM/motor
+2. Internal Data Design:
+   - Target (uint8_t: 0–5)
+   - Measured position (uint8_t)
+   - Movement state: IDLE, MOVING, DONE, FAULT
+3. State Machine:
+   - States: IDLE, MOVING, DONE, FAULT
+   - Transitions: IDLE→MOVING (on valid cmd), MOVING→DONE (on match), MOVING→FAULT (on error), …
+4. Algorithms & Control Flow:
+   - On valid cmd, compare measured with target
+   - If not equal, issue move to Motor Driver Interface
+   - On confirmed match, command stop/hold
+   - On feedback fault, enter FAULT
+5. Interfaces (APIs):
+   - provide: set_target(uint8_t), get_state(), notify_feedback_update(uint8_t), notify_fault()
+   - require: motor_ctrl_cmd(enum), feedback_get_pos()
+   - error: reports FAULT state, notifies Status Handler
+6. Error Handling:
+   - All error/fault detected events re-route state to FAULT and command stop/hold as appropriate
+7. Resource & Timing:
+   - Invoked by state manager on command/feedback
+   - WCET estimate per call <15us
+   - Re-entrancy: No, strictly sequenced
+8. Traceability:
+   - SWE-REQ-010, SWE-REQ-011, SWE-REQ-012, SWE-REQ-052
+
+UNIT 3: Motor Driver Interface
+1. Responsibilities:
+   - Handles: bridge/PWM control, enable/disable, drive mode select
+   - Does not handle: position logic or command parsing
+2. Internal Data Design:
+   - Drive command (enum: STOP, DRIVE_CW, DRIVE_CCW, HOLD)
+   - State: ACTIVE, HOLD, FAULT
+3. State Machine:
+   - States: ACTIVE, HOLD, FAULT
+   - Transitions: ACTIVE→HOLD/FAULT on control input
+4. Algorithms & Control Flow:
+   - On drive command, set hardware outputs accordingly
+   - On fault, immediately disable output
+5. Interfaces (APIs):
+   - provide: set_drive_mode(enum)
+   - require: None (except initialization)
+   - error: error code via get_status()
+6. Error Handling:
+   - Any error/fault disables motor drive; status updated
+7. Resource & Timing:
+   - Invoked by Flap Logic as needed
+   - WCET per drive mode <5us
+   - Not re-entrant
+8. Traceability:
+   - SWE-REQ-013, SWE-REQ-014, SWE-REQ-042
+
+UNIT 4: Feedback Acquisition & Processing
+1. Responsibilities:
+   - Handles: ADC acquisition, plausibility checks, mapping
+   - Does not handle: motor control or state logic
+2. Internal Data Design:
+   - Latest ADC sample (uint16_t)
+   - Threshold table (const, in Flash)
+   - Sensor plausibility flag
+3. State Machine:
+   - States: VALID, INVALID, FAULT
+   - Transitions: update on each sample/compare
+4. Algorithms & Control Flow:
+   - Acquire ADC, map raw to pos, check thresholds
+   - On fault, set flag/notify handlers
+5. Interfaces (APIs):
+   - provide: get_pos(), get_fault_status()
+   - require: adc_acquire()
+   - error: error flag via get_fault_status()
+6. Error Handling:
+   - Out-of-range disables drive, signals FAULT
+7. Resource & Timing:
+   - Invoked periodically or on state
+   - WCET/sample <8us
+   - Not re-entrant
+8. Traceability:
+   - SWE-REQ-020, SWE-REQ-021, SWE-REQ-022, SWE-REQ-023
+
+UNIT 5: Status Handler / Indicator Control
+1. Responsibilities:
+   - Handles: LED/pin outputs, status reporting
+   - Does not handle: command logic or feedback
+2. Internal Data Design:
+   - State indicators (bitfields)
+   - Last status message
+3. State Machine:
+   - States: IDLE, ACTIVE, FAULT
+   - Transitions: controlled by application state
+4. Algorithms & Control Flow:
+   - On state update, set indicators/publish message
+5. Interfaces (APIs):
+   - provide: set_state(enum), report_status(), update_indicator(enum)
+   - require: None
+   - error: none defined (deliberate minimal failure modes)
+6. Error Handling:
+   - Fault/invalid inputs default to safe state
+7. Resource & Timing:
+   - Driven by Application/State Manager
+   - WCET <5us
+   - Not re-entrant
+8. Traceability:
+   - SWE-REQ-030, SWE-REQ-031, SWE-REQ-043, SWE-REQ-051
+
+UNIT 6: Application/State Manager
+1. Responsibilities:
+   - Handles: overall flow, sequencing, coordination, resets
+   - Does not handle: low-level hardware, decoding, or feedback details
+2. Internal Data Design:
+   - Global state variable (enum: IDLE, ACTIVE, DONE, FAULT)
+   - State tracking/log
+3. State Machine:
+   - States: IDLE, ACTIVE, DONE, FAULT
+   - Transitions: driven by events from units/inputs
+4. Algorithms & Control Flow:
+   - On reset, force IDLE
+   - On command, set ACTIVE, route to units
+   - On completion/fault, force DONE/FAULT, command safe state
+5. Interfaces (APIs):
+   - provide: set_global_state(enum), process_event(event), reset()
+   - require: notifications from all units
+   - error: relays error conditions for handler
+6. Error Handling:
+   - Any unit fault triggers safe state/fault reporting
+7. Resource & Timing:
+   - Invoked on external or unit events
+   - WCET <10us/event
+   - Not re-entrant
+8. Traceability:
+   - SWE-REQ-050, SWE-REQ-051, SWE-REQ-052, SWE-REQ-054
+
+UNIT 7: Configuration/Calibration Storage
+1. Responsibilities:
+   - Handles: Flash-stored thresholds/configuration
+   - Does not handle: logic or state in RAM
+2. Internal Data Design:
+   - Flash data structure: thresholds, config
+   - Load-on-init
+3. State Machine:
+   - None; provide-on-request only
+4. Algorithms & Control Flow:
+   - On boot, load config to units as needed
+5. Interfaces (APIs):
+   - provide: get_threshold(uint8_t pos), get_config()
+   - require: none
+   - error: If Flash read fails, relay safe defaults
+6. Error Handling:
+   - On error, relay safe config (hard-storage only)
+7. Resource & Timing:
+   - Accessed on boot and as needed (read-only)
+   - WCET <3us/read
+   - Not re-entrant
+8. Traceability:
+   - SWE-REQ-060, SWE-REQ-023
+
+---
+All design sections are fully traceable to SWE.1 and SWE.2 requirements. No code or implementation details, no tasking, scheduling, or memory allocation beyond configurables specified. No safety or diagnostics beyond explicit requirement scope.
