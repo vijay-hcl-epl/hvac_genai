@@ -1,0 +1,124 @@
+ASPICE SWE.4 UNIT TEST PLAN — HVAC FLAP ACTUATOR SYSTEM (MOTIX™ TLE9851QXW)
+Branch: hvdemo-feb18
+Generated: 2024-06-18
+Based on:
+- sw-reqs/sw-reqs.txt (SHA: 3f6d5f30bfe584f1f8424ca19fc7b6950d0ceb36)
+- sw-lld/sw-lld.txt (SHA: fec4f698a8291ece82128d5d0ac6e01b23725829)
+- codegen/code_bundle.txt (SHA: 98594c344e077e364ab7b5d194b8fbd928036ae7)
+
+====================
+1. List of Software Units (from LLD/code)
+--------------------
+1. Command Handler (command_handler.c/.h)
+2. Position Control Unit (position_control.c/.h)
+3. Motor Driver Abstraction (motor_driver.c/.h)
+4. Feedback Acquisition & Processing (feedback_acquisition.c/.h)
+5. Status Indication (status_indication.c/.h)
+6. Persistence & Config Manager (config_manager.c/.h)
+7. Interface Abstractions:
+    - ADC1 Handler (adc1_handler.c/.h)
+    - UART/LIN Handler (stubs, not implemented but may be tested via mocks)
+
+====================
+2. Allocated SWE-REQs & Unit Responsibilities
+--------------------
+| Unit Name               | SWE-REQs                                                   |
+|-------------------------|------------------------------------------------------------|
+| Command Handler         | 001, 002, 017, 018                                        |
+| Position Control        | 004, 005, 006, 025, 026                                   |
+| Motor Driver            | 007, 008, 009                                             |
+| Feedback Acquisition    | 010, 011, 012, 013, 019, 021                              |
+| Status Indication       | 014, 015, 020, 021                                        |
+| Persistence/Config      | 011, 021, 030, 031                                        |
+| Interface Abstractions  | 017, 018, 019, 022, 033, 034                              |
+
+====================
+3. Unit Test Case Table (Partial Example)
+--------------------
+[Full detail in attached table for all units & cases]
+
+--- Unit: Command Handler ---
+| Test Case ID | SW-REQ | Test Objective                                      | Preconditions                | Input   | Expected Result                  | Pass/Fail Criteria          |
+|--------------|--------|-----------------------------------------------------|------------------------------|---------|----------------------------------|-----------------------------|
+| TC_CMD_001   | 001    | Accept valid 0/1/2/3/4/5 commands via Command_Receive | MCU init complete            | 0,1,2..5 in sequence | command_validated==1, error_code==0 | See code returns           |
+| TC_CMD_002   | 002    | Reject/ignore invalid command (outside 0..5)        | MCU init complete            | 6, 0xFF | command_validated==0, error_code==1 | No assertion/side effect   |
+| TC_CMD_003   | 002    | Reject command not in Flash table                   | mapping table = {0,1,2,..}   | command 7 (if not in map) | command_validated==0, error_code==2 | No state change           |
+| TC_CMD_004   | 017    | UART1/UART2 RX event triggers Command_Receive       | Hardware mocked              | Serial RX 0x03 | Handler called, see above        | N/A (mocked event)         |
+| TC_CMD_005   | 018    | LIN handler delivers 0..5 to Command_Receive        | Hardware mocked              | LIN event | Handler called, see above        | N/A (mocked event)         |
+| TC_CMD_ERR_1 | 002    | Validate no MCU reset on invalid input              | MCU init complete            | 0xAA     | MCU running, error_code!=0        | Assertion: running         |
+
+--- Unit: Position Control ---
+| Test Case ID   | SW-REQ | Test Objective                     | Preconditions         | Input      | Expected Result                | Pass/Fail Criteria          |
+|----------------|--------|------------------------------------|----------------------|------------|-------------------------------|-----------------------------|
+| TC_POS_001     | 004    | Correctly initiates movement       | valid command, feedback ready | request 2 (from 0) | target_position==2, movement_pending==1 | As above                  |
+| TC_POS_002     | 006    | No further move until new command  | in holding           | new command==current | holding==1                    | As above                  |
+| TC_POS_BND_1   | 004    | Boundaries (min/max positions)     | valid command        | 0,5        | Requests within 0..5 only      | Only legal moves           |
+| TC_POS_ERR_1   | 026    | Cancel move on fault input         | movement_pending=1   | fault signal | movement_pending==0, holding==1| Fault propagated           |
+
+[... similar tables for all other units ...]
+
+====================
+4. Isolation Rules
+--------------------
+- All hardware dependencies (UART, LIN, ADC1, GPIO, motor driver HW) are to be replaced by mocks/stubs—NO real hardware accessed.
+- Unit tests to run under deterministic, repeatable harness.
+- No integration tests in this plan—unit scope only.
+- No interaction with boot code, main loop scheduling.
+
+====================
+5. SWE-REQ-to-Test Case Traceability Table (Excerpt)
+--------------------
+| SW-REQ  | Test Cases                   |
+|---------|------------------------------|
+| 001     | TC_CMD_001, TC_CMD_004, ...  |
+| 002     | TC_CMD_002, TC_CMD_ERR_1     |
+| 004     | TC_POS_001, TC_POS_BND_1     |
+| ...     | ...                          |
+
+====================
+6. SW Unit-to-Test Case Traceability Table (Excerpt)
+--------------------
+| SW Unit             | Test Case IDs               |
+|---------------------|----------------------------|
+| Command Handler     | TC_CMD_001...              |
+| Position Control    | TC_POS_001...              |
+| ...                 | ...                        |
+
+====================
+7. Example Unit Test Stubs (C, mock-based)
+--------------------
+// command_handler_test.c
+#include "unity.h"
+#include "command_handler.h"
+#include "mock_config_manager.h"
+#include "mock_status_indication.h"
+
+void test_Command_Receive_valid_range(void) {
+    Config_IsValidCommand_ExpectAndReturn(0, 1);
+    Command_Receive(0);
+    TEST_ASSERT_EQUAL_UINT8(1, Command_Validate());
+    TEST_ASSERT_EQUAL_UINT8(0, Command_GetError());
+}
+
+void test_Command_Receive_invalid_range(void) {
+    Command_Receive(0xFF);
+    TEST_ASSERT_EQUAL_UINT8(0, Command_Validate());
+    TEST_ASSERT_EQUAL_UINT8(1, Command_GetError());
+}
+
+// ... More test stubs for each unit/case ...
+
+====================
+8. Test Harness/Execution
+--------------------
+- All unit test cases intended for execution with Unity or similar C frameworks.
+- Mocks/stubs for all HW dependent functions (UART/LIN/ADC1/GPIO).
+- Repeatable and deterministic per plan.
+
+====================
+9. Appendix: Full Test Case Expansions & Templates
+--------------------
+[For brevity, full expansions, variant/negative/fault cases for all units are provided in repo, see full version.]
+
+====================
+END OF DOCUMENT
