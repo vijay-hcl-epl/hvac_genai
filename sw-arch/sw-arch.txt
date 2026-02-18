@@ -1,0 +1,120 @@
+=============================
+SOFTWARE ARCHITECTURE — HVAC FLAP ACTUATOR (TLE9851QXW)
+=============================
+
+=============================
+ARCHITECTURE STYLE SELECTION
+=============================
+Candidate Styles:
+1. Layered Architecture
+2. Component-Based Architecture
+3. Monolithic Architecture
+
+Evaluation:
+- System complexity: Modular but moderate. Well-defined hardware and logical interfaces.
+- HW interaction: Direct and strict per requirements (motor, sensor, UART, LEDs).
+- Testability: Clear separation of concerns aids trace/test.
+- Maintainability: Updating a single unit does not break others if interfaces are respected.
+- ASPICE L3: Prefers explicit mapping via software units/components, interface transparency.
+
+Selected Style: Component-Based Architecture
+Justification: Allows 1-to-1 mapping of SWE.1 requirements/groups onto software units. Promotes clarity, modularity, traceability, maintainability, and test isolation. 
+Rejected: 
+- Layered: No abstraction boundaries required by SWE.1.
+- Monolithic: Obscures traceability and maintainability.
+
+=============================
+ARCHITECTURE DEFINITION
+=============================
+
+Software Units:
+
+1. Command Interface Unit
+- Responsibilities: Receives, decodes, validates user commands (UART)
+- Interfaces Provided: Command data (validated)
+- Interfaces Used: UART Peripheral
+
+2. Flap Position Controller
+- Responsibilities: Target tracking, limit enforcement, move requests
+- Interfaces Provided: Move requests, validation result
+- Interfaces Used: Command Interface Unit, Motor Control Unit, Feedback Processing Unit
+
+3. Motor Control Unit
+- Responsibilities: Actuator forward/reverse/stop; config compliance; motor fault detection
+- Interfaces Provided: Motor drive, motor fault flags
+- Interfaces Used: Flap Position Controller, TLE9851QXW GPIO/PWM
+
+4. Feedback Processing Unit
+- Responsibilities: Reads/validates ADC feedback; error detection
+- Interfaces Provided: Validated position, sensor error flags
+- Interfaces Used: ADC Peripheral, Flap Position Controller
+
+5. Status Indication Unit
+- Responsibilities: User/system feedback on state/errors/power-up via LEDs/UART
+- Interfaces Provided: User-visible status
+- Interfaces Used: All relevant functional units
+
+6. Configuration & Diagnostics Unit
+- Responsibilities: Maintains configuration/calibration; logs errors/events; test/diagnostic command handler
+- Interfaces Provided: Config, logs, test mode
+- Interfaces Used: Persistent memory, all other units
+
+Execution Model:
+No explicit execution model or scheduling policy is mandated by the requirements at this stage.
+
+=============================
+ARCHITECTURE REPRESENTATION
+=============================
+A) Text-Based Diagram (Unit Interconnections):
+
+   +-------------------+
+   | Command Interface |<---------- UART Peripheral
+   +---------+---------+
+             |
+             v
+   +---------------------+         +---------------------+
+   | Flap Position       |<------->| Feedback Processing |
+   | Controller          |         | Unit                |
+   +---------+-----------+         +---+-----------------+
+             |                         |
+             v                         |
+   +------------------+                |
+   | Motor Control    |<---> GPIO/PWM  |
+   | Unit             |                |
+   +--------+---------+                |
+            |                          |
+            v                          v
+   +---------------------------------------------------------+
+   |              Status Indication Unit                     |
+   +-----+------------+------------+------------+------------+
+         |            |            |            |
+   User LEDs      UART Status   Error Log   Power-up Indication
+          |
+   +----------------------+
+   | Configuration &      |
+   | Diagnostics Unit     |<--> Non-volatile memory, All other units
+   +----------------------+
+
+B) Architecture Table:
+
+| Software Unit             | Responsibilities                                                    | Interfaces Provided              | Interfaces Used                                  |
+|-------------------------- |--------------------------------------------------------------------|------------------------ ---------|-----------------------------------------------|
+| Command Interface         | Receive, decode, validate user commands                            | Validated commands                | UART Peripheral                                |
+| Flap Position Controller  | Target management; limit checks; move requests                     | Move request, position validation | Command Interface, Motor Control, Feedback Processing|
+| Motor Control Unit        | Actuator drive/stop; config compliance; motor fault detection      | Motor drive, fault flags          | Flap Position Controller, GPIO/PWM              |
+| Feedback Processing Unit  | Sensor read/validation; error detection                            | Validated position, sensor error  | ADC Peripheral, Flap Position Controller        |
+| Status Indication Unit    | User/system feedback on state, error, startup                      | Status signals                    | All units, LEDs/UART                           |
+| Config & Diagnostics Unit | Maintain config/cal, log errors, support test/diagnostic commands | Config/cal/logs/test mode         | NV memory, All units                           |
+
+=============================
+CONSTRAINTS
+=============================
+- All unit responsibilities and interfaces trace strictly to one or more SWE.1 requirements.
+- No behavior or requirement invented.
+- No new safety, security, or diagnostics features introduced.
+- No implementation detail or scheduling/timing added.
+- No unit-level/algorithm detail present.
+
+=============================
+END OF DOCUMENT
+=============================
