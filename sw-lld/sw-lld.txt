@@ -1,284 +1,221 @@
-SOFTWARE LOW LEVEL DESIGN DOCUMENT – HVAC FLAP ACTUATOR (MOTIX™ TLE9851QXW)
+SOFTWARE LOW-LEVEL DESIGN (LLD) – HVAC FLAP ACTUATOR
+Target: Embedded C (MISRA), No Dynamic Allocation
+Branch: hvdemo-feb18
 
-Based on: sw-reqs.txt SHA e41561b06f6f5c2a00d05d7f8c95e1c565ed514a and sw-arch.txt SHA a9e965c92c0f73192c18056eb0912bde42d88fd8 on branch hvdemo-feb18.
+================================================================
+FOR EACH SOFTWARE UNIT, REFERENCE SWE.2 & SWE.1 REQUIREMENTS:
+================================================================
 
-==============================
-1. Software Unit: Cmd Parser/Validator
-==============================
-
-1. Responsibilities:
-   - Handles parsing and validation of incoming flap position commands from UART/LIN (0-5)
-   - Rejects and signals malformed or out-of-range commands
-   - Provides validated command to control logic
-   - Does not handle hardware details or execution order
-
-2. Internal Data Design:
-   - last_cmd (uint8_t)
-   - cmd_valid (bool)
-   - rx_buffer[8] (uint8_t)
-   - config: valid_range_min, valid_range_max (Flash const)
-
-3. State Machine:
-   - States: IDLE, CMD_RX, CMD_VALID, CMD_INVALID
-   - Events: RX_UART, RX_LIN, PARSE, VALID, INVALID
-   - Transitions: IDLE→CMD_RX (receive), CMD_RX→CMD_VALID or CMD_INVALID, CMD_VALID/INVALID→IDLE
-
-4. Algorithms & Control Flow:
-   - On RX event, buffer cmd; parse uint8; check within valid_range_
-   - Set cmd_valid; on error set CMD_INVALID
+-----------------------------------
+Software Unit: Command Interface Unit
+-----------------------------------
+1. Responsibilities
+   - Handles UART/LIN command reception, input validation, error detection
+   - Does NOT handle system mode switching, motor drive, or feedback acquisition
+2. Internal Data Design
+   - uint8_t received_cmd
+   - enum CmdValidationState { VALID, INVALID }
+   - const config_data *, (read-only reference)
+   - Error counters, comm state flag
+3. State Machine
+   - States: IDLE, RECEIVING, VALIDATING, ERROR
+   - Events: RX available, RX complete, RX error, validation result
+   - Transitions: IDLE→RECEIVING (RX avail), RECEIVING→VALIDATING (RX done), VALIDATING→IDLE (cmd dispatch), Any→ERROR (fault)
+4. Algorithms & Control Flow
+   - On RX: buffer command, check for validity (range 0…5, protocol, CRC, etc). If valid: store to command_in, else flag error/ignore
    - Pseudocode:
-         if (new_cmd in valid_range) → cmd_valid=1
-         else → cmd_valid=0
+     If RX interrupt: read RX buffer
+       If in range: VALIDATE, signal State Machine
+       Else: Set error, ignore command
+5. Interfaces (APIs)
+   - Provided: get_validated_command(void) -> uint8_t, is_command_valid(void) -> bool
+   - Required: config_data_read(void), UART/LIN RX Handlers
+   - Error reporting: set_cmd_error(type)
+6. Error Handling
+   - Detect malformed frame, invalid command (out of range), comm loss
+   - Ignore faulty command, update error counter, report via both comm channel and error signaling to State Machine
+7. Resource & Timing Considerations
+   - Invoked: on RX Complete (interrupt or poll), not re-entrant
+   - WCET: < 1ms typical per RX
+   - No blocking, no dynamic allocation
+8. Traceability
+   - SWE-REQ-001, 002, 003, 017, 018
 
-5. Interfaces (APIs):
-   - Provided: Validated Cmd Interface (get_last_cmd, is_cmd_valid)
-   - Required: UART/LIN HW API (rx)
-   - Params: position_cmd (uint8_t)
-   - Errors: returns status code (OK/ERR_RANGE/ERR_FMT)
+--------------------------------------------
+Software Unit: Control State Machine
+--------------------------------------------
+1. Responsibilities
+   - Handles system control logic, position command dispatch, manages Idle/Move/Stopped/Fault, processes valid/rejected commands
+   - Does NOT handle hardware drive logic or direct ADC/status acquisition
+2. Internal Data Design
+   - enum ControlState { IDLE, MOVING, HOLD, FAULT }
+   - uint8_t target_position, current_position
+   - Fault flag, state timer, last_cmd_valid
+3. State Machine
+   - States: IDLE, MOVING, HOLD, FAULT
+   - Events: Valid command, arrival at target, error/fault, idle timeout
+   - Transitions: IDLE→MOVING (valid cmd), MOVING→HOLD (on target), Any→FAULT (on error), FAULT→IDLE (on reset)
+4. Algorithms & Control Flow
+   - On valid command: check if target ≠ current, update state, command Actuator Driver
+   - On feedback: compare current to target, if match then stop motor, go to HOLD
+   - Fault logic: If fault flag active, command Actuator stop/notify
+   - Pseudocode:
+     If (valid_command && target ≠ current) → MOVING → command actuator
+     If (feedback == target) → HOLD → stop actuator
+     On (fault) → FAULT
+5. Interfaces (APIs)
+   - Provided: dispatch_position_cmd(uint8_t pos), system_state(void), set_fault(uint8_t code)
+   - Required: get_validated_command(), fb_in(), actuator_driver()
+6. Error Handling
+   - Any error: notify State Machine, propagate to status, trigger system-wide FAULT
+7. Resource & Timing Considerations
+   - Invoked on event (command, feedback, fault), not re-entrant
+   - WCET: < 2ms typical per event
+   - No dynamic memory
+8. Traceability
+   - SWE-REQ-004, 005, 026, 027, 028, 029
 
-6. Error Handling:
-   - On malformed/out-of-range cmd: set error, inhibit control, provide error code to interface
+--------------------------------------
+Software Unit: Actuator Driver Unit
+--------------------------------------
+1. Responsibilities
+   - Handles motor drive signal generation, PWM logic, enable/stop execution, no command/state logic
+2. Internal Data Design
+   - struct MotorCtrl { uint8_t enable; uint8_t pwm_duty; enum Direction; }
+   - Fault flag, last_cmd
+3. State Machine
+   - State: "none". Operates per direct API calls from State Machine
+   - Flow: If enabled, set appropriate H-bridge/on; else disable
+4. Algorithms & Control Flow
+   - On position_cmd: set PWM/enable lines, manage direction, stop on command
+   - Fault: on error or stop, all motor outputs OFF immediately
+   - Pseudocode:
+     If (enable): set bridge/output per direction, PWM duty
+     If (stop): all outputs low
+5. Interfaces (APIs)
+   - Provided: set_motor(uint8_t pos, uint8_t duty, Direction dir), stop_motor(void)
+   - Required: state_cmd(), config_data_ptr
+   - Error: set_fault_flag(reason)
+6. Error Handling
+   - Hardware or control error: outputs OFF, fault/status update to State Machine
+7. Resource & Timing Considerations
+   - Invoked: on command from State Machine, not re-entrant
+   - WCET: < 0.5ms typical
+   - No dynamic memory
+8. Traceability
+   - SWE-REQ-009, 010, 036
 
-7. Resource & Timing Considerations:
-   - Invoked on each RX event, worst-case <1ms per call
-   - Not re-entrant; RX events queued if overlap occurs
+-------------------------------------------
+Software Unit: Feedback Processing Unit
+-------------------------------------------
+1. Responsibilities
+   - Handles ADC read, position mapping, threshold checks, error detection
+2. Internal Data Design
+   - uint16_t adc_val, mapped_position
+   - pos_thresholds[] (FLASH config)
+   - Error diagnostics flags
+3. State Machine
+   - State: none; runs on trigger/sample interval or per State Machine
+   - Flow: read ADC, map to logical position, set error if out-of-bounds
+4. Algorithms & Control Flow
+   - On trigger: sample ADC, apply threshold mapping, update position out
+   - On fault: flag error, notify State Machine
+   - Pseudocode:
+     adc_val = ADC1_read();
+     mapped_position = map_adc_to_pos(adc_val, pos_thresholds[]);
+     if (adc_val out-of-range or noisy): set_error()
+5. Interfaces (APIs)
+   - Provided: get_position(void) -> uint8_t, get_error_flag(void) -> uint8_t
+   - Required: ADC1_read(), config_data_ptr
+   - Error: report to State Machine
+6. Error Handling
+   - ADC error/out-of-bounds: flag error, keep last valid position, report fault
+7. Resource & Timing Considerations
+   - Invoked per sampling policy, not re-entrant
+   - WCET: < 1ms typical
+   - No dynamic memory
+8. Traceability
+   - SWE-REQ-011, 012, 013, 019, 029, 032
 
-8. Traceability:
-   - SWE-REQ-001, SWE-REQ-002, SWE-REQ-003
+---------------------------------------
+Software Unit: Status Indication Unit
+---------------------------------------
+1. Responsibilities
+   - Handles status/fault/channel indication via GPIO, UART, LIN, LED
+2. Internal Data Design
+   - enum IndicatorState { POSITION, FAULT }
+   - Output channel select, last_state
+3. State Machine
+   - State: none; functional mapping, updates on state transitions or error
+   - Flow: set indicator output per new status
+4. Algorithms & Control Flow
+   - On notification: set indicator as required (channel, value)
+   - On fault: flag error, show FAULT state only
+5. Interfaces (APIs)
+   - Provided: set_indicator(IndicatorState), get_status(void)
+   - Required: system_state(), config_data_ptr
+   - Error: set_fault_state()
+6. Error Handling
+   - On ambiguity/collision: default to FAULT, single-channel active at a time
+7. Resource & Timing Considerations
+   - Invoked on state change or error, not re-entrant
+   - WCET: < 0.2ms
+   - No dynamic memory
+8. Traceability
+   - SWE-REQ-015, 016, 020
 
-==============================
-2. Software Unit: Position Ctrl State Machine
-==============================
+------------------------------------
+Software Unit: Configuration Data Unit
+------------------------------------
+1. Responsibilities
+   - Static configuration read (Flash), data access for all runtime units
+2. Internal Data Design
+   - struct ConfigData { UART/LIN params, position thresholds[], etc. }
+   - config read/copy-on-init only, all pointers const post-init
+3. State Machine
+   - State: none; static
+   - Flow: on startup/init: read from FLASH, distribute to units
+4. Algorithms & Control Flow
+   - On init: load config, sanity-check data
+5. Interfaces (APIs)
+   - Provided: config_data_ptr, config_valid(void)
+   - Required: FLASH_read()
+   - Error reporting: config_error()
+6. Error Handling
+   - On config/load failure: fall-back to default, flag error
+7. Resource & Timing Considerations
+   - Invoked at startup, never re-entrant
+   - WCET: < 3ms (Flash read)
+   - No dynamic memory
+8. Traceability
+   - SWE-REQ-012, 032, 038, 039
 
-1. Responsibilities:
-   - Manages flap control state: IDLE, MOVING, FAULT, HOLD
-   - Calls motor control and feedback units
-   - Holds last known/target position
-   - Does not handle direct IO or user communication
+--------------------------------------
+Software Unit: Initialization/Startup Unit
+--------------------------------------
+1. Responsibilities
+   - Handles system bring-up, static chip/resource init, startup state entry
+2. Internal Data Design
+   - Initialization stage flag, error code
+3. State Machine
+   - Simple procedural, sequential bring-up
+   - Steps: REG/CLK→Peripherals→GPIO→Config→Safe state
+4. Algorithms & Control Flow
+   - On power-up: step through initializations, check result, go to state machine
+5. Interfaces (APIs)
+   - Provided: sys_init(void), is_ready(void)
+   - Required: Flash read, config, peripheral init routines
+   - Error: init_error()
+6. Error Handling
+   - Initialization error: stay in safe state, assert error, never start actuator
+7. Resource & Timing Considerations
+   - Invoked only once at startup, not re-entrant
+   - WCET: < 5ms
+   - No dynamic memory
+8. Traceability
+   - SWE-REQ-021, 022, 023, 024
 
-2. Internal Data Design:
-   - state (enum {IDLE, MOVING, FAULT, HOLD})
-   - target_pos (uint8_t)
-   - current_pos (uint8_t)
-   - move_timeout (uint16_t)
-
-3. State Machine:
-   - States: IDLE, MOVING, FAULT, HOLD
-   - Events: valid_cmd, pos_reached, fault, error, timeout
-   - Transitions:
-     - IDLE→MOVING (on valid_cmd)
-     - MOVING→HOLD (on pos_reached)
-     - MOVING/HOLD→FAULT (on error)
-     - FAULT→IDLE (fault cleared)
-
-4. Algorithms & Control Flow:
-   - On valid_cmd: check state==IDLE, set target_pos, call motor_ctrl(start)
-   - Periodically call feedback; if current_pos==target_pos, call motor_ctrl(stop), update state
-   - Fault: inhibit movement, log error
-
-5. Interfaces (APIs):
-   - Provided: State/Control API (set_target, get_state, reset_fault)
-   - Required: Cmd Validator, Pos Feedback, Motor Driver
-   - Params: target_pos (uint8_t)
-   - Error: status enum (OK/ERR_FAULT/ERR_TIMEOUT)
-
-6. Error Handling:
-   - State transitions to FAULT, disables motor, error traceability
-
-7. Resource & Timing Considerations:
-   - Invoked per state event; worst-case path <2ms
-   - Non-reentrant by architecture
-
-8. Traceability:
-   - SWE-REQ-004, SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-008, SWE-REQ-022, SWE-REQ-023, SWE-REQ-024, SWE-REQ-025, SWE-REQ-026, SWE-REQ-027, SWE-REQ-028
-
-==============================
-3. Software Unit: Motor Driver Ctrl
-==============================
-
-1. Responsibilities:
-   - Handles MCU HW enables, direction, PWM
-   - Receives target_dir, enable, duty_cycle from state machine
-   - Does not handle external command/state logic
-
-2. Internal Data Design:
-   - dir (enum {CW, CCW})
-   - pwm_duty (uint8_t)
-   - enable (bool)
-   - driver_status (enum {OK, FAULT})
-
-3. State Machine:
-   - State: NONE (combinatorial, stateless)
-   - Flow: Receives desired cmd, sets/clears GPIO/PWM
-   - If error/fault, disables outputs
-
-4. Algorithms & Control Flow:
-   - Set/clear MCU outputs based on parameters
-   - Bounds: pwm_duty [0,100], dir valid enum
-   - If driver_status==FAULT, inhibit updates
-
-5. Interfaces (APIs):
-   - Provided: Motor Control API (set_dir, set_pwm, enable, disable)
-   - Required: MCU PWM, GPIO
-   - Params: dir, duty, enable (all typed)
-   - Error: returns status, can raise FAULT flag
-
-6. Error Handling:
-   - On HW error, raises FAULT, disables outputs
-
-7. Resource & Timing Considerations:
-   - Each invocation <1ms
-   - Singleton (not re-entrant)
-
-8. Traceability:
-   - SWE-REQ-009, SWE-REQ-010, SWE-REQ-011, SWE-REQ-033
-
-==============================
-4. Software Unit: Position Feedback Processing
-==============================
-
-1. Responsibilities:
-   - Acquires ADC1 data, post-processes
-   - Debounces/glitch filtering
-   - Converts to logical pos [0-5]
-
-2. Internal Data Design:
-   - raw_adc (uint16_t)
-   - filtered_adc (uint16_t[3])
-   - last_pos (uint8_t)
-   - filter_type (config: median/avg, Flash)
-   - thresholds[6] (Flash table)
-
-3. State Machine:
-   - State: NONE (pure combinatorial)
-   - Flow: On demand, read ADC, filter, map to position
-
-4. Algorithms & Control Flow:
-   - Acquire 3 ADC samples, apply median/avg filter
-   - Compare to threshold; set pos
-   - Out-of-bounds: set error
-
-5. Interfaces (APIs):
-   - Provided: Flap Position API (get_pos, get_raw_adc)
-   - Required: ADC1 Driver
-   - Params: none
-   - Error: returns error code (OK/ERR_GLITCH/ERR_RANGE)
-
-6. Error Handling:
-   - On error: report via API, signal to upper logic
-
-7. Resource & Timing Considerations:
-   - Call duration <2ms
-   - Not re-entrant
-
-8. Traceability:
-   - SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-025, SWE-REQ-036
-
-==============================
-5. Software Unit: ADC1 Driver
-==============================
-
-1. Responsibilities:
-   - Triggers/converts analog flap feedback
-   - No logic/algorithm, just data interface
-
-2. Internal Data Design:
-   - current_val (uint16_t)
-   - status (enum {READY, BUSY, ERROR})
-
-3. State Machine:
-   - State: NONE (blocking conversion or async on HW flag)
-
-4. Algorithms & Control Flow:
-   - Start conversion, wait/interrupt for complete, read data
-   - Single-sample, direct return
-
-5. Interfaces (APIs):
-   - Provided: ADC Data API (start, read, status)
-   - Required: MCU ADC HW calls
-   - Params: none
-   - Error: returns status code
-
-6. Error Handling:
-   - Returns error, signals to feedback proc.
-
-7. Resource & Timing Considerations:
-   - Each call <2ms (worst case), not re-entrant
-
-8. Traceability:
-   - SWE-REQ-012, SWE-REQ-013, SWE-REQ-019
-
-==============================
-6. Software Unit: UART/LIN Driver
-==============================
-
-1. Responsibilities:
-   - Provide RX/TX frames to/from comms
-   - Protocol compliance, data package handling
-
-2. Internal Data Design:
-   - rx buffer[8], tx buffer[8]
-   - lin_status (enum {OK, ERROR}), uart_status (same)
-
-3. State Machine:
-   - NONE (ISR/event driven)
-   - Handles RX event, validates frames, passes to parser
-
-4. Algorithms & Control Flow:
-   - On RX event, store frame; verify checksum/type; call upper logic
-
-5. Interfaces (APIs):
-   - Provided: Cmd RX/TX API (send_cmd, recv_cmd)
-   - Required: UART/LIN HW API
-   - Params: buffer ptr, len
-   - Error: returns status
-
-6. Error Handling:
-   - Error in frame: set error flag, report upward
-
-7. Resource & Timing Considerations:
-   - Each RX/TX <0.5 ms
-   - RX not re-entrant; is event/interrupt based
-
-8. Traceability:
-   - SWE-REQ-001, SWE-REQ-017, SWE-REQ-018, SWE-REQ-040
-
-==============================
-7. Software Unit: GPIO/Status Output
-==============================
-
-1. Responsibilities:
-   - Drives individual GPIO/LED for flap/fault status
-   - Configurable output route (build time)
-
-2. Internal Data Design:
-   - status (enum {POS0-5, FAULT})
-   - config (build-time const)
-
-3. State Machine:
-   - NONE (direct set/clear)
-
-4. Algorithms & Control Flow:
-   - On status update, set output GPIO per position/fault
-
-5. Interfaces (APIs):
-   - Provided: Status/Indication API (set_status)
-   - Required: GPIO HW API
-   - Params: status enum
-   - Error: returns status
-
-6. Error Handling:
-   - Write fail: set error, inhibit further output
-
-7. Resource & Timing Considerations:
-   - Direct set/clear <0.2 ms
-   - Not re-entrant
-
-8. Traceability:
-   - SWE-REQ-015, SWE-REQ-016, SWE-REQ-020, SWE-REQ-026, SWE-REQ-033
-
-=======================================
-Document strictly meets SWE.3 ASPICE process and user requirements.
-No code, scheduling, or architecture invention.
-Fully traceable: see sw-reqs.txt and sw-arch.txt SHAs at top of this file.
-=======================================
+================================================================
+NO SCHEDULING, IMPLEMENTATION, CODE, OR HARDWARE ASSUMPTIONS.
+DESIGN IS DIRECTLY TRACED TO SWE.1/ARCHITECTURE AND IS FULLY STATIC. NO UNIT ADDED OR REMOVED.
+================================================================
