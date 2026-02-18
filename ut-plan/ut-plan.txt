@@ -1,0 +1,225 @@
+==============================
+ASPICE SWE.4 UNIT TEST PLAN
+HVAC FLAP ACTUATOR
+==============================
+
+Software Units (per LLD/code):
+- Command Handler
+- Position Control
+- Motor Control
+- Feedback Acquisition
+- Status Indication
+- Error Handling
+- System Data Management
+- HAL (Hardware Abstraction Layer)
+- Test Hooks Interface
+
+------------------------------------------------------------------------
+[FOR EACH UNIT: SUMMARY, RESPONSIBILITY, SW-REQ ALLOC, DETAILED TEST CASES]
+
+-------------------------------------------------------------------------------------------
+UNIT: Command Handler
+Responsible for: Accept/validate/route user commands, error status, feedback
+SW-REQs: SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-015
+
+Test Cases:
+- TC-CH-01 | SWE-REQ-001 | Valid Command Acceptance
+  PRE: System in Idle
+  INPUT: UART RX, buf[0]=0x12, len=1
+  EXPECT: valid_cmd_flag==1, last_cmd_status==0, status sent, Position Control invoked
+- TC-CH-02 | SWE-REQ-002 | Malformed Command Handling
+  PRE: Any
+  INPUT: UART RX, len=0 or buf==NULL
+  EXPECT: last_cmd_status==1, error status sent
+- TC-CH-03 | SWE-REQ-002 | Out-of-Range Command Handling
+  PRE: Any
+  INPUT: buf[0]=0xFF (beyond limit)
+  EXPECT: last_cmd_status==1, error status sent
+- TC-CH-04 | SWE-REQ-003 | Status Response is Correct
+  PRE: After valid
+  INPUT: get_last_cmd_status()
+  EXPECT: return==0 (OK)
+- TC-CH-05 | SWE-REQ-015 | UART Interface Use (mocked)
+  PRE: Any
+  INPUT: Internal command
+  EXPECT: hal_uart_write() called with expected status bytes
+
+-------------------------------------------------------------------------------------------
+UNIT: Position Control
+Responsible for: Verify target, check bounds, update position, trigger motor
+SW-REQs: SWE-REQ-004,SWE-REQ-005,SWE-REQ-006,SWE-REQ-007
+
+Test Cases:
+- TC-PC-01 | SWE-REQ-004 | Target Range Acceptance
+  INPUT: set_target_position(45)
+  EXPECT: Valid, triggers Motor Control
+- TC-PC-02 | SWE-REQ-004 | Reject Out-Of-Range Target
+  INPUT: set_target_position(-1 or 150)
+  EXPECT: pos_verify_result==1
+- TC-PC-03 | SWE-REQ-006 | Internal Position Tracking
+  INPUT: update_on_feedback(45) after target=45
+  EXPECT: current_position==target_position, stop_drive() called
+- TC-PC-04 | SWE-REQ-007 | Accuracy Enforcement
+  INPUT: update_on_feedback(45 or 44) target=45
+  EXPECT: Accept if error <=2%
+
+-------------------------------------------------------------------------------------------
+UNIT: Motor Control
+Responsible for: Issue motor start/stop, direction, fault detection
+SW-REQs: SWE-REQ-008, SWE-REQ-009, SWE-REQ-010, SWE-REQ-011
+
+Test Cases:
+- TC-MC-01 | SWE-REQ-008 | Start in Correct Direction
+  INPUT: start_drive(DIR_FORWARD)
+  EXPECT: GPIO set correctly, motor_state==1
+- TC-MC-02 | SWE-REQ-009 | Stop Command
+  INPUT: stop_drive()
+  EXPECT: GPIO(s) cleared, motor_state==0
+- TC-MC-03 | SWE-REQ-010 | Simulated Overcurrent Fault
+  INPUT: inject fault via HAL/mocks
+  EXPECT: stop_drive(), error flagged
+
+-------------------------------------------------------------------------------------------
+UNIT: Feedback Acquisition
+Responsible for: ADC read, filter, range check, sensor fault
+SW-REQs: SWE-REQ-012, SWE-REQ-013, SWE-REQ-016
+
+Test Cases:
+- TC-FA-01 | SWE-REQ-012 | Valid ADC Result Handling
+  INPUT: mock hal_adc_read returning 50
+  EXPECT: filtered_position==50, status==OK
+- TC-FA-02 | SWE-REQ-013 | Out-of-Range ADC
+  INPUT: mock hal_adc_read returning -10
+  EXPECT: sensor_status==1 (error flagged)
+
+-------------------------------------------------------------------------------------------
+UNIT: Status Indication
+Responsible for: Display state via LEDs/GPIOs
+SW-REQs: SWE-REQ-014, SWE-REQ-017
+
+Test Cases:
+- TC-SI-01 | SWE-REQ-014 | Indicate Normal State
+  INPUT: set_indication(LED_NORMAL)
+  EXPECT: hal_gpio_set(10) called
+- TC-SI-02 | SWE-REQ-014 | Error Indication
+  INPUT: set_indication(LED_ERROR)
+  EXPECT: hal_gpio_set(12) called
+
+-------------------------------------------------------------------------------------------
+UNIT: Error Handling
+Responsible for: Collect/report errors, mediate safety, expose codes
+SW-REQs: SWE-REQ-020, SWE-REQ-023, SWE-REQ-024
+
+Test Cases:
+- TC-EH-01 | SWE-REQ-023 | Report Error
+  INPUT: report_error(5)
+  EXPECT: error_flags==1, last_error_code==5, LED_ERROR set
+- TC-EH-02 | SWE-REQ-024 | Safe State on Error
+  INPUT: Reported error
+  EXPECT: All outputs off or safe
+
+-------------------------------------------------------------------------------------------
+UNIT: System Data Management
+Responsible for: Runtime storage, config
+SW-REQs: SWE-REQ-021, SWE-REQ-022, SWE-REQ-026
+
+Test Cases:
+- TC-SDM-01 | SWE-REQ-021 | Get/Set Data In-Range
+  INPUT: set_data(2,20); get_data(2)
+  EXPECT: returns 20
+- TC-SDM-02 | SWE-REQ-021 | Data Out-Of-Range
+  INPUT: set_data(-1,9)
+  EXPECT: no change, safe default
+
+-------------------------------------------------------------------------------------------
+UNIT: HAL
+Responsible for: Abstract hardware API
+SW-REQs: SWE-REQ-015, SWE-REQ-016, SWE-REQ-017, SWE-REQ-027
+
+Test Cases:
+- TC-HAL-01 | SWE-REQ-015 | UART Write
+  INPUT: hal_uart_write(some, size)
+  EXPECT: Mock UART called with correct params
+- TC-HAL-02 | SWE-REQ-016 | ADC Read Mock
+  INPUT: hal_adc_read() mocked
+  EXPECT: Value propagated to caller
+
+-------------------------------------------------------------------------------------------
+UNIT: Test Hooks Interface
+Responsible for: Sim/test API, fault inject
+SW-REQs: SWE-REQ-028
+
+Test Cases:
+- TC-TH-01 | SWE-REQ-028 | Injecting Fault
+  INPUT: test_inject_fault(ID)
+  EXPECT: Fault triggered, status updatable
+- TC-TH-02 | SWE-REQ-028 | Test Set Command
+  INPUT: test_set_cmd(valid)
+  EXPECT: Test outputs expected status
+
+---------------------
+TRACEABILITY TABLES
+---------------------
+[1] SW-REQ → Test Case Map
+SWE-REQ-001: TC-CH-01
+SWE-REQ-002: TC-CH-02, TC-CH-03
+SWE-REQ-003: TC-CH-04
+SWE-REQ-004: TC-PC-01, TC-PC-02
+SWE-REQ-005: (covered in TC-PC-01)
+SWE-REQ-006: TC-PC-03
+SWE-REQ-007: TC-PC-04
+SWE-REQ-008: TC-MC-01
+SWE-REQ-009: TC-MC-02
+SWE-REQ-010: TC-MC-03
+SWE-REQ-011: (covered in MC)
+SWE-REQ-012: TC-FA-01
+SWE-REQ-013: TC-FA-02
+SWE-REQ-014: TC-SI-01, TC-SI-02
+SWE-REQ-015: TC-CH-05, TC-HAL-01
+SWE-REQ-016: TC-FA-01, TC-HAL-02
+SWE-REQ-017: TC-SI-01, TC-SI-02, TC-HAL-01, TC-HAL-02
+SWE-REQ-020: TC-EH-01
+SWE-REQ-021: TC-SDM-01, TC-SDM-02
+SWE-REQ-022: (covered in SDM)
+SWE-REQ-023: TC-EH-01
+SWE-REQ-024: TC-EH-02
+SWE-REQ-026: (covered in SDM)
+SWE-REQ-027: TC-HAL-02
+SWE-REQ-028: TC-TH-01, TC-TH-02
+[others: N/A]
+
+[2] SW Unit → Test Case Map
+Command Handler: TC-CH-01, TC-CH-02, TC-CH-03, TC-CH-04, TC-CH-05
+Position Control: TC-PC-01, TC-PC-02, TC-PC-03, TC-PC-04
+Motor Control: TC-MC-01, TC-MC-02, TC-MC-03
+Feedback Acquisition: TC-FA-01, TC-FA-02
+Status Indication: TC-SI-01, TC-SI-02
+Error Handling: TC-EH-01, TC-EH-02
+System Data Management: TC-SDM-01, TC-SDM-02
+HAL: TC-HAL-01, TC-HAL-02
+Test Hooks: TC-TH-01, TC-TH-02
+
+-------------------------
+ISOLATION RULES
+-------------------------
+- All ADC/GPIO/PWM/UART accessed code must be executed with full hardware abstraction -- use mocks.
+- All tests deterministic and repeatable.
+- No tests on real hardware or involving integration.
+
+-----------------------------
+EXAMPLE UNIT TEST STUB (C, Mock-based)
+-----------------------------
+#include "command_handler.h"
+#include "mock_hal.h"
+void test_TC_CH_01_valid_cmd(void) {
+    uint8_t buf[1] = {0x12};
+    prepare_uart_rx(buf, 1);
+    handle_uart_rx(buf, 1);
+    assert(valid_cmd_flag==1);
+    assert(last_cmd_status==0);
+    // assert mock set_target_position called
+}
+
+==============================
+END OF UNIT TEST PLAN
+==============================
