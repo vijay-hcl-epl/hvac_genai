@@ -1,79 +1,74 @@
-SOFTWARE ARCHITECTURE DOCUMENT – HVAC FLAP ACTUATOR (MOTIX™ TLE9851QXW)
+SOFTWARE ARCHITECTURE DOCUMENT (SWE.2)
+HVAC Flap Actuator – Infineon TLE9851QXW
 
-1.0 ARCHITECTURE STYLE SELECTION
-
-Candidate styles:
-- Layered
-- Component-based (modular, functional partitions)
-- Monolithic
+1. ARCHITECTURE STYLE SELECTION
+---------------------------------
+Candidates:
+ a. Layered architecture
+ b. Component-based architecture
+ c. Monolithic modular architecture
 
 Evaluation:
-- System complexity: Modest; no explicit concurrency or dynamic behaviors, single-function actuator.
-- HW interaction: Requires clean separation for MCU, ADC, UART/LIN, GPIO, and motor driver.
-- Testability: Needs independent unit testing (sectioned logic, stubs/mocks feasible for I/O).
-- Maintainability: Future extensibility needed (implied by system and software reqs).
-- ASPICE L3: Modular and interface-based mapping required; monolithic rejected.
+* Layered: Testable, separates interface, control, driver, but overhead for small system.
+* Component-based: Good for large/compositional. May over-complicate for atomic device.
+* Monolithic modular: Aligns to system simplicity, requirements, allows explicit, testable module APIs and direct data flow.
 
-Style Decision:
-Selected: Component-based (modular, interface-centric) architecture.
-Rejected: Layered (too heavy/simple for 1-actuator scope); Monolithic (no isolation/extendibility).
+Selection:
+Monolithic modular architecture selected.
+- System has single actuator, no dynamic expansion, no runtime composition, explicit data/control boundaries required for testability (SWE-REQ-040, SWE-REQ-041).
+- Layered/component add no value for strictly sequenced position-control with direct HW interfaces and no asynchronous requirements.
 
-Trace: All decisions justified by system and software requirements documents (SWE-REQ-041, SWE-REQ-042, SWE-REQ-043).
+2. ARCHITECTURE DEFINITION
+----------------------------
+Software Units and Responsibilities:
+- Command Interface Unit: Receives/validates user commands via UART/LIN. (SWE-REQ-001, 002, 003, 017, 018)
+- Control State Machine: Manages Idle/Move/Stopped/Fault, issues action to actuator unit. (SWE-REQ-004, 005, 026, 027, 028, 029)
+- Actuator Driver Unit: Generates motor control signals using half-bridge, executes PWM/speed logic. (SWE-REQ-009, 010, 036)
+- Feedback Processing Unit: Reads ADC, maps position, checks thresholds, detects errors. (SWE-REQ-011, 012, 013, 019, 029, 032)
+- Status Indication Unit: Sets GPIO/LED, LIN, or UART indicators. (SWE-REQ-015, 016, 020)
+- Configuration Data Unit: Reads, holds, shares config (from Flash only, static). (SWE-REQ-012, 032, 038, 039)
+- Initialization/Startup Unit: System and chip bring-up, state entry. (SWE-REQ-021, 022, 023, 024)
 
+Interfaces between Units:
+- Command IF → State Machine: command_in (validated command)
+- State Machine → Actuator Driver: position_cmd, enable, stop
+- State Machine → Status Indicator: pos_status, fault_status
+- Feedback→State Machine/Actuator: position, error_flags
+- Config Data available to units at init
+- Startup→others: triggers initialization, provides ready indication
 
-2.0 SOFTWARE ARCHITECTURE OVERVIEW
-
+Execution Model:
 No explicit execution model or scheduling policy is mandated by the requirements at this stage.
-All runtime/RTOS, scheduling, and priority logic are deferred per task scope and as not required by SWE.1 or system requirements.
 
+3. REPRESENTATION
+------------------
+A) Text Diagram
 
-A) TEXT-BASED ARCHITECTURE DIAGRAM
+[Command Interface] ──(command_in)─▶ [State Machine] ──(position_cmd, enable, stop)─▶ [Actuator Driver]
+                        ▲                │                       │
+                        │                └──(pos_status,            ▼
+                (ADC/pos, error)               fault_status)─────▶ [Status Indication]
+                        │                                               ▲
+   [Configuration Data]─┘
+                        │
+    [Feedback Processing] ──(position, error_flags)─▶ [State Machine]
+                        ▲
+                        │
+ [Initialization/Startup] ────▶(triggers init, provides ready)
 
-[User Cmd I/F]---┐              
-                 v              
-      [Cmd Parser/Validator]    
-                 |              
-                 v              
-      [Position Ctrl State Machine] <---- [Position Feedback Processing]<---[ADC1 Driver]<----[Potentiometer]
-           |         ^                 
-           v         |                 
-   [Motor Driver Ctrl]                 
-           |                           
-           v                           
-      [GPIO/Status Output]      [UART/LIN Driver]
+B) Software Units Table
+| Software Unit            | Responsibilities                                         | Interfaces Provided           | Interfaces Used               |
+|--------------------------|---------------------------------------------------------|-------------------------------|-------------------------------|
+| Command Interface Unit   | UART/LIN receive/validate cmd, error handling           | command_in                    | config_data, UART, LIN        |
+| Control State Machine    | State transitions, command dispatch, error/fault mgt    | position_cmd, state_out       | command_in, fb_in, config, status_indicator |
+| Actuator Driver Unit     | Motor drive, PWM, enable/stop                           | driver_out                    | position_cmd, enable, stop    |
+| Feedback Processing Unit | ADC/acquire, pos. mapping, error detection              | fb_in (position, error_flags) | config_data, ADC              |
+| Status Indication Unit   | Set GPIO, LED, UART, LIN for flap/fault status          | indicator_out                 | state_out, config_data        |
+| Configuration Data Unit  | Read/hold config (Flash static, no runtime change)      | config_data                   | (read at init by all)         |
+| Initialization/Startup   | Sequenced bring-up, initial state entry                 | system_ready                  | N/A                           |
 
-B) SOFTWARE ARCHITECTURE BREAKDOWN TABLE
+Constraints:
+- Traceability to SWE.1 and upstream system reqs only.
+- No invention of execution, algorithms, safety, diagnostics, or extension.
+- Each interface, unit, and mapping is justified directly by SWE.1 IDs as shown above.
 
-| Software Unit               | Responsibilities                                                | Interfaces Provided       | Interfaces Used           |
-|-----------------------------|----------------------------------------------------------------|--------------------------|---------------------------|
-| Cmd Parser/Validator        | Parse, validate commands from UART/LIN                         | Validated Cmd Interface  | UART/LIN HW API           |
-| Position Ctrl State Machine | Manage Flap State, handle transitions (idle, moving, fault...) | State/Control API        | Cmd Validator, Pos. FBK   |
-| Motor Driver Ctrl           | Abstract MC driver, set direction/speed, enforce safety rules  | Motor Control API        | MCU PWM, GPIO HW API      |
-| Position Feedback Proc.     | Sample/validate ADC, convert to logical position, filter        | Flap Position API        | ADC1 HW API               |
-| ADC1 Driver                 | Read Pot Feedback, support >10b, provide to FBK Processing     | ADC Data API             | MCU ADC driver            |
-| UART/LIN Driver             | Frame RX/TX for commands/status, protocol compliance           | Cmd RX/TX API            | UART/LIN HW registers     |
-| GPIO/Status Output          | Single-output status, signal position/fault as output          | Status/Indication API    | GPIO HW API               |
-
-
-3.0 INTERFACE EXPLANATION
-- All unit boundaries trace to SWE-REQ-041, SWE-REQ-042, SWE-REQ-043: extendibility, functional separation, and formal API boundaries mandated by requirements.
-- No code or embedded configuration appears here beyond public/abstract interface statements.
-- Each software unit is mapped to a unique requirement ID for traceability.
-- Status indication, error reporting, and all interfaces expose only domain/comms abstractions as required strictly by SWE.1.
-
-4.0 TRACEABILITY TO REQUIREMENTS
-Software architecture elements here are traced as:
-- Cmd Parser/Validator: SWE-REQ-001…003
-- Position Ctrl State Machine: SWE-REQ-004…008, 022…028
-- Motor Driver Ctrl: SWE-REQ-009…011, 033
-- Position Feedback Proc.: SWE-REQ-012…014, 025, 036
-- ADC1 Driver: SWE-REQ-012, 013, 019
-- UART/LIN Driver: SWE-REQ-001, 017, 018, 040
-- GPIO/Status Output: SWE-REQ-015, 016, 020, 026, 033
-
-No safety/cyber/diagnostics/implementation detail/unit algorithms are included. All responsibilities, interfaces, and boundaries mapped directly from SWE.1 (sw-reqs.txt, SHA: e41561b06f6f5c2a00d05d7f8c95e1c565ed514a).
-
-===============
-Reference: Derived from sys-reqs.txt and sw-reqs.txt as of SHA 4b34743d62e1dec886f144a4e48bb6f2f8782f3b/hvdemo-feb18.
-Document version: 2024-06-18
-===============
