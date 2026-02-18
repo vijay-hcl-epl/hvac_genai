@@ -1,96 +1,91 @@
-1.0 Software Architecture for HVAC Flap Actuator
-================================================
-
-This document defines the software architecture, derived exclusively from documented requirements in sys-reqs/sys-reqs.txt and sw-reqs/sw-reqs.txt (branch hvdemo-142b). No functionality, assumptions, or interfaces are invented. All structural/architectural decisions trace directly to requirements. No code, algorithms, safety/security, or diagnostics are included, in accordance with workflow rules.
-
-------------------------------------------------
-2.0 Architecture Style Selection (SWE.2.A)
-------------------------------------------------
-Candidate styles evaluated:
-
-- Monolithic: All logic in one software entity.
-- Layered: Separation of application logic, hardware abstraction, and device drivers.
-- Component-based: Discrete software units for command handling, flap control, feedback acquisition, and indication.
+=====================
+1. ARCHITECTURE STYLE SELECTION
+=====================
+Candidate Styles Considered:
+- Layered
+- Component-based
+- Monolithic
 
 Evaluation:
-- System complexity is low (single actuator, single user command, simple feedback).
-- Direct hardware interaction via UART, ADC, GPIO, and PWM required (SWE-REQ-019...SWE-REQ-022).
-- ASPICE expects separation to ensure testability (SWE-REQ-044, SYS-REQ-041), maintainability, and traceability.
+Layered: The requirements (SWE.1) do not warrant a strict hardware-abstraction/service separation. Layering would not simplify or clarify responsibilities due to the small solution scope and absence of reusable business logic; rejected.
 
-Selection: Component-based architecture.
+Monolithic: Would fulfill requirements, but makes future maintainability and unit traceability more difficult; not preferred for ASPICE and testability.
 
-Justification:
-- Layered is rejected as no multi-layered abstraction is needed for this hardware and functional partitioning (SWE-REQ-023: no other interfaces, SWE-REQ-040: resource constraints).
-- Monolithic is rejected as it hinders testability/modularity (SWE-REQ-044, SYS-REQ-041).
-- Component-based is justified to enable testability (SWE-REQ-044), interface clarity (SWE-REQ-019 to -022), and precise functional assignment.
+Component-based: This approach matches the discrete aspect of each system function (command input, actuator control, feedback processing, indication). Small, responsible software units increase maintainability, testability, and alignment with SWE.1's traceability and ASPICE L3 (SWE.2.BP1/BP6). Selected.
 
-------------------------------------------------
-3.0 Software Execution Model (SWE.2.B)
-------------------------------------------------
-No explicit execution model or scheduling policy is mandated by the requirements at this stage.
+=====================
+2. SOFTWARE ARCHITECTURE DEFINITION
+=====================
 
-Trace: SWE-REQ-038, SWE-REQ-039 – No fixed cycle or RTOS/OS mandated; no scheduling, timing, or concurrency requirements appear in SWE.1.
+Software Units (mapped directly to SWE.1 with no additional behavior or requirements invented):
 
-------------------------------------------------
-4.0 Software Units, Responsibilities, and Interfaces (SWE.2.C, D)
-------------------------------------------------
+1. Command Input Unit
+   - Responsibilities: Receives and interprets user UART commands. [SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-019]
+   - Interfaces Provided: Decoded Position Command
+   - Interfaces Used: UART peripheral
 
-A. Software Units Diagram (Text-Based)
+2. Flap Position Control Unit
+   - Responsibilities: Implements state/control logic for flap movement in response to valid commands. [SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-024, SWE-REQ-025, SWE-REQ-026, SWE-REQ-027, SWE-REQ-028, SWE-REQ-031]
+   - Interfaces Provided: Target position and control outputs
+   - Interfaces Used: Command Input Unit, Feedback Acquisition Unit, Motor Actuation Unit
 
- ----------------------------
-| UserCmdHandler             |
-|---------------------------|
-| Receives UART cmds         |
-| Validates/parses to 0..5   |<---------|
- ----------------------------          |
-            |                            |
-            v                            |
- ----------------------------            |
-| FlapCtrl                      |        |
-|-----------------------------|        |
-| Drives DC Motor (via     |        |
-| MotorDriver)             |        |
- ----------------------------        |
-            |                            |
-     +------|-------+                    |
-     |              |                    |
-     v              v                    |
- ----------------------------    ----------------------------
-| PosFeedback                |  | StatusIndication           |
-|---------------------------|  |---------------------------|
-| Reads ADC potentiometer    |  | Controls LEDs (GPIO)      |
-| Maps ADC to position       |  | Sets "power ON" and       |
-| Provides position/state    |  | position LEDs             |
- ----------------------------    ----------------------------
+3. Motor Actuation Unit
+   - Responsibilities: Drives, stops, and directs the DC motor according to commands from Flap Position Control Unit. [SWE-REQ-008, SWE-REQ-009, SWE-REQ-010, SWE-REQ-011, SWE-REQ-021]
+   - Interfaces Provided: Motor control signals (GPIO+PWM)
+   - Interfaces Used: Flap Position Control Unit
 
-Key:
-- Solid arrows: Functional dependency/call.
-- Dashed border: Hardware device interface.
-- No explicit scheduler/timer module instantiated.
+4. Feedback Acquisition Unit
+   - Responsibilities: Continuously acquires and maps ADC data to flap position; notifies on out-of-range. [SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-015, SWE-REQ-020, SWE-REQ-030, SWE-REQ-033]
+   - Interfaces Provided: Current flap position
+   - Interfaces Used: ADC peripheral
 
-B. Table: Software Unit Responsibility/Interface Matrix
+5. Status Indication Unit
+   - Responsibilities: Powers on LED; displays current position via LEDs. [SWE-REQ-016, SWE-REQ-017, SWE-REQ-018, SWE-REQ-022]
+   - Interfaces Provided: None (acts on state)
+   - Interfaces Used: Flap Position Control Unit
 
-| Software Unit      | Responsibilities                                        | Interfaces Provided           | Interfaces Used                                                      |
-|--------------------|---------------------------------------------------------|-------------------------------|----------------------------------------------------------------------|
-| UserCmdHandler     | Receive, validate, and parse UART commands (0-5)        | NewTargetCmd(pos)             | UART (input), FlapCtrl (call)                                        |
-| FlapCtrl           | Command translation, target management, movement logic  | SetMotor(dir), Idle(), etc.   | MotorDriver (call), PosFeedback (query), UserCmdHandler (signal)     |
-| MotorDriver        | Actuate DC motor via PWM/GPIO, direction, off control   | MotorCtrl(iface)              | GPIO+PWM (hardware), FlapCtrl (call)                                 |
-| PosFeedback        | Acquire position (ADC), map ADC to positions, monitor   | GetPosition(), InRange()      | ADC (hardware), FlapCtrl (query)                                     |
-| StatusIndication   | LED status feedback via GPIO                            | SetLed(pos), PowerLed(state)  | GPIO (hardware), FlapCtrl/UserCmdHandler (signal)                    |
+6. Initialization/Startup Unit
+   - Responsibilities: Initializes hardware/peripherals at startup, reads flap position, puts system in idle before command loop. [SWE-REQ-024, SWE-REQ-025, SWE-REQ-011]
+   - Interfaces Provided: Signals to all units to start operation after configuration
+   - Interfaces Used: All hardware peripherals
 
-------------------------------------------------
-5.0 Traceability to Requirements
-------------------------------------------------
-- All responsibilities and interfaces are mapped to explicit SWE.1 requirement IDs in the above table or diagram parenthetical references.
-- No added behavioral logic, safety, diagnostics, timing, or implementation detail is present.
+=====================
+Execution Model:
+=====================
+No explicit execution model or scheduling policy is mandated by the requirements at this stage. Only the functional flow outlined in SWE.1 must be realized; details of cyclic, event-driven, or preemptive scheduling are not specified or assumed.
 
-------------------------------------------------
-6.0 Constraints
-------------------------------------------------
-- No code, error behavior, or scheduling detail is described herein.
-- No requirement is supplemented or ignored.
-- No UML or graphical diagrams (text only, as mandated).
-- All information strictly derived from sys/sw-reqs artifacts.
+=====================
+A) Text-Based Architecture Diagram
+=====================
+Initialization/Startup Unit
+     |---> Command Input Unit <-- UART
+     |---> Feedback Acquisition Unit <-- ADC
+     |---> Flap Position Control Unit
+                 |         |           |       |
+                 v         v           v       v
+         Motor Actuation  Status Indication
+              Unit        Unit
 
-------------------------------------------------
-[END OF DOCUMENT]
+
+"Startup Unit" enables the subordinate units. "Command Input" and "Feedback Acquisition" feed commands and position to "Flap Position Control," which directs "Motor Actuation" and triggers "Status Indication."
+
+=====================
+B) Unit Table
+=====================
+Software Unit                    | Responsibilities                     | Interfaces Provided                  | Interfaces Used
+-------------------------------  | -----------------------------------  | ------------------------------------ | ---------------------------------------------
+1. Initialization/Startup Unit   | Peripheral setup, power-up logic     | Init-complete signal                 | ADC, UART, GPIO, PWM
+2. Command Input Unit            | UART decode, valid command filter    | Decoded command                      | UART, Flap Position Control Unit
+3. Feedback Acquisition Unit     | ADC read, map to pos, out-of-range   | Current flap position                 | ADC, Flap Position Control Unit
+4. Flap Position Control Unit    | Command logic, idle/move/idle        | Position/move/stop commands           | Command Input, Feedback Acquisition, Motor Actuation, Status Indication
+5. Motor Actuation Unit          | Drive/stop motor                     | Motor signals (GPIO+PWM)              | Flap Position Control Unit
+6. Status Indication Unit        | LEDs ON/OFF by flap state            | (State is output)                     | Flap Position Control Unit, GPIO
+
+=====================
+CONSTRAINTS
+=====================
+- No behavior or requirements are invented beyond SWE.1/SYS-REQ.
+- No code, diagnostics, safety, or cybersecurity functions included.
+- All unit responsibilities trace directly to SWE.1.
+- No detailed implementation or scheduling described.
+- No unit-level algorithms, timing, or error recovery not stated in requirements.
