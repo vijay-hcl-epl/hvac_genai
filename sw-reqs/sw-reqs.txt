@@ -1,0 +1,77 @@
+1.0 Software Scope & Responsibility
+----------------------------------
+This software controls a flap actuator system for a vehicle HVAC. It runs on an MCU and implements motor control, user command handling (UART), ADC-based feedback acquisition, and status LED indication. Architecture and scheduling policy are not defined, per scope. It excludes diagnostics, cyber-security, and any networked vehicle communication.
+
+2.0 Software Functional Requirements
+-----------------------------------
+2.1 User Commands
+- SWE-REQ-001: The software SHALL receive flap position commands as integer values (0–5) via UART input. [Trace: SYS-REQ-011]
+- SWE-REQ-002: The software SHALL ignore UART commands that are not in the range 0–5. [Trace: SYS-REQ-012]
+- SWE-REQ-003: The software SHALL process only one user command at a time; additional commands are held until current command completes. [Implied][Trace: SYS-REQ-013]
+
+2.2 Flap Control
+- SWE-REQ-004: The software SHALL map commanded positions (0–5) to unique, fixed ADC ranges for the flap potentiometer. [Trace: SYS-REQ-003, SYS-REQ-009]
+- SWE-REQ-005: The software SHALL compare current ADC value to targeted ADC range to determine if the flap position matches the commanded position. [Trace: SYS-REQ-003]
+- SWE-REQ-006: The software SHALL refrain from any flap movement when no new valid command is present. [Trace: SYS-REQ-002]
+- SWE-REQ-007: The software SHALL move the flap actuator towards the commanded position only after a valid command is received. [Trace: SYS-REQ-001]
+- SWE-REQ-008: [Implied] The software SHALL cease all attempted movement if the ADC is out of range. [Trace: SYS-REQ-010]
+
+2.3 Motor Control
+- SWE-REQ-009: The software SHALL produce motor direction signals (clockwise/anti-clockwise) using GPIO based on position delta. [Trace: SYS-REQ-005]
+- SWE-REQ-010: The software SHALL stop driving the motor when target or out-of-range is detected. [Trace: SYS-REQ-006, SYS-REQ-010, SYS-REQ-007]
+- SWE-REQ-011: [Implied] The motor SHALL be off at power-up, or if an invalid command, invalid input, or ADC out-of-range condition is detected. [Trace: SYS-REQ-007, SYS-REQ-017]
+
+2.4 Feedback Processing
+- SWE-REQ-012: The software SHALL read analog position from the ADC channel for feedback. [Trace: SYS-REQ-008, SYS-REQ-024]
+- SWE-REQ-013: The software SHALL assign the ADC value to logical positions per defined ranges/settings. [Trace: SYS-REQ-009, SYS-REQ-028]
+- SWE-REQ-014: [Implied] During motor movement, the software SHALL continuously monitor ADC to detect target reached/out-of-range. [Trace: SYS-REQ-022]
+
+2.5 Status Indication
+- SWE-REQ-015: The software SHALL illuminate a power LED when system power is ON. [Trace: SYS-REQ-014]
+- SWE-REQ-016: The software SHALL indicate only one position-LED (out of 6) as ACTIVE to reflect the current detected flap position. [Trace: SYS-REQ-015]
+- SWE-REQ-017: [Implied] Status LEDs SHALL be updated immediately after the flap position is changed. [Trace: SYS-REQ-016]
+
+3.0 Software Interface Requirements
+----------------------------------
+- SWE-REQ-018: Provide UART (data input, non-blocking) interface for user commands, format: ASCII numeric (0–5). [Trace: SYS-REQ-023]
+- SWE-REQ-019: Use a single ADC channel for flap position, requiring hardware initialization/calibration per design spec. [Trace: SYS-REQ-024, SYS-REQ-028]
+- SWE-REQ-020: Control motor enable and direction with logical signals to two distinct GPIO pins; use PWM output for enable if available. [Trace: SYS-REQ-025, SYS-REQ-026]
+- SWE-REQ-021: Control power and position LEDs using separate GPIO outputs (6 position, 1 power). [Trace: SYS-REQ-025]
+- SWE-REQ-022: [Implied] No CAN/LIN/vehicle network or diagnostic protocol is implemented. [Trace: SYS-REQ-027]
+
+4.0 Software Behavioral Requirements
+-----------------------------------
+- SWE-REQ-023: At startup, the software SHALL initialize UART, ADC, all GPIO, and ensure motor outputs are off. [Trace: SYS-REQ-017]
+- SWE-REQ-024: At startup, read flap's initial ADC value to select and illuminate the correct position LED. [Trace: SYS-REQ-018]
+- SWE-REQ-025: Ignore and discard any command outside range 0–5 without acknowledgement. [Trace: SYS-REQ-021]
+- SWE-REQ-026: On valid command, initiate single flap movement sequence toward the new target, stop on target, and update status LEDs. [Trace: SYS-REQ-020]
+- SWE-REQ-027: If target is not reached within a defined number of attempts/timeout, hold and await further command. [Trace: SYS-REQ-033]
+- SWE-REQ-028: [Implied] In idle, await next valid user command input; no cyclic/periodic polling obligations imposed. [Trace: SYS-REQ-019]
+
+5.0 Software Data & Configuration
+---------------------------------
+- SWE-REQ-029: The ADC-to-flap-position mapping table SHALL be stored as read-only configuration. [Trace: SYS-REQ-028]
+- SWE-REQ-030: [Implied] No dynamic allocation; all memory for configuration and state SHALL be statically allocated. [Trace: SYS-REQ-034]
+
+6.0 Software Error Handling
+--------------------------
+- SWE-REQ-031: If the ADC is out-of-range, the software SHALL stop the motor, hold current state, and await valid input. [Trace: SYS-REQ-032]
+- SWE-REQ-032: The software SHALL operate in fail-silent mode — never hang, assert, or reset the MCU. [Trace: SYS-REQ-033]
+
+7.0 Performance & Responsiveness
+-------------------------------
+- SWE-REQ-033: Software SHALL update flap position and status indicators fast enough to be perceived as instantaneous by a user (<100ms typical for movement initiation after command). [Trace: SYS-REQ-031]
+- SWE-REQ-034: [Implied] No fixed cycle/periodic timing architecture is assumed; actual responsiveness is implementation dependent. [Trace: SYS-REQ-031]
+
+8.0 Resource Constraints
+------------------------
+- SWE-REQ-035: No dynamic memory allocation permitted. [Trace: SYS-REQ-034]
+- SWE-REQ-036: Run entirely within memory/resource limits of STM32F407G-DISC1 platform. [Trace: SYS-REQ-035]
+
+9.0 Testability
+---------------
+- SWE-REQ-037: The software SHALL allow independent test of all features using PC command input and visual LED/motor output. [Trace: SYS-REQ-037]
+
+10.0 Implied Requirements
+------------------------
+- SWE-REQ-038: [Implied] The software SHALL assume underlying hardware operates correctly during normal operation. [Trace: SYS-REQ-030]
