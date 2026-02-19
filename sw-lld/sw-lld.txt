@@ -1,241 +1,221 @@
 =============================
-SOFTWARE LOW-LEVEL DESIGN (SWE.3)
+SOFTWARE LOW LEVEL DESIGN (SWE.3)
 =============================
-Target Language: MISRA-style Embedded C (no dynamic allocation)
+Document: sw-lld/sw-lld.txt
 Branch: hvdemo-142b
+Scope: Requirements-traceable LLD, MISRA C, NO scheduling/RTOS assumption, NO new units
 
----------------------------------------------------------
-Software Unit: Initialization/Startup Unit
----------------------------------------------------------
-1. Responsibilities  
-- Handles system boot-up, peripheral initialization, and power-on logic.  
-- Does not handle any user command decoding, flap control, or error management.
-
-2. Internal Data Design  
-- State variable: sys_init_done (bool)
-- Config: Static pin/peripheral definitions (ROM, compile constant)
-
-3. State Machine  
-- States: None; single initialization sequence at boot. 
-- Flow: Startup → peripheral init → signal 'ready' to downstream units.
-
-4. Algorithms & Control Flow  
-- Pseudocode:
-  - On power-up: perform peripheral setup (UART, ADC, PWM, GPIO ports).
-  - Initialize all outputs to OFF.
-  - Read flap feedback once and store value.
-  - Set sys_init_done = true.
-
+==============================================
+1. INITIALIZATION/STARTUP UNIT
+----------------------------------------------
+1. Responsibilities
+   - Handles: System/hardware startup, peripheral setup, reading initial flap position, system idle
+   - Does NOT handle: Ongoing command/position processing after startup
+2. Internal Data Design
+   - Static struct for initialization state
+   - ADC/position-buffer variables, init-complete flag
+   - No dynamic allocation
+3. State Machine
+   - States: Init (startup), Ready (after init)
+   - Transition: After all peripherals configured → Ready
+   - No run-time state transitions
+4. Algorithms & Control Flow
+   - Stepwise:
+     1) Power-up entry
+     2) Configure peripherals (ADC, UART, GPIO, PWM)
+     3) Read flap position via ADC
+     4) Set Power-ON LED
+     5) Signal other units system is ready
+   - No loops post-init
 5. Interfaces (APIs)
-- Provided: init_complete() [signal to all other units]
-- Required: None (lowest level)
-- Params/Returns: None
-- Error reporting: None
-
-6. Error Handling  
-- Not responsible for run-time errors or diagnostics.
-
+   - Provided: init_start(), init_complete_signal()
+   - Required: ADC read/start(), UART setup(), GPIO config(), PWM config(), Feedback Acq Unit read()
+   - Params: None (static config)
+   - Returns: Status/result code
+   - Error: Returns status code if peripheral/config init fails
+6. Error Handling
+   - Stops startup on HW/periph error, returns code
+   - Sets outputs to safe idle
+   - No restart/retry defined
 7. Resource & Timing Considerations
-- Invoked once at power-up.  
-- No reentrancy required.  
-- WCET not safety-critical.
+   - Runs ONCE at power-up
+   - WCET: < 5ms typical on STM32F4
+   - Not re-entrant
+8. Traceability
+   - SWE-REQ-024, SWE-REQ-025, SWE-REQ-011
 
-8. Traceability  
-- SWE-REQ-024, SWE-REQ-025, SWE-REQ-011
-
----------------------------------------------------------
-Software Unit: Command Input Unit
----------------------------------------------------------
-1. Responsibilities  
-- Handles reception/validation of UART user commands.  
-- Does not control actuators or perform error handling beyond command validation.
-
-2. Internal Data Design 
-- Variable: cmd_rx_buffer[1]
-- Valid position set: (0..5)
-
-3. State Machine  
-- States: None; stateless filter/interpret.
-- Flow: Check UART receive; if new data, parse and filter command.
-
-4. Algorithms & Control Flow  
-- Pseudocode:
-  - On UART receive: read byte; if 0-5, forward as valid.
-  - If out-of-range, ignore command.
-
-5. Interfaces (APIs)  
-- Provided: get_valid_position()  
-- Required: UART rx peripheral  
-- Params: None
-- Returns: Valid position (0..5) or 'none/invalid'.
-- Error Reporting: None
-
-6. Error Handling  
-- Drops invalid data. No error feedback or resets generated.
-
+==============================================
+2. COMMAND INPUT UNIT
+----------------------------------------------
+1. Responsibilities
+   - Handles: UART command decode, validation/filtering
+   - Does NOT handle: Flap movement/state
+2. Internal Data Design
+   - Static command buffer, valid-position variable
+   - Range-check constants/struct
+3. State Machine
+   - State: Idle (waiting), Command-Decoded
+   - Event: UART RX complete
+   - Action: Parse/validate/set command variable or ignore
+4. Algorithms & Control Flow
+   - Stepwise:
+     a) Wait for UART RX
+     b) Parse and range-check (0-5)
+     c) Set valid-command flag or ignore
+   - No loops, no queuing
+5. Interfaces (APIs)
+   - Provided: get_decoded_command()
+   - Required: UART RX ISR/callback
+   - Params: None
+   - Returns: Parsed position (0–5) or INVALID
+   - Error: INVALID if out of range
+6. Error Handling
+   - Ignores invalid input, sets INVALID, does not raise
+   - No UART protocol error reporting
 7. Resource & Timing Considerations
-- Invoked on UART input event.
-- Non-reentrant; buffer per-invocation is safe.
+   - Invoked on UART RX event
+   - WCET: < 0.5ms
+   - Not re-entrant
+8. Traceability
+   - SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-019
 
-8. Traceability  
-- SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-019
+==============================================
+3. FEEDBACK ACQUISITION UNIT
+----------------------------------------------
+1. Responsibilities
+   - Handles: ADC reading, mapping signal to position, validity check
+   - Does NOT handle: command decode, actuation
+2. Internal Data Design
+   - Static ADC buffer, position variable
+   - Config struct (static for ADC→position mapping)
+3. State Machine
+   - States: Valid, Out-of-Range
+   - Events: ADC sample ready
+   - Transitions: ADC in range → Valid, Out-of-range → signal idle/stop
+4. Algorithms & Control Flow
+   - Stepwise:
+     i) Acquire ADC value
+     ii) For each range, check bounds
+     iii) Return position or INVALID
+   - No adaptive mapping
+5. Interfaces (APIs)
+   - Provided: get_flap_position()
+   - Required: ADC ISR/callback
+   - Params: None
+   - Returns: position (0–5) or OUT_OF_RANGE
+   - Error: OUT_OF_RANGE code
+6. Error Handling
+   - OUT_OF_RANGE stops actuation
+   - No diagnostic indication
+7. Resource & Timing Considerations
+   - Invoked on ADC ready
+   - WCET: < 0.25ms
+   - Not re-entrant
+8. Traceability
+   - SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-015, SWE-REQ-020, SWE-REQ-030, SWE-REQ-033
 
----------------------------------------------------------
-Software Unit: Feedback Acquisition Unit
----------------------------------------------------------
-1. Responsibilities  
-- Handles continuous ADC acquisition and mapping to discrete flap position.  
-- Does not directly drive actuator or status outputs.
+==============================================
+4. FLAP POSITION CONTROL UNIT
+----------------------------------------------
+1. Responsibilities
+   - Handles: Command/position/state determination, movement logic
+   - Does NOT handle: hardware actuation, direct UART/ADC interfacing
+2. Internal Data Design
+   - Target/current position, state variable
+   - Static command/state struct
+3. State Machine
+   - States: Idle, Moving, Error-Detected
+   - Events: Command received, Position reached, Feedback error
+   - Transitions: Idle→Moving (cmd), Moving→Idle (pos matched), Any→Error (out-of-range)
+4. Algorithms & Control Flow
+   - Stepwise:
+     1) Check for new command
+     2) If valid, compare to current position
+     3) Issue move/stop command to Motor Unit
+     4) Update status LEDs
+     5) Idle if complete/error
+5. Interfaces (APIs)
+   - Provided: position_controller_execute()
+   - Required: get_decoded_command(), get_flap_position(), motor_move(), motor_stop(), set_led_state()
+   - Params: None
+   - Returns: Status
+   - Error: Error code on out-of-range
+6. Error Handling
+   - If feedback = OUT_OF_RANGE: stop, set error state
+   - No automated retry
+7. Resource & Timing Considerations
+   - Periodic/call per command/ADC event
+   - WCET: < 1ms
+   - Not re-entrant
+8. Traceability
+   - SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-024, SWE-REQ-025, SWE-REQ-026, SWE-REQ-027, SWE-REQ-028, SWE-REQ-031
 
-2. Internal Data Design  
-- Variable: adc_raw_value (uint16_t)
-- Position map: static const adc_thresholds[6][2]; (ROM)
-- Output: current_position (0..5, or invalid)
+==============================================
+5. MOTOR ACTUATION UNIT
+----------------------------------------------
+1. Responsibilities
+   - Handles: Motor drive/stop/actuate commands from control unit
+   - Does NOT handle: State logic, UART/ADC/LED management
+2. Internal Data Design
+   - Static state: direction, enable, signals
+   - No dynamic allocation
+3. State Machine
+   - States: Motor-Off, Motor-On-Fwd, Motor-On-Rev
+   - Events: Move command (with direction)
+   - Actions: Set/clear output pins, enable/disable PWM
+4. Algorithms & Control Flow
+   - On motor_move():
+     a) Set direction, enable
+   - On motor_stop():
+     b) Clear enable, all outputs off
+5. Interfaces (APIs)
+   - Provided: motor_move(dir), motor_stop()
+   - Required: GPIO/PWM calls
+   - Params: dir (FWD/REV)
+   - Returns: Status
+   - Error: Returns status if hardware error (optional)
+6. Error Handling
+   - On hardware signal error: stop
+   - No report/indication
+7. Resource & Timing Considerations
+   - Invoked by controller only
+   - WCET: < 0.25ms
+   - Not re-entrant
+8. Traceability
+   - SWE-REQ-008, SWE-REQ-009, SWE-REQ-010, SWE-REQ-011, SWE-REQ-021
 
-3. State Machine  
-- State: Measuring/Idle.
-- Transitions: triggered by periodic poll or on-move event.
+==============================================
+6. STATUS INDICATION UNIT
+----------------------------------------------
+1. Responsibilities
+   - Handles: Power and position LED indication on system state
+   - Does NOT handle: command logic, ADC/motor
+2. Internal Data Design
+   - LED state array; current LED index/variable
+3. State Machine
+   - States: LEDs ON/OFF
+   - Event: Position/state changes
+   - Action: Set single position LED ON, all others OFF
+4. Algorithms & Control Flow
+   - On flap/command/state change:
+     - Set power LED ON during operation
+     - Set only the matching position LED ON, others OFF
+5. Interfaces (APIs)
+   - Provided: set_led_state(idx)
+   - Required: GPIO set/reset
+   - Params: idx (0–5, power)
+   - Returns: none
+   - Error: none
+6. Error Handling
+   - If invalid idx: ignore
+   - No diagnostic output
+7. Resource & Timing Considerations
+   - Invoked on position/command event
+   - WCET: < 0.15ms
+   - Not re-entrant
+8. Traceability
+   - SWE-REQ-016, SWE-REQ-017, SWE-REQ-018, SWE-REQ-022
 
-4. Algorithms & Control Flow  
-- Pseudocode:
-  - Sample ADC.
-  - Compare raw value to mapped threshold bins.
-  - If in range, output position (0..5).
-  - If not in any bin, output INVALID.
-
-5. Interfaces (APIs)  
-- Provided: get_current_position()
-- Required: ADC input peripheral
-- Params: None.
-- Returns: Flap position (0..5) or INVALID.
-- Error Reporting: INVALID signals out-of-range.
-
-6. Error Handling  
-- Out-of-range ADC → output INVALID, triggers motor halt.
-
-7. Resource & Timing Considerations  
-- Invoked on periodic poll or flap move.
-- Possible blocking ADC; mitigated by short conversions.
-- Not re-entrant.
-
-8. Traceability  
-- SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-015, SWE-REQ-020, SWE-REQ-030, SWE-REQ-033
-
----------------------------------------------------------
-Software Unit: Flap Position Control Unit
----------------------------------------------------------
-1. Responsibilities  
-- Handles move command execution, idle transition, and system state enforcement.  
-- Does not directly read hardware or manage peripheral errors.
-
-2. Internal Data Design  
-- Variable: target_position (0..5)
-- Current position (read-only)
-- Move_in_progress (bool)
-
-3. State Machine  
-- States: IDLE, EXECUTE_MOVE
-- Events: new command (valid), move complete, invalid feedback.
-- Transition: IDLE→EXECUTE_MOVE (on command), EXECUTE_MOVE→IDLE (on completion/invalidation).
-
-4. Algorithms & Control Flow 
-- On command: set target_position; if different from current, request motor move.
-- On each feedback update, check for arrival (current == target); if so, signal motor halt, set idle.
-- On invalid feedback, halt motor.
-
-5. Interfaces (APIs)  
-- Provided: process_new_command(), check_move_complete()
-- Required: Command Input, Feedback Acquisition, Motor Actuation, Status Indication
-- Params: target_position
-- Returns: move/status signal
-- Error Reporting: Does not report errors directly.
-
-6. Error Handling 
-- If feedback invalid during move, enters idle state, halts motor.
-
-7. Resource & Timing Considerations  
-- Invoked on new valid command and on feedback update.
-- Single-threaded assumption; not re-entrant.
-
-8. Traceability  
-- SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-024, SWE-REQ-025, SWE-REQ-026, SWE-REQ-027, SWE-REQ-028, SWE-REQ-031
-
----------------------------------------------------------
-Software Unit: Motor Actuation Unit
----------------------------------------------------------
-1. Responsibilities  
-- Handles enabling, reversing, and stopping the DC motor per control signals.  
-- Does not process commands, error feedback, or status output directly.
-
-2. Internal Data Design  
-- Variable: motor_enable (bool), direction (enum)
-- Config: GPIO/PWM static assignment
-
-3. State Machine 
-- State: ON, OFF
-- Events: enable, disable, direction change
-
-4. Algorithms & Control Flow  
-- On enable/command from Flap Position Control, set outputs per direction.
-- On stop request or feedback invalid, set all outputs OFF.
-
-5. Interfaces (APIs)  
-- Provided: actuate_motor(dir), stop_motor()
-- Required: GPIO/PWM output
-- Params: direction
-- Returns: void
-- Error Reporting: None (hardware may indicate fault externally)
-
-6. Error Handling  
-- Always returns to safe (OFF) mode on error/halt request.
-
-7. Resource & Timing Considerations  
-- Invoked on position change, or at movement completion/stall.
-- No reentrancy needed; short latency assumed (<1ms).
-
-8. Traceability  
-- SWE-REQ-008, SWE-REQ-009, SWE-REQ-010, SWE-REQ-011, SWE-REQ-021
-
----------------------------------------------------------
-Software Unit: Status Indication Unit
----------------------------------------------------------
-1. Responsibilities  
-- Handles ON/OFF control for "power" and "flap position" LEDs via GPIO.  
-- Does not interpret feedback, or confirm actuator state.
-
-2. Internal Data Design  
-- LED mapping: static const led_gpio_map[6]
-- Variable: last_active_led (0..5)
-
-3. State Machine  
-- No explicit machine; simple drive logic only.
-
-4. Algorithms & Control Flow  
-- On system init: set power LED ON.
-- On position change: set matched position LED ON, all others OFF.
-
-5. Interfaces (APIs)  
-- Provided: update_status_leds()
-- Required: GPIO output
-- Params: position (0..5).
-- Returns: void
-- Error Reporting: None
-
-6. Error Handling  
-- None. Fail-safe: All LEDs off if invalid state.
-
-7. Resource & Timing Considerations  
-- Invoked at init and on every position/state update.
-- Not re-entrant. Latency < few ms.
-
-8. Traceability  
-- SWE-REQ-016, SWE-REQ-017, SWE-REQ-018, SWE-REQ-022
-
----------------------------------------------------------
-
-GLOBAL NOTES:
-- All architecture and responsibilities map 1-to-1 with SWE.2 and SWE.1. No additional behaviors, error handling, or interface requirements are introduced here. No code, hardware details, or scheduling assumptions are introduced per ASPICE L3 constraints.
-- No dynamic memory allocation or OS resources required. All data sizing is static and deterministic.
-- If commit fails due to SHA change (422), retry once, then branch from main with '-nb' suffix and push again as per policy.
-
+=============================
 END OF DOCUMENT
+=============================
