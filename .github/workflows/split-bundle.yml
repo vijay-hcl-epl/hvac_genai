@@ -53,5 +53,5 @@ jobs:
           git push origin "HEAD:${GITHUB_REF_NAME}" || {
             echo "Push failed due to remote update; rebasing and retrying..."
             git pull --rebase origin "${GITHUB_REF_NAME}"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
           }
