@@ -1,0 +1,393 @@
+###### FILE: code/inc/command_interface.h ######
+#ifndef COMMAND_INTERFACE_H
+#define COMMAND_INTERFACE_H
+#include <stdint.h>
+#include <stdbool.h>
+
+typedef enum {
+    CMD_TYPE_NONE = 0,
+    CMD_TYPE_POSITION
+} command_type_t;
+
+typedef struct {
+    command_type_t type;
+    uint16_t target_position;
+    bool valid_command_flag;
+} command_t;
+
+void command_interface_init(void);
+void command_interface_receive_byte(uint8_t byte);
+command_t command_interface_get_valid_command(void);
+void command_interface_clear_flag(void);
+
+#endif // COMMAND_INTERFACE_H
+###### END FILE ######
+###### FILE: code/src/command_interface.c ######
+#include "command_interface.h"
+#include "error_handling.h"
+#include <string.h>
+
+#define UART_FRAME_LEN   8
+
+static uint8_t rx_buffer[UART_FRAME_LEN];
+static uint8_t rx_index = 0;
+static command_t current_command = {CMD_TYPE_NONE, 0, false};
+
+enum {
+    RX_IDLE,
+    RX_RECEIVING,
+    RX_VALIDATED,
+    RX_ERROR
+} rx_state = RX_IDLE;
+
+void command_interface_init(void) {
+    rx_index = 0;
+    memset(rx_buffer, 0, UART_FRAME_LEN);
+    current_command.type = CMD_TYPE_NONE;
+    current_command.target_position = 0;
+    current_command.valid_command_flag = false;
+    rx_state = RX_IDLE;
+}
+
+// Simulate UART interrupt handler calling this
+void command_interface_receive_byte(uint8_t byte) {
+    if (rx_state == RX_IDLE) {
+        rx_state = RX_RECEIVING;
+        rx_index = 0;
+    }
+    if (rx_index < UART_FRAME_LEN) {
+        rx_buffer[rx_index++] = byte;
+        // Simulate frame complete
+        if (rx_index == UART_FRAME_LEN) {
+            // Minimal parse/validation; here, assume good
+            // Example: 1st byte is type, bytes 2-3 is uint16_t position (little endian), byte 7 is CRC
+            command_type_t type = (command_type_t) rx_buffer[0];
+            uint16_t pos = (uint16_t)rx_buffer[1] | ((uint16_t)rx_buffer[2] << 8);
+            // Here, hardware range check is omitted; typically call validation from config
+            if ((type == CMD_TYPE_POSITION) && (pos <= 1000)) { // 1000 = example max 
+                current_command.type = type;
+                current_command.target_position = pos;
+                current_command.valid_command_flag = true;
+                rx_state = RX_VALIDATED;
+            } else {
+                current_command.type = CMD_TYPE_NONE;
+                current_command.valid_command_flag = false;
+                rx_state = RX_ERROR;
+                error_handling_set_error(ERR_CMD_INVALID);
+            }
+        }
+    } else {
+        rx_state = RX_ERROR;
+    }
+}
+
+command_t command_interface_get_valid_command(void) {
+    return current_command;
+}
+
+void command_interface_clear_flag(void) {
+    current_command.valid_command_flag = false;
+}
+###### END FILE ######
+###### FILE: code/inc/flap_control_logic.h ######
+#ifndef FLAP_CONTROL_LOGIC_H
+#define FLAP_CONTROL_LOGIC_H
+#include <stdint.h>
+
+typedef enum {
+    FLAP_IDLE = 0,
+    FLAP_MOVING,
+    FLAP_TARGET_REACHED,
+    FLAP_ERROR
+} flap_state_t;
+
+void flap_control_logic_init(void);
+void flap_control_logic_update_target(uint16_t tgt_position);
+flap_state_t flap_control_logic_get_state(void);
+void flap_control_logic_periodic(void);
+
+#endif // FLAP_CONTROL_LOGIC_H
+###### END FILE ######
+###### FILE: code/src/flap_control_logic.c ######
+#include "flap_control_logic.h"
+#include "position_feedback.h"
+#include "motor_driver_interface.h"
+#include "configuration_data.h"
+#include "error_handling.h"
+
+static uint16_t cur_position = 0;
+static uint16_t tgt_position = 0;
+static flap_state_t flap_state = FLAP_IDLE;
+
+void flap_control_logic_init(void) {
+    configuration_t* cfg = configuration_data_get();
+    flap_state = FLAP_IDLE;
+    tgt_position = cfg->clamp_min;
+    cur_position = cfg->clamp_min;
+}
+
+void flap_control_logic_update_target(uint16_t pos) {
+    configuration_t* cfg = configuration_data_get();
+    // Clamp
+    if (pos < cfg->clamp_min) pos = cfg->clamp_min;
+    if (pos > cfg->clamp_max) pos = cfg->clamp_max;
+    tgt_position = pos;
+    flap_state = FLAP_MOVING;
+}
+
+flap_state_t flap_control_logic_get_state(void) {
+    return flap_state;
+}
+
+void flap_control_logic_periodic(void) {
+    configuration_t* cfg = configuration_data_get();
+    cur_position = position_feedback_get_position();
+    bool plausible = position_feedback_is_plausible();
+    if (!plausible) {
+        error_handling_set_error(ERR_POSITION_IMPLAUSIBLE);
+        flap_state = FLAP_ERROR;
+        motor_driver_interface_stop_motor();
+        return;
+    }
+    if (flap_state == FLAP_MOVING) {
+        // Assume tolerance of =2 units
+        if (cur_position < tgt_position - 2) {
+            motor_driver_interface_set_motor(MOTOR_DIR_FORWARD, 80);
+        } else if (cur_position > tgt_position + 2) {
+            motor_driver_interface_set_motor(MOTOR_DIR_REVERSE, 80);
+        } else {
+            flap_state = FLAP_TARGET_REACHED;
+            motor_driver_interface_stop_motor();
+        }
+    }
+}
+###### END FILE ######
+###### FILE: code/inc/motor_driver_interface.h ######
+#ifndef MOTOR_DRIVER_INTERFACE_H
+#define MOTOR_DRIVER_INTERFACE_H
+#include <stdint.h>
+
+typedef enum {
+    MOTOR_DIR_FORWARD = 0,
+    MOTOR_DIR_REVERSE
+} motor_dir_t;
+
+void motor_driver_interface_init(void);
+void motor_driver_interface_set_motor(motor_dir_t dir, uint8_t duty);
+void motor_driver_interface_stop_motor(void);
+
+#endif // MOTOR_DRIVER_INTERFACE_H
+###### END FILE ######
+###### FILE: code/src/motor_driver_interface.c ######
+#include "motor_driver_interface.h"
+#include "configuration_data.h"
+#include "error_handling.h"
+
+#include <stdio.h> // For stub/example
+static uint8_t pwm_duty = 0;
+static motor_dir_t direction = MOTOR_DIR_FORWARD;
+static bool motor_enabled = false;
+
+void motor_driver_interface_init(void) {
+    motor_enabled = false;
+    pwm_duty = 0;
+}
+
+void motor_driver_interface_set_motor(motor_dir_t dir, uint8_t duty) {
+    direction = dir;
+    pwm_duty = duty;
+    motor_enabled = true;
+    // Simulate HW output
+    printf("Motor %s, PWM %u\n", dir == MOTOR_DIR_FORWARD ? "FWD" : "REV", duty);
+}
+
+void motor_driver_interface_stop_motor(void) {
+    motor_enabled = false;
+    pwm_duty = 0;
+    printf("Motor STOP\n");
+}
+###### END FILE ######
+###### FILE: code/inc/position_feedback.h ######
+#ifndef POSITION_FEEDBACK_H
+#define POSITION_FEEDBACK_H
+#include <stdint.h>
+#include <stdbool.h>
+
+void position_feedback_init(void);
+uint16_t position_feedback_get_position(void);
+bool position_feedback_is_plausible(void);
+
+#endif // POSITION_FEEDBACK_H
+###### END FILE ######
+###### FILE: code/src/position_feedback.c ######
+#include "position_feedback.h"
+#include "configuration_data.h"
+#include "error_handling.h"
+
+static uint16_t last_adc_raw = 0;
+
+void position_feedback_init(void) {
+    last_adc_raw = 0;
+}
+
+uint16_t position_feedback_get_position(void) {
+    configuration_t* cfg = configuration_data_get();
+    // Simulate ADC
+    last_adc_raw = cfg->adc_min + ((cfg->adc_max - cfg->adc_min) / 2);
+    if (!position_feedback_is_plausible()) {
+        error_handling_set_error(ERR_POSITION_IMPLAUSIBLE);
+    }
+    return last_adc_raw;
+}
+
+bool position_feedback_is_plausible(void) {
+    configuration_t* cfg = configuration_data_get();
+    return (last_adc_raw >= cfg->adc_min) && (last_adc_raw <= cfg->adc_max);
+}
+###### END FILE ######
+###### FILE: code/inc/status_indication.h ######
+#ifndef STATUS_INDICATION_H
+#define STATUS_INDICATION_H
+#include <stdint.h>
+
+typedef enum {
+    STATUS_IDLE = 0,
+    STATUS_MOVING,
+    STATUS_REACHED,
+    STATUS_ERROR
+} status_code_t;
+
+void status_indication_init(void);
+void status_indication_set_status(status_code_t state);
+status_code_t status_indication_get_status(void);
+
+#endif // STATUS_INDICATION_H
+###### END FILE ######
+###### FILE: code/src/status_indication.c ######
+#include "status_indication.h"
+static status_code_t current_status = STATUS_IDLE;
+
+void status_indication_init(void) {
+    current_status = STATUS_IDLE;
+}
+
+void status_indication_set_status(status_code_t state) {
+    current_status = state;
+}
+
+status_code_t status_indication_get_status(void) {
+    return current_status;
+}
+###### END FILE ######
+###### FILE: code/inc/error_handling.h ######
+#ifndef ERROR_HANDLING_H
+#define ERROR_HANDLING_H
+#include <stdint.h>
+
+typedef enum {
+    ERR_NONE = 0,
+    ERR_CMD_INVALID,
+    ERR_POSITION_IMPLAUSIBLE,
+    ERR_MOTOR_FAULT
+} error_code_t;
+
+void error_handling_init(void);
+void error_handling_set_error(error_code_t type);
+void error_handling_clear_error(void);
+error_code_t error_handling_get_state(void);
+
+#endif // ERROR_HANDLING_H
+###### END FILE ######
+###### FILE: code/src/error_handling.c ######
+#include "error_handling.h"
+static error_code_t error_state = ERR_NONE;
+
+void error_handling_init(void) {
+    error_state = ERR_NONE;
+}
+
+void error_handling_set_error(error_code_t type) {
+    error_state = type;
+}
+
+void error_handling_clear_error(void) {
+    error_state = ERR_NONE;
+}
+
+error_code_t error_handling_get_state(void) {
+    return error_state;
+}
+###### END FILE ######
+###### FILE: code/inc/configuration_data.h ######
+#ifndef CONFIGURATION_DATA_H
+#define CONFIGURATION_DATA_H
+#include <stdint.h>
+
+typedef struct {
+    uint16_t clamp_min;
+    uint16_t clamp_max;
+    uint16_t adc_min;
+    uint16_t adc_max;
+    uint8_t pin_uart;
+    uint8_t pin_adc;
+    uint8_t pin_motor;
+    uint8_t pin_leds;
+} configuration_t;
+
+configuration_t* configuration_data_get(void);
+
+#endif // CONFIGURATION_DATA_H
+###### END FILE ######
+###### FILE: code/src/configuration_data.c ######
+#include "configuration_data.h"
+static configuration_t config = {
+    .clamp_min = 0,
+    .clamp_max = 1000,
+    .adc_min = 0,
+    .adc_max = 1023,
+    .pin_uart = 1,
+    .pin_adc = 2,
+    .pin_motor = 3,
+    .pin_leds = 4
+};
+
+configuration_t* configuration_data_get(void) {
+    return &config;
+}
+###### END FILE ######
+###### FILE: code/src/main.c ######
+#include "command_interface.h"
+#include "flap_control_logic.h"
+#include "motor_driver_interface.h"
+#include "position_feedback.h"
+#include "status_indication.h"
+#include "error_handling.h"
+#include "configuration_data.h"
+#include <stdio.h>
+#include <stdint.h>
+
+int main(void) {
+    configuration_data_get();
+    command_interface_init();
+    flap_control_logic_init();
+    motor_driver_interface_init();
+    position_feedback_init();
+    status_indication_init();
+    error_handling_init();
+
+    // Main loop stub
+    while (1) {
+        command_t cmd = command_interface_get_valid_command();
+        if (cmd.valid_command_flag) {
+            flap_control_logic_update_target(cmd.target_position);
+            command_interface_clear_flag();
+        }
+        flap_control_logic_periodic();
+        // Add any other required cycles (status update, error check, etc.)
+        // stub: break after 1st loop for demonstration
+        break;
+    }
+    printf("System Halted.\n");
+    return 0;
+}
+###### END FILE ######
