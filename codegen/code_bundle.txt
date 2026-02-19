@@ -1,0 +1,251 @@
+###### FILE: code/inc/uch.h ######
+#ifndef UCH_H_
+#define UCH_H_
+#include <stdint.h>
+#include <stdbool.h>
+// Command parse results
+typedef enum { CMD_OK, CMD_OUT_OF_RANGE, CMD_INVALID } uch_cmd_result_t;
+// API: get parsed command if available
+bool uch_get_valid_command(uint8_t* val);
+// Init function
+typedef struct {
+    uint8_t buffer;
+    uch_cmd_result_t parse_result;
+    bool new_command;
+    uint8_t command_val;
+} uch_cmd_ctx_t;
+void uch_init(uch_cmd_ctx_t* ctx);
+void uch_uart_rx_handler(uch_cmd_ctx_t* ctx, uint8_t ascii_byte);
+#endif
+###### END FILE ######
+###### FILE: code/inc/appl.h ######
+#ifndef APPL_H_
+#define APPL_H_
+#include <stdint.h>
+#include <stdbool.h>
+// Application state
+typedef enum { APPL_IDLE, APPL_MOVING, APPL_BUSY, APPL_ERROR } appl_state_t;
+void appl_init(void);
+void appl_tick(void);
+void appl_process_command(uint8_t cmd);
+appl_state_t appl_get_state(void);
+#endif
+###### END FILE ######
+###### FILE: code/inc/mc.h ######
+#ifndef MC_H_
+#define MC_H_
+#include <stdint.h>
+typedef enum { MC_OFF, MC_FWD, MC_REV } mc_state_t;
+void mc_init(void);
+void mc_move(int dir); // 1=fwd, -1=rev
+void mc_stop(void);
+mc_state_t mc_get_state(void);
+#endif
+###### END FILE ######
+###### FILE: code/inc/fa.h ######
+#ifndef FA_H_
+#define FA_H_
+#include <stdint.h>
+#include <stdbool.h>
+#define FLAP_POS_MIN 0
+#define FLAP_POS_MAX 5
+// Out-of-range API
+bool fa_is_oor(void);
+uint8_t fa_get_pos(void);
+void fa_update(void);
+void fa_init(void);
+#endif
+###### END FILE ######
+###### FILE: code/inc/si.h ######
+#ifndef SI_H_
+#define SI_H_
+#include <stdint.h>
+#include <stdbool.h>
+void si_init(void);
+void si_led_update(uint8_t pos, bool power);
+#endif
+###### END FILE ######
+###### FILE: code/src/uch.c ######
+#include "uch.h"
+#include <ctype.h>
+static uch_cmd_ctx_t g_uch_cmd_ctx = {0};
+void uch_init(uch_cmd_ctx_t* ctx) {
+    ctx->buffer = 0;
+    ctx->parse_result = CMD_INVALID;
+    ctx->new_command = false;
+    ctx->command_val = 0;
+}
+
+void uch_uart_rx_handler(uch_cmd_ctx_t* ctx, uint8_t ascii_byte) {
+    if (isdigit(ascii_byte)) {
+        uint8_t val = ascii_byte - '0';
+        if (val >= FLAP_POS_MIN && val <= FLAP_POS_MAX) {
+            ctx->parse_result = CMD_OK;
+            ctx->new_command = true;
+            ctx->command_val = val;
+            ctx->buffer = val;
+        } else {
+            ctx->parse_result = CMD_OUT_OF_RANGE;
+        }
+    } else {
+        ctx->parse_result = CMD_INVALID;
+    }
+}
+
+bool uch_get_valid_command(uint8_t* val) {
+    if (g_uch_cmd_ctx.new_command) {
+        *val = g_uch_cmd_ctx.command_val;
+        g_uch_cmd_ctx.new_command = false;
+        return true;
+    }
+    return false;
+}
+###### END FILE ######
+###### FILE: code/src/appl.c ######
+#include "appl.h"
+#include "mc.h"
+#include "fa.h"
+#include "si.h"
+static appl_state_t appl_state = APPL_IDLE;
+static uint8_t curr_flap_pos = FLAP_POS_MIN;
+static uint8_t target_flap_pos = FLAP_POS_MIN;
+static uint8_t attempt_counter = 0;
+#define MAX_ATTEMPTS 10
+void appl_init(void) {
+    appl_state = APPL_IDLE;
+    curr_flap_pos = fa_get_pos();
+    si_led_update(curr_flap_pos, true);
+}
+void appl_process_command(uint8_t cmd) {
+    if (appl_state != APPL_IDLE) return;
+    if (cmd < FLAP_POS_MIN || cmd > FLAP_POS_MAX) return;
+    target_flap_pos = cmd;
+    attempt_counter = 0;
+    appl_state = APPL_MOVING;
+    mc_move((target_flap_pos > curr_flap_pos) ? 1 : -1);
+}
+void appl_tick(void) {
+    uint8_t pos = fa_get_pos();
+    if (appl_state == APPL_MOVING) {
+        attempt_counter++;
+        if (fa_is_oor() || attempt_counter > MAX_ATTEMPTS) {
+            mc_stop();
+            appl_state = APPL_ERROR;
+            si_led_update(curr_flap_pos, true);
+            return;
+        }
+        if (pos == target_flap_pos) {
+            mc_stop();
+            curr_flap_pos = pos;
+            appl_state = APPL_BUSY;
+            si_led_update(curr_flap_pos, true);
+            return;
+        }
+    } else if (appl_state == APPL_BUSY) {
+        appl_state = APPL_IDLE;
+    } else if (appl_state == APPL_ERROR) {
+        // Wait for new command
+    }
+}
+appl_state_t appl_get_state(void) {
+    return appl_state;
+}
+###### END FILE ######
+###### FILE: code/src/mc.c ######
+#include "mc.h"
+// Stub HW accessors
+typedef struct {int dir_pin; int en_pin;} mc_output_conf_t;
+static mc_state_t mc_state = MC_OFF;
+void mc_init(void) {
+    mc_state = MC_OFF;
+}
+void mc_move(int dir) {
+    // Set HW pins here
+    if (dir > 0)
+        mc_state = MC_FWD;
+    else if (dir < 0)
+        mc_state = MC_REV;
+    else
+        mc_state = MC_OFF;
+}
+void mc_stop(void) {
+    // Clear EN pin
+    mc_state = MC_OFF;
+}
+mc_state_t mc_get_state(void) {
+    return mc_state;
+}
+###### END FILE ######
+###### FILE: code/src/fa.c ######
+#include "fa.h"
+// Stub ADC/data
+static uint16_t adc_val = 0;
+static const uint16_t mapping_table[6] = {100, 500, 1000, 1500, 2000, 2500};
+static uint8_t last_pos = 0;
+static bool oor_flag = false;
+void fa_init(void) {
+    adc_val = 0;
+    last_pos = 0;
+    oor_flag = false;
+}
+void fa_update(void) {
+    // emulated ADC
+}
+bool fa_is_oor(void) {
+    // Logic: if ADC not in mapped window
+    return oor_flag;
+}
+uint8_t fa_get_pos(void) {
+    uint16_t val = adc_val;
+    for (uint8_t n = 0; n < 6; ++n) {
+        if (val < mapping_table[n]) {
+            last_pos = n;
+            oor_flag = false;
+            return n;
+        }
+    }
+    oor_flag = true;
+    return last_pos;
+}
+###### END FILE ######
+###### FILE: code/src/si.c ######
+#include "si.h"
+// 6 position LEDs, 1 power LED
+static const int led_pins[6] = {0, 1, 2, 3, 4, 5};
+static int power_led_pin = 10;
+void si_init(void) {
+    // Set all LEDs off
+}
+void si_led_update(uint8_t pos, bool power) {
+    // Set all off
+    // turn on pos-th LED
+    // set power LED
+}
+###### END FILE ######
+###### FILE: code/src/main.c ######
+#include "uch.h"
+#include "appl.h"
+#include "fa.h"
+#include "mc.h"
+#include "si.h"
+#include <stdint.h>
+#include <stdbool.h>
+int main(void) {
+    uch_cmd_ctx_t uch_ctx;
+    uch_init(&uch_ctx);
+    fa_init();
+    si_init();
+    mc_init();
+    appl_init();
+    while (1) {
+        // Emulated UART/command input
+        uint8_t cmd;
+        if (uch_get_valid_command(&cmd)) {
+            appl_process_command(cmd);
+        }
+        appl_tick(); // FSM tick
+        fa_update();
+    }
+    return 0;
+}
+###### END FILE ######
