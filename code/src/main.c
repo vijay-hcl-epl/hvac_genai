@@ -1,19 +1,14 @@
 #include "init_startup.h"
-#include "command_input.h"
-#include "feedback_acquisition.h"
-#include "flap_position_control.h"
-#include "status_indication.h"
+#include "flap_ctrl.h"
 
 int main(void) {
-    system_init();
-    power_led_on();
-    while (init_complete()) {
-        int cmd = get_valid_position();
-        if (cmd != CMD_INVALID) {
-            process_new_command(cmd);
-        }
-        check_move_complete();
-        // ... insert optional wait/event ...
+    if (init_start() != 0) {
+        // [TBD — Not found: Error flashing, halt]
+        return 1;
+    }
+    while (1) {
+        position_controller_execute();
+        // [TODO: Insert sleep, watchdog, or event wait for efficiency; not specified]
     }
     return 0;
 }
