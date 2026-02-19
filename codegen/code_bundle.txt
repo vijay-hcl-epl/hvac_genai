@@ -2,217 +2,249 @@
 #ifndef INIT_STARTUP_H
 #define INIT_STARTUP_H
 
-// Initialization/Startup Unit
-void system_init(void);
-bool init_complete(void);
+#include <stdint.h>
+#include <stdbool.h>
+
+// Initializes system hardware and peripherals. Returns 0 on success, nonzero on failure.
+int init_start(void);
+
+// Signals all units that initialization is completed. Returns 0 on success.
+int init_complete_signal(void);
 
 #endif // INIT_STARTUP_H
 ###### END FILE ######
 ###### FILE: code/src/init_startup.c ######
 #include "init_startup.h"
-#include "motor_actuation.h"
-#include "feedback_acquisition.h"
-#include "command_input.h"
-#include "status_indication.h"
-#include <stdbool.h>
+#include "feedback_acq.h"
+#include "cmd_input.h"
+#include "status_ind.h"
 
-static bool sys_init_done = false;
+// TLE9851QXW hardware initialization: strictly using only datasheet-based statements.
+// No register addresses or bitfields are invented. All calls use stub/proxy names.
 
-void system_init(void) {
-    // [TBD — Hardware setup: Use only registers, pins, and constants from Infineon TLE9851QXW; not found in PDF extraction]
-    // Setup UART, ADC, motor PWM outputs, LED GPIOs
-    // All outputs initialized to OFF/state-safe
-    // Perform one-time feedback acquisition (potentiometer ADC)
-    sys_init_done = true;
-    // Synchronize all downstream units if needed
+int init_start(void) {
+    // Power up sequence, VDDP (5V pad), VDDC (1.5V core), VDDEXT (5V ext)
+    // [Ref: Datasheet Sec 5.3.1, 5.3.2, 5.3.3]
+    // NOTE: Add all decoupling capacitors as required; do NOT exceed 50mA on VDDP or 40mA on VDDEXT.
+    // [TBD - Implementation uses MCU reference APIs or IP-provided HAL; no register access in this stub.]
+    // Configure GPIO for LEDs, DC motor (per datasheet, Port 0/1 for GPIO, Table 1)
+    // Configure UART1 for 8N1, variable baud, full-duplex (Sec 18.3, Table 10)
+    // Configure ADC1 (10bit), port P2.x as analog inputs (Section 23)
+
+    // [TBD -- Not found: Peripheral register address/bit fields for direct setup.]
+    // Set "power ON" LED (Status Indication Unit)
+    set_led_state(6); // 6 = power LED
+
+    // Read initial flap position via ADC
+    (void)get_flap_position();
+
+    // Signal init complete
+    return init_complete_signal();
 }
 
-bool init_complete(void) {
-    return sys_init_done;
+int init_complete_signal(void) {
+    // No additional operation needed
+    return 0;
 }
 ###### END FILE ######
-###### FILE: code/inc/command_input.h ######
-#ifndef COMMAND_INPUT_H
-#define COMMAND_INPUT_H
-
-// Command Input Unit
-#define CMD_INVALID   -1
-#define CMD_MIN        0
-#define CMD_MAX        5
-
-int get_valid_position(void);
-
-#endif // COMMAND_INPUT_H
-###### END FILE ######
-###### FILE: code/src/command_input.c ######
-#include "command_input.h"
-
-static int cmd_rx_buffer = CMD_INVALID; // Single-byte UART receive buffer
-
-// Simulated UART receive - must use Infineon TLE9851QXW registers. [TBD — Not found in technical source]
-int get_valid_position(void) {
-    // Simulate UART receive
-    int received = CMD_INVALID;
-    // TODO: Read from UART register; if available, update received
-    // Example (Pseudocode):
-    // if (UART_RX_READY) received = UART_RX_DATA;
-    if (received >= CMD_MIN && received <= CMD_MAX) {
-        cmd_rx_buffer = received;
-        return received;
-    } else {
-        return CMD_INVALID;
-    }
-}
-###### END FILE ######
-###### FILE: code/inc/feedback_acquisition.h ######
-#ifndef FEEDBACK_ACQUISITION_H
-#define FEEDBACK_ACQUISITION_H
-
+###### FILE: code/inc/cmd_input.h ######
+#ifndef CMD_INPUT_H
+#define CMD_INPUT_H
 #include <stdint.h>
 
-#define POSITION_INVALID   -1
-#define POSITION_MIN      0
-#define POSITION_MAX      5
+// Possible user command range
+#define CMD_POS_MIN 0
+#define CMD_POS_MAX 5
+#define CMD_INVALID 255
 
-int get_current_position(void);
+// Returns most recent valid decoded position [0:5] or CMD_INVALID
+uint8_t get_decoded_command(void);
 
-#endif // FEEDBACK_ACQUISITION_H
+// Should be called by UART RX ISR/callback with received character
+void cmd_input_on_uart_rx(uint8_t rx_byte);
+
+#endif // CMD_INPUT_H
 ###### END FILE ######
-###### FILE: code/src/feedback_acquisition.c ######
-#include "feedback_acquisition.h"
+###### FILE: code/src/cmd_input.c ######
+#include "cmd_input.h"
+#include <stdbool.h>
 
-// ADC threshold mapping (static/const), as per LLD; use external configuration if Infineon datasheet provides ranges
-static const struct { uint16_t lo; uint16_t hi; } adc_thresholds[6] = {
-    {0, 683},   // 0: 0..683
-    {684, 1365},// 1
-    {1366, 2047},// 2
-    {2048, 2730},// 3
-    {2731, 3413},// 4
-    {3414, 4095}// 5: 3414..4095
+static uint8_t last_cmd = CMD_INVALID;
+
+void cmd_input_on_uart_rx(uint8_t rx_byte) {
+    if (rx_byte >= '0' && rx_byte <= '5') {
+        last_cmd = rx_byte - '0';
+    } else {
+        last_cmd = CMD_INVALID;
+    }
+}
+
+uint8_t get_decoded_command(void) {
+    return last_cmd;
+}
+###### END FILE ######
+###### FILE: code/inc/feedback_acq.h ######
+#ifndef FEEDBACK_ACQ_H
+#define FEEDBACK_ACQ_H
+#include <stdint.h>
+
+#define FLAP_POS_INVALID 255
+#define FLAP_POS_MAX 5
+
+// Acquire flap position [0:5] or FLAP_POS_INVALID if out of range
+uint8_t get_flap_position(void);
+
+#endif // FEEDBACK_ACQ_H
+###### END FILE ######
+###### FILE: code/src/feedback_acq.c ######
+#include "feedback_acq.h"
+#include <stddef.h>
+
+// ADC mapping constants [purely per SW LLD table, thresholding parameters TBD]
+#define ADC_CH_FLAP_POT 0 // [TBD — Not found in datasheet: which P2.x, analog channel assignment]
+static const struct {
+    uint16_t min, max;
+} adc_position_ranges[FLAP_POS_MAX+1] = {
+    {0, 1023},   // 0 (TBD)
+    {1024, 2047},// 1 (TBD)
+    {2048, 3071},// 2 (TBD)
+    {3072, 4095},// 3 (TBD)
+    {4096, 5120},// 4 (TBD)
+    {5121, 6143} // 5 (TBD)
 };
 
-// Simulated ADC raw read
-static uint16_t adc_raw_value = 0; // [TBD - Infineon ADC read specifics]
+extern uint16_t adc_read(uint8_t ch); // Provided by MCU lib; not implemented here
 
-int get_current_position(void) {
-    // TODO: Read adc_raw_value from Infineon TLE9851QXW ADC register
-    for (int i = POSITION_MIN; i <= POSITION_MAX; ++i) {
-        if (adc_raw_value >= adc_thresholds[i].lo && adc_raw_value <= adc_thresholds[i].hi) {
+uint8_t get_flap_position(void) {
+    uint16_t adc_val = adc_read(ADC_CH_FLAP_POT); // Use correct HW channel for P2.x
+    for (uint8_t i = 0; i <= FLAP_POS_MAX; ++i) {
+        if (adc_val >= adc_position_ranges[i].min && adc_val <= adc_position_ranges[i].max)
             return i;
+    }
+    return FLAP_POS_INVALID;
+}
+###### END FILE ######
+###### FILE: code/inc/flap_ctrl.h ######
+#ifndef FLAP_CTRL_H
+#define FLAP_CTRL_H
+#include <stdint.h>
+
+// Flap control result codes
+#define FLAP_CTRL_OK    0
+#define FLAP_CTRL_ERROR 1
+
+// Core processing entry point, to exec per loop iteration
+int position_controller_execute(void);
+
+#endif // FLAP_CTRL_H
+###### END FILE ######
+###### FILE: code/src/flap_ctrl.c ######
+#include "flap_ctrl.h"
+#include "cmd_input.h"
+#include "feedback_acq.h"
+#include "motor_act.h"
+#include "status_ind.h"
+
+static uint8_t current_position = 0;
+static uint8_t target_position = 0;
+static uint8_t controller_state = 0; // 0: Idle, 1: Moving, 2: Error
+
+int position_controller_execute(void) {
+    uint8_t cmd = get_decoded_command();
+    uint8_t pos = get_flap_position();
+    
+    if (controller_state == 2 || pos == FLAP_POS_INVALID) {
+        motor_stop();
+        controller_state = 2;
+        set_led_state(6); // Error/idle: only power LED on
+        return FLAP_CTRL_ERROR;
+    }
+
+    // Only react to new command if idle and command in range
+    if (controller_state == 0 &&
+        cmd != CMD_INVALID && cmd <= FLAP_POS_MAX && cmd != current_position) {
+        target_position = cmd;
+        controller_state = 1;
+    }
+    
+    if (controller_state == 1) {
+        if (pos < target_position) {
+            motor_move(1); // 1=FWD
+        } else if (pos > target_position) {
+            motor_move(0); // 0=REV
+        } else {
+            motor_stop();
+            controller_state = 0;
+            current_position = pos;
+            set_led_state(current_position);
         }
     }
-    return POSITION_INVALID;
+    return FLAP_CTRL_OK;
 }
 ###### END FILE ######
-###### FILE: code/inc/flap_position_control.h ######
-#ifndef FLAP_POSITION_CONTROL_H
-#define FLAP_POSITION_CONTROL_H
+###### FILE: code/inc/motor_act.h ######
+#ifndef MOTOR_ACT_H
+#define MOTOR_ACT_H
+#include <stdint.h>
 
-void process_new_command(int target_position);
-void check_move_complete(void);
+// Direction: 1=FWD, 0=REV
+int motor_move(uint8_t direction);
+void motor_stop(void);
 
-#endif // FLAP_POSITION_CONTROL_H
+#endif // MOTOR_ACT_H
 ###### END FILE ######
-###### FILE: code/src/flap_position_control.c ######
-#include "flap_position_control.h"
-#include "feedback_acquisition.h"
-#include "motor_actuation.h"
-#include "status_indication.h"
+###### FILE: code/src/motor_act.c ######
+#include "motor_act.h"
 
-static int target_position = -1;
-static int move_in_progress = 0;
+// HW info per TLE9851QXW:
+// - MOSFET half-bridge driver, use CCU6 for PWM if available (Datasheet Sec 17, 26)
+// - GPIOs: Use Port0/Port1 outputs mapped through SFR as needed.
 
-void process_new_command(int cmd) {
-    // Set target position
-    if (cmd < 0 || cmd > 5) return;
-    int current_pos = get_current_position();
-    if (current_pos == cmd) return;
-    target_position = cmd;
-    move_in_progress = 1;
-    // Start movement
-    if (target_position > current_pos)
-        actuate_motor(1); // 1 = Forward (open)
-    else
-        actuate_motor(0); // 0 = Reverse (close)
+int motor_move(uint8_t direction) {
+    // [TBD — Not found: Exact SFR/bitfield to set half-bridge FWD/REV]
+    // Set GPIO/PWM outputs, e.g. via IP-provided HAL or system vendor code
+    // E.g.: set MOTOR_FWD pin high, REV pin low or vice versa. Implementation is stubbed.
+    return 0;
 }
 
-void check_move_complete(void) {
-    if (!move_in_progress) return;
-    int current_pos = get_current_position();
-    if (current_pos == target_position || current_pos == POSITION_INVALID) {
-        stop_motor();
-        move_in_progress = 0;
-        update_status_leds(current_pos);
-    }
+void motor_stop(void) {
+    // [TBD — Not found: Output pin or bitfield for PWM/GPIO motor disable]
 }
 ###### END FILE ######
-###### FILE: code/inc/motor_actuation.h ######
-#ifndef MOTOR_ACTUATION_H
-#define MOTOR_ACTUATION_H
+###### FILE: code/inc/status_ind.h ######
+#ifndef STATUS_IND_H
+#define STATUS_IND_H
+#include <stdint.h>
 
-void actuate_motor(int direction); // 1=Fwd, 0=Rev
-void stop_motor(void);
+// LED index: 0..5=flap pos, 6=power LED
+void set_led_state(uint8_t idx);
 
-#endif // MOTOR_ACTUATION_H
+#endif // STATUS_IND_H
 ###### END FILE ######
-###### FILE: code/src/motor_actuation.c ######
-#include "motor_actuation.h"
+###### FILE: code/src/status_ind.c ######
+#include "status_ind.h"
 
-// [TBD — Motor register/driver specifics from Infineon TLE9851QXW]
-void actuate_motor(int direction) {
-    // TODO: Set GPIO/PWM outputs for DC motor direction and power
-    // [TBD - Assign actual pins/registers based on hardware datasheet]
-}
-void stop_motor(void) {
-    // TODO: De-energize all motor outputs
-    // [TBD - Assign actual pins/registers based on hardware datasheet]
-}
-###### END FILE ######
-###### FILE: code/inc/status_indication.h ######
-#ifndef STATUS_INDICATION_H
-#define STATUS_INDICATION_H
+// HW: Status LEDs connected to Port 0/1 GPIOs. 
+// [TBD — Not found: Exact pins from datasheet/application diag.]
 
-void update_status_leds(int position);
-void power_led_on(void);
-
-#endif // STATUS_INDICATION_H
-###### END FILE ######
-###### FILE: code/src/status_indication.c ######
-#include "status_indication.h"
-
-#define NUM_POSITIONS 6
-// [TBD — GPIO mapping for LEDs from Infineon TLE9851QXW]
-
-static int last_active_led = -1;
-
-void power_led_on(void) {
-    // TODO: Set power LED ON
-    // [TBD - Assign actual pin/register from datasheet]
-}
-
-void update_status_leds(int position) {
-    // TODO: Set only the LED corresponding to current position ON
-    // [TBD - Assign actual pins/registers for each LED]
-    last_active_led = position;
+void set_led_state(uint8_t idx)
+{
+    // Drive pins (idx==0..5 -> position LEDs, idx==6 -> power LED)
+    // [TBD — Not found: Output pins or mapping from datasheet.]
 }
 ###### END FILE ######
 ###### FILE: code/src/main.c ######
 #include "init_startup.h"
-#include "command_input.h"
-#include "feedback_acquisition.h"
-#include "flap_position_control.h"
-#include "status_indication.h"
+#include "flap_ctrl.h"
 
 int main(void) {
-    system_init();
-    power_led_on();
-    while (init_complete()) {
-        int cmd = get_valid_position();
-        if (cmd != CMD_INVALID) {
-            process_new_command(cmd);
-        }
-        check_move_complete();
-        // ... insert optional wait/event ...
+    if (init_start() != 0) {
+        // [TBD — Not found: Error flashing, halt]
+        return 1;
+    }
+    while (1) {
+        position_controller_execute();
+        // [TODO: Insert sleep, watchdog, or event wait for efficiency; not specified]
     }
     return 0;
 }
