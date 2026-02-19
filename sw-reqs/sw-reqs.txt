@@ -1,0 +1,89 @@
+# 1.0 Software Scope & Responsibility
+The software implements command processing, flap position control, DC motor actuation, analog feedback processing, and status indication on a microcontroller. Scope excludes diagnostics, concurrency, cybersecurity, and dynamic calibration.
+
+# 2.0 Software Functional Requirements
+## 2.1 User Commands
+SWE-REQ-001: The software SHALL process single-byte UART commands to select target flap positions. [Traces: SYS-REQ-001, SYS-REQ-011, SYS-REQ-024]
+SWE-REQ-002: The software SHALL ignore and not acknowledge unsupported/invalid position commands. [Traces: SYS-REQ-004, SYS-REQ-012, SYS-REQ-013]
+[Implied]
+SWE-REQ-003: The software SHALL support exactly one queued command at a time (latest wins). [Traces: SYS-REQ-012, SYS-REQ-025]
+
+## 2.2 Flap Control
+SWE-REQ-004: The software SHALL drive the motor to move the actuator flap toward the commanded position, based strictly on command and feedback values. [Traces: SYS-REQ-002, SYS-REQ-003]
+SWE-REQ-005: The software SHALL cease motor actuation once the target is confirmed via feedback. [Traces: SYS-REQ-003, SYS-REQ-020]
+SWE-REQ-006: The software SHALL ignore movement commands if the target equals current position. [Traces: SYS-REQ-020]
+
+## 2.3 Motor Control
+SWE-REQ-007: The software SHALL set GPIO and PWM outputs for motor enable and direction, according to logical movement needs. [Traces: SYS-REQ-005, SYS-REQ-006, SYS-REQ-022]
+SWE-REQ-008: The software SHALL immediately stop the motor output on detecting invalid ADC feedback or on reaching a valid target. [Traces: SYS-REQ-007, SYS-REQ-030]
+[Implied]
+SWE-REQ-009: The software SHALL use only statically allocated control data
+ structures for actuator state/motion. [Traces: SYS-REQ-031]
+
+## 2.4 Feedback Processing
+SWE-REQ-010: The software SHALL acquire ADC samples for the feedback potentiometer and interpret these into logical positions by fixed mapping. [Traces: SYS-REQ-008, SYS-REQ-009]
+[Implied]
+SWE-REQ-011: The software SHALL apply bounding/validation on ADC inputs before using for movement control. [Traces: SYS-REQ-026, SYS-REQ-030]
+
+## 2.5 Status Indication
+SWE-REQ-012: The software SHALL activate the power/initialization LED on startup and when running. [Traces: SYS-REQ-014, SYS-REQ-017]
+SWE-REQ-013: The software SHALL indicate detected flap position by activating the corresponding green LED (at most one ON at a time). [Traces: SYS-REQ-015, SYS-REQ-018]
+SWE-REQ-014: The software SHALL only alter status LED state on valid command or position change event. [Traces: SYS-REQ-016]
+
+# 3.0 Software Interface Requirements
+SWE-REQ-015: The software SHALL receive user commands via a logical UART interface, supporting byte-oriented position inputs. [Traces: SYS-REQ-011, SYS-REQ-021]
+SWE-REQ-016: The software SHALL control the DC motor using logical GPIO/PWM outputs exclusively. [Traces: SYS-REQ-022]
+SWE-REQ-017: The software SHALL sample the current flap position using a logical ADC channel. [Traces: SYS-REQ-023]
+SWE-REQ-018: The software SHALL indicate status/position using discrete logical output controls for each LED. [Traces: SYS-REQ-024]
+[Implied]
+SWE-REQ-019: The software SHALL remain platform neutral and decouple hardware register specifics from device interfaces. [Traces: SYS-REQ-032]
+
+# 4.0 Software Behavioral Requirements
+SWE-REQ-020: On startup, the software SHALL initialize all logical device interfaces (UART, GPIO, ADC, PWM, LED outputs) and ensure the motor is off. [Traces: SYS-REQ-017]
+SWE-REQ-021: The software SHALL read sensor feedback and indicate initial state on LEDs immediately after startup. [Traces: SYS-REQ-018]
+SWE-REQ-022: The software SHALL constantly monitor for new UART user command inputs. [Traces: SYS-REQ-019]
+SWE-REQ-023: The software SHALL compare the most recent user command with the current feedback position and command movement, if needed. [Traces: SYS-REQ-009, SYS-REQ-010, SYS-REQ-020]
+SWE-REQ-024: The software SHALL confirm target reached by equivalence of mapped ADC position and commanded value. [Traces: SYS-REQ-020]
+SWE-REQ-025: The software SHALL cease all motor outputs if error or feedback fault is detected. [Traces: SYS-REQ-007, SYS-REQ-030]
+[Implied]
+SWE-REQ-026: The software SHALL NOT include any explicit OS, RTOS, polling, or interrupt binding in its behavioral model. [Traces: SYS-REQ-027]
+
+# 5.0 Software Data & Configuration
+SWE-REQ-027: The software SHALL use a fixed, static mapping from ADC value to logical flap position configurable by data table. [Traces: SYS-REQ-009, SYS-REQ-026]
+SWE-REQ-028: The software SHALL not employ dynamic/self-learning configuration for position mapping. [Traces: SYS-REQ-027]
+SWE-REQ-029: The software SHALL exclude diagnostic and calibration data/configuration. [Traces: SYS-REQ-027]
+[Implied]
+SWE-REQ-030: The software SHALL store position boundaries and mapping constants in non-volatile/statically initialized memory. [Traces: SYS-REQ-026, SYS-REQ-032]
+
+# 6.0 Software Error Handling
+SWE-REQ-031: The software SHALL identify and ignore out-of-range ADC or communication data as error. [Traces: SYS-REQ-030]
+SWE-REQ-032: The software SHALL stop all motor outputs on error/fault state and report safe idle (no movement, status LED unchanged or error state if provided). [Traces: SYS-REQ-007, SYS-REQ-030]
+
+# 7.0 Performance & Responsiveness
+SWE-REQ-033: The software SHALL respond to a valid user command by initiating motor movement as soon as all other requirements are satisfied. [Traces: SYS-REQ-029]
+SWE-REQ-034: The software SHALL NOT hard-code or assume execution model constraints beyond requirements stated herein. [Traces: SYS-REQ-029]
+[Implied]
+SWE-REQ-035: The software SHALL document any configurable responsiveness parameter in source/data. [Traces: SYS-REQ-033]
+
+# 8.0 Resource Constraints
+SWE-REQ-036: The software SHALL use no dynamic memory allocation. [Traces: SYS-REQ-031]
+SWE-REQ-037: The total memory usage (RAM, code) SHALL remain within specified microcontroller limits (to be specified elsewhere). [Traces: SYS-REQ-031]
+[Implied]
+SWE-REQ-038: The software SHALL declare all buffer sizes, table entries, and internal limits statically. [Traces: SYS-REQ-031]
+
+# 9.0 Testability
+SWE-REQ-039: The software SHALL log/indicate all position commands and current flap position via status LEDs and, if feasible, via debug output. [Traces: SYS-REQ-033]
+SWE-REQ-040: The software SHALL permit external verification of all commands and actuator feedback against output states at runtime. [Traces: SYS-REQ-033]
+[Implied]
+SWE-REQ-041: The software SHALL structure code and interface logic to facilitate requirement verification by inspection/test.
+
+# 10.0 Implied Requirements
+[Place all "[Implied]" requirements from above sections here for audit completeness.]
+* Command queueing neutrality (no backlog support)
+* One-hot LED position indication
+* Static table/data configuration
+* Performance/documentation but not timing guarantees
+* Platform neutral, modular interface abstraction
+* No explicit bootstrap or OS binding
+* Memory/resource declarativity
+* Diagnostics and calibration exclusion
