@@ -1,0 +1,88 @@
+================================================================================
+SOFTWARE ARCHITECTURE FOR HVAC FLAP ACTUATOR
+Derived Strictly from SWE.1 Requirements (runnow-192a branch)
+================================================================================
+
+1. ARCHITECTURE STYLE SELECTION AND JUSTIFICATION
+------------------------------------------------
+Candidate Styles:
+- Monolithic
+- Component-Based (modular unit separation)
+- Layered
+
+Evaluation Against Constraints & Needs:
+- System and software complexity is moderate and strictly centered on sequential command/control, with no explicit execution model or layering assumed (SWE-REQ-020, SYS-REQ-017).
+- HW interaction is direct (UART, ADC, GPIO/PWM, LEDs), but segregated.
+- Maintainability and testability are explicitly required in SWE-REQ-022, SWE-REQ-031, SYS-REQ-022, SYS-REQ-023: favoring a clear unit partition to support change and verification.
+- ASPICE Level 3 expects explicit interfaces, unit boundaries, clear traceability, and clear partitioning for testability/maintainability.
+
+Selected: Component-Based (Modular Units)
+- Justification: Enables encapsulated hardware interface drivers, control logic, and a pure interface for future extension. Directs alignment with modularity demanded by SWE-REQ-022, maintainability (SYS-REQ-022), testability (SYS-REQ-023).
+- Rejected: Monolithic (too opaque, violates traceability and testability intent). Layered (unjustified with current requirements/no service-abstraction or OS demands).
+
+
+2. SOFTWARE ARCHITECTURE DEFINITION
+-----------------------------------
+
+No explicit execution model or scheduling policy is mandated by the requirements at this stage. (SWE-REQ-020, SYS-REQ-017)
+
+SOFTWARE UNITS:
+---------------
+1) Command Interface Unit
+   - Responsibilities: Receives, parses, and validates UART commands (SWE-REQ-001, SWE-REQ-002).
+
+2) Flap Control Logic Unit
+   - Responsibilities: Accepts valid target commands, clamps to limits, coordinates target/movement requests (SWE-REQ-004, SWE-REQ-005).
+
+3) Motor Driver Interface Unit
+   - Responsibilities: Commands/ceases motor movement according to control logic (SWE-REQ-006, SWE-REQ-007).
+
+4) Position Feedback Unit
+   - Responsibilities: Acquires, scales, and plausibility-checks flap position using ADC (SWE-REQ-008).
+
+5) Status Indication Unit
+   - Responsibilities: Sets logical output signals for status states: idle, moving, position reached, error (SWE-REQ-009).
+
+6) Error Handling Unit
+   - Responsibilities: Detects, maintains, and signals error states (SWE-REQ-023, SWE-REQ-024, SWE-REQ-025).
+
+7) Configuration/Data Unit
+   - Responsibilities: Houses configuration for limits, ADC range, pin mappings, separates logic/data (SWE-REQ-021, SWE-REQ-022).
+
+
+3. ARCHITECTURE DIAGRAM (TEXT FORM)
+-------------------------------------
+[UART Rx] --> (1) Command Interface Unit --> (2) Flap Control Logic Unit <----
+                                              ^           |                  
+                                              |           v                  
+       (4) Position Feedback Unit <---+--- (3) Motor Driver Interface Unit   
+        ^          |                           |                             
+        |         (7) Configuration/Data Unit  |                             
+        +---------+-------------+              |                             
+                              (5) Status Indication Unit <---- (6) Error Handling Unit
+
+
+4. RESPONSIBILITIES & INTERFACE TABLE
+-------------------------------------
+| Software Unit           | Responsibilities                                                       | Interfaces Provided       | Interfaces Used                                    |
+|------------------------ |------------------------------------------------------------------------|---------------------------|-----------------------------------------------------|
+| Command Interface       | UART command parse/validation                                          | Validated target cmd      | UART, Error Handling, Flap Control Logic            |
+| Flap Control Logic      | Target calculation/clamping, request sequencing                        | Target request, state     | Command Interface, Feedback, Motor Driver, Config   |
+| Motor Driver Interface  | Low-level actuation; start/stop movement                              | Motor control signals     | Flap Control Logic, Config                         |
+| Position Feedback       | ADC acquire, scale, plausibility check                                | Current flap position     | Hardware ADC, Config, Flap Control Logic, Error     |
+| Status Indication       | Logical signal output for operating status                            | Status output (LED/logic) | Flap Control Logic, Error Handling Unit             |
+| Error Handling Unit     | Error detect/state, signal block, escalate/recover                    | Error state info          | All other units                                     |
+| Configuration/Data Unit | Storage for end-stops, ADC params, pin maps (read-only at runtime)    | Config values             | All other units                                     |
+
+
+5. DESIGN CONSTRAINTS & TRACEABILITY
+-------------------------------------
+- All functional boundaries and interfaces above are traced to SWE.1 requirements as annotated.
+- No behavior, timing, concurrency, or safety/cyber protection invented beyond SWE.1/SYS.1.
+- Only interfaces, data, and structure strictly necessary for requirement realization are present.
+- Future expansion is supported by modular configuration and unit boundaries only as demanded by SWE-REQ-022, SYS-REQ-022 (maintainability/modularity).
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================
