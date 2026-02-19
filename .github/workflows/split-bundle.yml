@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: split-bundle-${{ github.ref }}
+  cancel-in-progress: false
+  
 jobs:
   split:
     runs-on: ubuntu-latest
@@ -45,4 +49,9 @@ jobs:
           fi
 
           git commit -m "Expand code bundle into code/inc and code/src [skip ci]"
-          git push
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}" || {
+            echo "Push failed due to remote update; rebasing and retrying..."
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          }
