@@ -1,0 +1,247 @@
+================================================================================
+SOFTWARE LOW-LEVEL DESIGN (SWE.3) FOR HVAC FLAP ACTUATOR
+Component-Based Architecture; Fully Traced to SWE.1
+Branch: runnow-192a
+================================================================================
+
+Software Unit: Command Interface Unit
+-------------------------------------
+1. Responsibilities
+   - Handles reception, parsing, and validation of UART commands.
+   - Does not generate commands or interpret out-of-band data.
+
+2. Internal Data Design
+   - Variables: rx_buffer[UART_FRAME_LEN], command_type (enum), target_position (uint16_t), valid_command_flag (bool)
+   - State: RX_IDLE, RX_RECEIVING, RX_VALIDATED, RX_ERROR
+   - Configuration: none (uses global config for UART pins/baud)
+
+3. State Machine
+   - States: RX_IDLE → RX_RECEIVING → RX_VALIDATED / RX_ERROR
+   - Events: UART frame detected, valid/invalid data, error (framing, overrun, OOB range)
+   - Transitions: On valid, flag valid_command; on error, report and flag error
+
+4. Algorithms & Control Flow
+   - On UART interrupt, push byte to rx_buffer
+   - Test frame completeness/CRC, decode command_type
+   - If type==position and value in range, set valid_command_flag, update target_position
+   - Else, set error state
+
+5. Interfaces (APIs)
+   - Provided: get_valid_command() (returns (command_type, target_position, valid_command_flag)), clear_flag()
+   - Required: UART hardware driver
+   - Error Reporting: passes error flags to Error Handling Unit
+
+6. Error Handling
+   - Detected: framing, overrun, out-of-range data
+   - Action: set error flag, notify Error Handling
+
+7. Resource & Timing Considerations
+   - Invoked on RX event (interrupt/poll, requirement-agnostic)
+   - WCET: <<1 ms typical UART frame
+   - Not re-entrant
+
+8. Traceability
+   - SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-010, SWE-REQ-015, SWE-REQ-016, SWE-REQ-018
+
+
+Software Unit: Flap Control Logic Unit
+--------------------------------------
+1. Responsibilities
+   - Handles update of target position, clamps to physical limits, sequences state machine
+   - Does not access hardware directly
+
+2. Internal Data Design
+   - Variables: cur_position (uint16_t), tgt_position (uint16_t), clamp_min, clamp_max
+   - State: FLAP_IDLE, FLAP_MOVING, FLAP_TARGET_REACHED, FLAP_ERROR
+   - Config: limits from Configuration/Data Unit
+
+3. State Machine
+   - States: FLAP_IDLE → FLAP_MOVING → FLAP_TARGET_REACHED, FLAP_ERROR
+   - Events: Valid command, target reached, error input, abort
+   - Transitions: On command, entry to MOVING; if err, enter ERROR
+
+4. Algorithms & Control Flow
+   - On valid command: clamp target using (clamp_min <= tgt_position <= clamp_max)
+   - If in MOVING, check if position feedback ~= target (tolerance)
+   - Assert next step/request to Motor Driver Interface
+   - If error, stop action
+
+5. Interfaces (APIs)
+   - Provided: update_target(tgt_position), get_state()
+   - Required: Position Feedback Unit, Command Interface, Motor Driver Interface
+   - Error Reporting: state to Error Handling, no direct error flags
+
+6. Error Handling
+   - Receives error flags from other units; on error, stops action
+
+7. Resource & Timing Considerations
+   - Invoked on input/state update
+   - WCET per update: <<0.5 ms
+   - Not re-entrant
+
+8. Traceability
+   - SWE-REQ-004, SWE-REQ-005, SWE-REQ-015, SWE-REQ-016, SWE-REQ-019, SWE-REQ-020
+
+
+Software Unit: Motor Driver Interface Unit
+------------------------------------------
+1. Responsibilities
+   - Handles output drive for flap actuator motor, start/stop/enable signals
+   - No position/logic; only output signals
+
+2. Internal Data Design
+   - Variables: direction (enum), pwm_duty (uint8_t), motor_enable (bool)
+   - State: MOTOR_IDLE, MOTOR_MOVING, MOTOR_STOPPED, MOTOR_FAULT
+   - Config: output pins from Configuration/Data Unit
+
+3. State Machine
+   - MOTOR_IDLE <--> MOTOR_MOVING; enter STOPPED on completion/error
+   - Events: set/clear motor_enable, direction
+
+4. Algorithms & Control Flow
+   - On request, set pins/signals for enable/dir/pwm according to logic
+   - Cease outputs on command or error from Flap Control Logic
+
+5. Interfaces (APIs)
+   - Provided: set_motor(dir, duty_cycle), stop_motor()
+   - Required: Flap Control Logic, Configuration/Data Unit
+
+6. Error Handling
+   - On OCP/OTP or hardware error, assert MOTOR_FAULT, notify Error Handling
+
+7. Resource & Timing Considerations
+   - Invoked as output instruction; <<0.1 ms per call
+   - Not re-entrant
+
+8. Traceability
+   - SWE-REQ-006, SWE-REQ-007, SWE-REQ-012, SWE-REQ-019
+
+
+Software Unit: Position Feedback Unit
+-------------------------------------
+1. Responsibilities
+   - Acquires flap position from ADC, checks within mechanical/sensor bounds
+
+2. Internal Data Design
+   - Variables: adc_raw (uint16_t), position_sensed (uint16_t), plausible (bool)
+   - Config: adc_channel, adc_min, adc_max
+
+3. State Machine
+   - State: NONE (single update, feed-forward)
+   - Flow: sample ADC input, scale to range, check plausible
+
+4. Algorithms & Control Flow
+   - On request, sample ADC, scale to [0, MAX], check plausible (adc_min <= value <= adc_max)
+   - Output position_sensed, plausible
+
+5. Interfaces (APIs)
+   - Provided: get_position(), is_plausible()
+   - Required: Flap Control Logic
+
+6. Error Handling
+   - If not plausible, flag to Error Handling
+
+7. Resource & Timing Considerations
+   - Invoked on position request/change (<<0.2 ms)
+   - Not re-entrant
+
+8. Traceability
+   - SWE-REQ-008, SWE-REQ-011, SWE-REQ-021
+
+
+Software Unit: Status Indication Unit
+-------------------------------------
+1. Responsibilities
+   - Sets outputs (LEDs or digital) for states: idle, moving, position reached, error
+
+2. Internal Data Design
+   - Variables: status_code (enum)
+   - Config: pin mappings
+
+3. State Machine
+   - State: NONE; direct set/clear logic
+   - Flow: set indication as directed by Flap Control Logic, Error Handling
+
+4. Algorithms & Control Flow
+   - On status event, set/clear outputs to represent current state
+
+5. Interfaces (APIs)
+   - Provided: set_status(state), get_status()
+   - Required: Flap Control Logic, Error Handling
+
+6. Error Handling
+   - Indicates error state; does not generate errors
+
+7. Resource & Timing Considerations
+   - Invoked on state update (<<0.1 ms)
+   - Not re-entrant
+
+8. Traceability
+   - SWE-REQ-009, SWE-REQ-013, SWE-REQ-019, SWE-REQ-024
+
+
+Software Unit: Error Handling Unit
+----------------------------------
+1. Responsibilities
+   - Detects, logs, signals error states, maintains error recovery logic
+
+2. Internal Data Design
+   - Variables: error_flags (bitmask), last_error (enum), recovery_counter
+
+3. State Machine
+   - States: ERROR_NONE, ERROR_ACTIVE, ERROR_RECOVERY
+   - Events: error_in, clear, recover
+
+4. Algorithms & Control Flow
+   - On error, assert ERROR_ACTIVE, notify status, block requests if fatal
+   - Support error clear on valid recovery event
+
+5. Interfaces (APIs)
+   - Provided: set_error(type), clear_error(), get_state()
+   - Required: All units for error source/event
+
+6. Error Handling
+   - Handles all errors in scope
+
+7. Resource & Timing Considerations
+   - Enter/exit error in <<0.05 ms
+   - Not re-entrant
+
+8. Traceability
+   - SWE-REQ-023, SWE-REQ-024, SWE-REQ-025
+
+
+Software Unit: Configuration/Data Unit
+------------------------------------
+1. Responsibilities
+   - Stores all limits, ADC parameters, pin mappings; no logic/decision
+
+2. Internal Data Design
+   - Variables: struct config_t { clamp_min, clamp_max, adc_min, adc_max, pin_uart, pin_adc, pin_motor, pin_leds }
+   - No states/events
+
+3. State Machine
+   - State: NONE
+   - Flow: static data, no dynamic
+
+4. Algorithms & Control Flow
+   - Provide config values to requestor (read-only)
+
+5. Interfaces (APIs)
+   - Provided: get_config()
+   - Required: all other units
+
+6. Error Handling
+   - Flag error if out-of-config request
+
+7. Resource & Timing Considerations
+   - Static access, <<0.01 ms
+
+8. Traceability
+   - SWE-REQ-021, SWE-REQ-022, SWE-REQ-014, SWE-REQ-029
+
+================================================================================
+All logic and data fully traced to SWE.1 requirements; no scheduling or code present.
+================================================================================
+END OF DOCUMENT
+================================================================================
