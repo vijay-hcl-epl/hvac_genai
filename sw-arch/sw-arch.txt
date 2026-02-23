@@ -1,0 +1,25 @@
+1. System Context
+- Microcontroller: STM32F407G-DISC1
+- UART input from user/PC
+- Controls 12V DC geared motor via GPIO + PWM (L298N H-bridge)
+- Monitors flap position using potentiometer (ADC input)
+- Visual feedback by control of LEDs (GPIO)
+
+2. Software Component decomposition:
+- UART Command Handler: Receives and validates user position commands (0–5)
+- Flap Position Manager: Maps ADC readings to flap positions, enforces valid range, triggers movement or stop
+- Motor Controller: Controls motor direction/speed, generates PWM using Timer, handles motor ON/OFF
+- ADC Manager: Initializes ADC, reads potentiometer values periodically
+- LED Driver: Updates power LED and position LEDs
+- Main Control Loop: State handler for IDLE / MOVING / HOLDING; calls all managers
+
+3. Interfaces:
+- UART: receive only
+- ADC: read only (polling or interrupt)
+- GPIO/PWM: output only (motor and LEDs)
+
+4. Traceability:
+- All modules correspond to one or more software requirements
+
+5. No RTOS, Superloop architecture; all logic in main loop or static ISRs.
+6. MISRA C/static memory usage enforced.
