@@ -1,16 +1,9 @@
-===============================
+====================
 ASPICE SWE.4 UNIT TEST PLAN
-===============================
-
+====================
 Branch: hvdemo-142b
-Artifacts Used:
-  - sw-reqs/sw-reqs.txt
-  - sw-lld/sw-lld.txt
-  - codegen/code_bundle.txt
 
-===============================
-SOFTWARE UNIT LIST
-===============================
+== 1. SOFTWARE UNITS ==
 1. Initialization/Startup Unit (init_startup)
 2. Command Input Unit (cmd_input)
 3. Feedback Acquisition Unit (feedback_acq)
@@ -18,164 +11,221 @@ SOFTWARE UNIT LIST
 5. Motor Actuation Unit (motor_act)
 6. Status Indication Unit (status_ind)
 
-===============================
-TEST CASES PER UNIT
-===============================
+== 2. TEST CASE TEMPLATE ==
+For each unit, test cases are listed as:
+- Test Case ID
+- SW-REQ reference
+- Test Objective
+- Preconditions
+- Input
+- Expected Result
+- Pass/Fail Criteria
 
---- [1] Initialization/Startup Unit (init_startup.c) ---
-Responsibility: System hardware init, peripherals setup, signal all units, initial reading of flap position.
-Allocated SW-REQ IDs: SWE-REQ-024, SWE-REQ-025, SWE-REQ-011
+== 3. DETAILED UNIT TEST CASES ==
 
-Test Case Table:
-| Case ID | SW-REQ   | Objective                                     | Preconditions | Input           | Expected Result                     | Pass/Fail         |
-|---------|----------|-----------------------------------------------|---------------|-----------------|-------------------------------------|-------------------|
-| INIT-01 | 024/025  | Power-on performs full init flow              | Cold start    | None            | All peripherals set, init signal OK | All signals OK    |
-| INIT-02 | 024/011  | Power-on, hardware failure before ADC/init    | Fault injected| None            | Returns error, outputs idle         | init_start() != 0 |
-| INIT-03 | 025      | Reads initial flap pos using ADC              | Power-on      | ADC = valid val | Call stored, gets position          | Value 0-5 stored  |
-| INIT-04 | 024      | Sets power LED ON at init                     | Power-on      | -               | set_led_state(6) called             | Verified call     |
-| INIT-05 | 011      | All outputs off/motor OFF after power-up      | Power-on      | -               | No motor actuation executed         | Only idle state   |
+------------------------------
+1. Initialization/Startup Unit (init_startup)
+Responsibilities: System/hardware startup, peripheral setup, reading initial flap position, setting Power ON LED
+SW-REQs: SWE-REQ-024, SWE-REQ-025, SWE-REQ-011
 
-Notes: All HW calls mocked (no real peripheral access).
+Test Case: INIT_001
+  SW-REQ: SWE-REQ-024
+  Objective: Ensure startup initializes all peripherals and enters ready state.
+  Preconditions: System powered up
+  Input: None (startup event)
+  Expected: Peripherals configured, ready state signaled
+  Criteria: All API calls made, status is success
 
---- [2] Command Input Unit (cmd_input.c) ---
-Responsibility: Receives/UART command decode/validation/ignoring invalid input.
-Allocated SW-REQ IDs: SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-019
+Test Case: INIT_002
+  SW-REQ: SWE-REQ-025
+  Objective: Read and store initial flap position on power-up.
+  Preconditions: System just initialized
+  Input: None
+  Expected: Flap position value available after startup
+  Criteria: get_flap_position() called once, returns valid (0..5) or invalid
 
-| Case ID   | SW-REQ  | Objective                           | Preconditions | Input        | Expected Result               | Pass/Fail            |
-|-----------|---------|-------------------------------------|---------------|--------------|-------------------------------|----------------------|
-| CMD-01    | 001/019 | Decoded command on valid UART input | UART RX ready | '2'          | CMD=2, buffer set             | get_decoded=2        |
-| CMD-02    | 002     | Ignores out-of-range command        | UART RX ready | '9'          | CMD_INVALID                   | get_decoded=255      |
-| CMD-03    | 003     | Ignores non-numeric input           | UART RX ready | 'X'          | CMD_INVALID                   | get_decoded=255      |
-| CMD-04    | 004     | No command processed outside spec   | UART RX ready | '$'          | CMD_INVALID                   | get_decoded=255      |
-| CMD-05    | 001/002 | All in-range values accepted        | UART RX ready | 0-5 in loop  | CMD set as correct            | Each accepted        |
+Test Case: INIT_003
+  SW-REQ: SWE-REQ-011
+  Objective: Ensure motor is OFF at startup completion.
+  Preconditions: System init complete
+  Input: None
+  Expected: motor_stop() called
+  Criteria: Motor output signals inactive
 
-All UART receive is mocked/isr event emulated.
+------------------------------
+2. Command Input Unit (cmd_input)
+Responsibilities: UART command decode/validation/filtering
+SW-REQs: SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-019
 
---- [3] Feedback Acquisition Unit (feedback_acq.c) ---
-Responsibility: ADC read, thresholding, mapping to position (0-5), out-of-range detection.
-Allocated SW-REQ IDs: SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-015, SWE-REQ-020, SWE-REQ-030, SWE-REQ-033
+Test Case: CMD_001
+  SW-REQ: SWE-REQ-001, SWE-REQ-019
+  Objective: Accept valid UART commands 0–5 as flap positions
+  Preconditions: System initialized
+  Input: UART RX byte = '0'..'5'
+  Expected: get_decoded_command() returns 0..5
+  Criteria: Output matches input, within range
 
-| Case ID | SW-REQ  | Objective               | Preconditions        | Input      | Expected Result                   | Pass/Fail           |
-|---------|---------|-------------------------|----------------------|------------|-----------------------------------|---------------------|
-| FDB-01  | 012/020 | Acquires valid ADC pos  | ADC ready            | ADC=1500   | Returns 1                         | get_flap=1          |
-| FDB-02  | 013     | Correct range mapping   | ADC ready            | Many samples| Each in correct bucket           | Loops 0-5 ok        |
-| FDB-03  | 015     | Out-of-range halts mot. | Out-of-range input   | ADC=9999   | Returns FLAP_POS_INVALID          | get_flap=255        |
-| FDB-04  | 033     | Out-of-range stops act. | Run controller       | ADC=9999   | controller returns ERROR, motor stops | controller=2, motor_stop called |
+Test Case: CMD_002
+  SW-REQ: SWE-REQ-002
+  Objective: Reject invalid/out-of-range commands
+  Preconditions: System initialized
+  Input: UART RX byte outside '0'..'5'
+  Expected: get_decoded_command() returns CMD_INVALID
+  Criteria: No output change, no side effect
 
-All ADC reads mocked. No physical conversion performed.
+------------------------------
+3. Feedback Acquisition Unit (feedback_acq)
+Responsibilities: ADC reading, mapping, validation
+SW-REQs: SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-015, SWE-REQ-020, SWE-REQ-030, SWE-REQ-033
 
---- [4] Flap Position Control Unit (flap_ctrl.c) ---
-Responsibility: Move/stop logic, command/state tracking, error/idle handling.
-Allocated SW-REQ IDs: SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-024, SWE-REQ-025, SWE-REQ-026, SWE-REQ-027, SWE-REQ-028, SWE-REQ-031
+Test Case: FBK_001
+  SW-REQ: SWE-REQ-012, SWE-REQ-020
+  Objective: Acquire analog flap position, use ADC input
+  Preconditions: ADC returns midrange value
+  Input: ADC returns value in defined range for position 2
+  Expected: get_flap_position() returns 2
+  Criteria: Correct mapping
 
-| Case ID | SW-REQ | Objective                                 | Preconditions     | Input                      | Expected Result            | Pass/Fail                |
-|---------|--------|-------------------------------------------|-------------------|----------------------------|----------------------------|--------------------------|
-| FLP-01  | 005    | Valid cmd moves flap to position          | System idle/cmd=3 | ADC=2, then 3              | Motor FWD, then stop, LED=3| Trace sequence           |
-| FLP-02  | 006    | Only single move per command              | Idle/cmd=4        | ADC=3, then 4              | Moves FWD -> stop @4       | 1 transition             |
-| FLP-03  | 028    | Invalid command leaves system idle        | Idle/cmd=255      | No Op                      | No act, state remains      |
-| FLP-04  | 027    | After move completes, system idles        | Move done         | Position == Target          | Idle state                 | controller_state == 0    |
-| FLP-05  | 007    | No skipped or intermediate pos            | Cmd=5, ADC=2-5    | Stepwise ADC=...,5         | Only FWD, no skips         | Strict path              |
-| FLP-06  | 026    | No command = no action                    | Idle              | No cmd input                | Motor and outputs steady   | No action                |
+Test Case: FBK_002
+  SW-REQ: SWE-REQ-013, SWE-REQ-030
+  Objective: Boundary check, returns correct position for threshold edges
+  Preconditions: ADC at border values
+  Input: ADC returns range min/max
+  Expected: get_flap_position() returns corresponding index
+  Criteria: Validity met at edges
 
-All environment calls mocked. No HW.
+Test Case: FBK_003
+  SW-REQ: SWE-REQ-015, SWE-REQ-033
+  Objective: Out-of-range ADC disables motor, system idle
+  Preconditions: ADC returns value not in any valid range
+  Input: ADC returns 65535
+  Expected: get_flap_position() returns FLAP_POS_INVALID; motor should stop
+  Criteria: Correct signal to controller
 
---- [5] Motor Actuation Unit (motor_act.c) ---
-Responsibility: Drive or halt motor based on controller request.
-Allocated SW-REQ IDs: SWE-REQ-008, SWE-REQ-009, SWE-REQ-010, SWE-REQ-011, SWE-REQ-021
+------------------------------
+4. Flap Position Control Unit (flap_ctrl)
+Responsibilities: Command/position/state, movement logic
+SW-REQs: SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-024, SWE-REQ-025, SWE-REQ-026, SWE-REQ-027, SWE-REQ-028, SWE-REQ-031
 
-| Case ID | SW-REQ | Objective                        | Preconditions | Input    | Expected Result          | Pass/Fail       |
-|---------|--------|----------------------------------|---------------|----------|-------------------------|-----------------|
-| MOT-01  | 008    | Motor moves in correct direction | Cmd=move FWD  | dir=1    | (mocked) GPIO set FWD   | Call trace      |
-| MOT-02  | 009    | Motor stops at position reached  | During move   | -        | Calls stop at correct pt | motor_stop called |
-| MOT-03  | 010/021| Only motor outputs actuated      | Move call     | -        | Other outputs untouched  | API calls only motor |
-| MOT-04  | 011    | Motor always OFF after powerup   | After init    | -        | Stop call observed       | Trace verifies   |
+Test Case: CTRL_001
+  SW-REQ: SWE-REQ-005, SWE-REQ-006
+  Objective: Move one position per valid command
+  Preconditions: Idle, valid command received
+  Input: Command transition (2→3)
+  Expected: Motor actuates; position updates once
+  Criteria: No skipped/intermediate moves
 
-All GPIO/PWM interaction mocked or stubbed.
+Test Case: CTRL_002
+  SW-REQ: SWE-REQ-027
+  Objective: Transition to idle after move or on error
+  Preconditions: Currently moving
+  Input: Target position reached
+  Expected: System enters idle, disables motor, LED updated
+  Criteria: Only one move, correct final state
 
---- [6] Status Indication Unit (status_ind.c) ---
-Responsibility: Set LEDs for power and position only.
-Allocated SW-REQ IDs: SWE-REQ-016, SWE-REQ-017, SWE-REQ-018, SWE-REQ-022
+------------------------------
+5. Motor Actuation Unit (motor_act)
+Responsibilities: Motor drive/stop on control request
+SW-REQs: SWE-REQ-008, SWE-REQ-009, SWE-REQ-010, SWE-REQ-011, SWE-REQ-021
 
-| Case ID | SW-REQ | Objective                       | Preconditions        | Input            | Expected Result             | Pass/Fail         |
-|---------|--------|---------------------------------|----------------------|------------------|-----------------------------|-------------------|
-| LED-01  | 016    | Power LED is ON after init      | Power-on             | -                | set_led_state(6) called     | Trace call        |
-| LED-02  | 017    | Only 1 position LED ON          | Flap pos = N         | N = 0..5 in loop | Only 1 set_led_state(N)     | For each position |
-| LED-03  | 018    | No out-of-spec status/output    | All states           | -                | No extraneous calls         | Only 0..5,6       |
-| LED-04  | 022    | LEDs respond to controller      | Move/idle            | pos change       | set_led_state(pos), etc.    | Trace verifies    |
+Test Case: MOTOR_001
+  SW-REQ: SWE-REQ-008, SWE-REQ-021
+  Objective: Motor ignited correctly for move
+  Preconditions: Controller requests move
+  Input: motor_move(dir)
+  Expected: Output pins/pwm set for indicated direction
+  Criteria: Signals match direction
 
-Calls to set_led_state()/GPIO are mocked.
+Test Case: MOTOR_002
+  SW-REQ: SWE-REQ-009, SWE-REQ-011
+  Objective: Motor stops when position reached, at startup/idle
+  Preconditions: Controller requests stop
+  Input: motor_stop()
+  Expected: Output pins/pwm all off
+  Criteria: Motor inactive
 
-===============================
-TRACEABILITY TABLES
-===============================
+------------------------------
+6. Status Indication Unit (status_ind)
+Responsibilities: Drive power and position LED signals
+SW-REQs: SWE-REQ-016, SWE-REQ-017, SWE-REQ-018, SWE-REQ-022
 
-Table 1: SW-REQ → Test Case Mapping
-| SW-REQ   | Test Cases       |
-|----------|------------------|
-| SWE-REQ-001 | CMD-01, CMD-05 |
-| SWE-REQ-002 | CMD-02, CMD-05 |
-| SWE-REQ-003 | CMD-03         |
-| SWE-REQ-004 | CMD-04         |
-| SWE-REQ-005 | FLP-01         |
-| SWE-REQ-006 | FLP-02         |
-| SWE-REQ-007 | FLP-05         |
-| SWE-REQ-008 | MOT-01         |
-| SWE-REQ-009 | MOT-02, FDB-02 |
-| SWE-REQ-010 | MOT-03         |
-| SWE-REQ-011 | INIT-02, MOT-04|
-| SWE-REQ-012 | FDB-01         |
-| SWE-REQ-013 | FDB-02         |
-| SWE-REQ-014 | FDB-02         |
-| SWE-REQ-015 | FDB-03         |
-| SWE-REQ-016 | LED-01         |
-| SWE-REQ-017 | LED-02         |
-| SWE-REQ-018 | LED-03         |
-| SWE-REQ-019 | CMD-01         |
-| SWE-REQ-020 | FDB-01         |
-| SWE-REQ-021 | MOT-03         |
-| SWE-REQ-022 | LED-04         |
-| SWE-REQ-024 | INIT-01, INIT-04, FLP-04 |
-| SWE-REQ-025 | INIT-03        |
-| SWE-REQ-026 | FLP-03, FLP-06 |
-| SWE-REQ-027 | FLP-04         |
-| SWE-REQ-028 | FLP-03         |
-| SWE-REQ-030 | FDB-02         |
-| SWE-REQ-031 | FLP-06         |
-| SWE-REQ-033 | FDB-04         |
+Test Case: STATUS_001
+  SW-REQ: SWE-REQ-016
+  Objective: Power LED ON after init
+  Preconditions: System started
+  Input: init_start() complete
+  Expected: set_led_state(6) called
+  Criteria: GPIO for power LED active
 
-Table 2: SW Unit → Test Case Mapping
-| Software Unit    | Test Cases                          |
-|------------------|-------------------------------------|
-| init_startup     | INIT-01, INIT-02, INIT-03, INIT-04, INIT-05 |
-| cmd_input        | CMD-01, CMD-02, CMD-03, CMD-04, CMD-05       |
-| feedback_acq     | FDB-01, FDB-02, FDB-03, FDB-04              |
-| flap_ctrl        | FLP-01, FLP-02, FLP-03, FLP-04, FLP-05, FLP-06 |
-| motor_act        | MOT-01, MOT-02, MOT-03, MOT-04               |
-| status_ind       | LED-01, LED-02, LED-03, LED-04               |
+Test Case: STATUS_002
+  SW-REQ: SWE-REQ-017, SWE-REQ-018
+  Objective: Only position LED ON; all others OFF on change
+  Preconditions: Flap position update
+  Input: set_led_state(idx)
+  Expected: idx LED ON, others OFF
+  Criteria: Only one LED/gpio active
 
-===============================
-EXAMPLE UNIT TEST CASE STUB (C, MOCKED)
-===============================
+== 4. TRACEABILITY TABLES ==
 
+-- a) SW-REQ → Test Case --
+SWE-REQ-001: CMD_001
+SWE-REQ-002: CMD_002
+SWE-REQ-003: CMD_002
+SWE-REQ-004: CMD_002
+SWE-REQ-005: CTRL_001
+SWE-REQ-006: CTRL_001
+SWE-REQ-007: CTRL_001, CTRL_002
+SWE-REQ-008: MOTOR_001
+SWE-REQ-009: MOTOR_002
+SWE-REQ-010: MOTOR_002
+SWE-REQ-011: MOTOR_002, INIT_003
+SWE-REQ-012: FBK_001
+SWE-REQ-013: FBK_002
+SWE-REQ-014: FBK_002
+SWE-REQ-015: FBK_003
+SWE-REQ-016: STATUS_001
+SWE-REQ-017: STATUS_002
+SWE-REQ-018: STATUS_002
+SWE-REQ-019: CMD_001
+SWE-REQ-020: FBK_001
+SWE-REQ-021: MOTOR_001
+SWE-REQ-022: STATUS_002
+SWE-REQ-024: INIT_001, CTRL_001
+SWE-REQ-025: INIT_002, CTRL_001
+SWE-REQ-026: CTRL_002
+SWE-REQ-027: CTRL_002
+SWE-REQ-028: CTRL_002
+SWE-REQ-030: FBK_002
+SWE-REQ-031: CTRL_001
+SWE-REQ-033: FBK_003
+
+-- b) SW UNIT → Test Case --
+init_startup: INIT_001, INIT_002, INIT_003
+cmd_input: CMD_001, CMD_002
+feedback_acq: FBK_001, FBK_002, FBK_003
+flap_ctrl: CTRL_001, CTRL_002
+motor_act: MOTOR_001, MOTOR_002
+status_ind: STATUS_001, STATUS_002
+
+== 5. UNIT TEST NOTES ==
+- No hardware/external dependencies: all ADC/UART/GPIO/PWM mocked/stubbed
+- Use CMock, Unity, or equivalent for each C file; all mocks deterministic
+- Test initialization, edge cases, and error conditions
+
+== 6. EXAMPLE UNIT TEST STUBS (C) ==
+
+// Example: cmd_input unit: test decode/validation
+#include "unity.h"
 #include "cmd_input.h"
-#include <assert.h>
-
-// Mocks for test
-void uart_rx_emulate(uint8_t val) { cmd_input_on_uart_rx(val); }
-
-void test_cmd_input_valid_value() {
-    uart_rx_emulate('3');
-    assert(get_decoded_command() == 3);
+void test_valid_cmd_accepted(void) {
+    cmd_input_on_uart_rx('3');
+    TEST_ASSERT_EQUAL_UINT8(3, get_decoded_command());
 }
-void test_cmd_input_invalid_value() {
-    uart_rx_emulate('x');
-    assert(get_decoded_command() == CMD_INVALID);
+void test_invalid_cmd_rejected(void) {
+    cmd_input_on_uart_rx('a');
+    TEST_ASSERT_EQUAL_UINT8(CMD_INVALID, get_decoded_command());
 }
 
-// ...repeat for other units and APIs, using pattern above
-
-Tests use isolated compile/link, with HAL/stubbed peripheral mocks. No HW runs.
-
-===============================
+====================
 END OF DOCUMENT
-===============================
+====================
