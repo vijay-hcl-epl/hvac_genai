@@ -1,0 +1,277 @@
+###### FILE: code/inc/uart_command_handler.h ######
+#ifndef UART_COMMAND_HANDLER_H
+#define UART_COMMAND_HANDLER_H
+
+#include <stdbool.h>
+
+void uart_rx_handler(void *param);
+bool uart_get_last_command(int *cmd_out);
+void uart_clear_command(void);
+
+#endif // UART_COMMAND_HANDLER_H
+###### END FILE ######
+###### FILE: code/src/uart_command_handler.c ######
+#include "uart_command_handler.h"
+#include "control_logic_state_manager.h"
+#include <string.h>
+#include <ctype.h>
+
+#define RX_BUF_LEN 4
+
+static char rx_buffer[RX_BUF_LEN];
+static int rx_index = 0;
+static bool cmd_ready = false;
+static int last_cmd_value = -1;
+
+void uart_rx_handler(void *param) {
+    char c = *(char *)param;
+    if (cmd_ready) return; // Ignore until cleared by logic
+    if (isdigit((unsigned char)c) && rx_index < 2) {
+        rx_buffer[rx_index++] = c;
+    } else if (c == '\n' || c == '\r') {
+        rx_buffer[rx_index] = '\0';
+        int val = -1;
+        if (sscanf(rx_buffer, "%d", &val) == 1 && val >= 0 && val <= 5) {
+            last_cmd_value = val;
+            cmd_ready = true;
+        }
+        rx_index = 0;
+        memset(rx_buffer, 0, sizeof(rx_buffer));
+    } else {
+        rx_index = 0;
+        memset(rx_buffer, 0, sizeof(rx_buffer));
+    }
+}
+
+bool uart_get_last_command(int *cmd_out) {
+    if (cmd_ready && cmd_out) {
+        *cmd_out = last_cmd_value;
+        return true;
+    }
+    return false;
+}
+
+void uart_clear_command(void) {
+    cmd_ready = false;
+    last_cmd_value = -1;
+}
+###### END FILE ######
+###### FILE: code/inc/position_feedback_handler.h ######
+#ifndef POSITION_FEEDBACK_HANDLER_H
+#define POSITION_FEEDBACK_HANDLER_H
+#include <stdint.h>
+#include <stdbool.h>
+
+#define FLAP_POSITION_MIN 0
+#define FLAP_POSITION_MAX 5
+
+typedef struct {
+    uint16_t min_adc;
+    uint16_t max_adc;
+} flap_calib_t;
+
+void position_feedback_poll(void);
+int get_flap_position(void);
+bool get_adc_fault(void);
+
+#endif // POSITION_FEEDBACK_HANDLER_H
+###### END FILE ######
+###### FILE: code/src/position_feedback_handler.c ######
+#include "position_feedback_handler.h"
+
+// Example calibration table (replace with real calibration)
+static const flap_calib_t flap_calib[6] = {
+    {  10,  50 },   // Position 0
+    {  51, 200 },   // Position 1
+    { 201, 400 },   // Position 2
+    { 401, 600 },   // Position 3
+    { 601, 800 },   // Position 4
+    { 801,1000 }    // Position 5
+};
+
+static uint16_t adc_sample = 0;
+static int logical_position = -1;
+static bool adc_fault = false;
+
+// Stub for ADC read (replace with real MCAL)
+static uint16_t adc_read(void) {
+    return 0; // Implement actual ADC
+}
+
+void position_feedback_poll(void) {
+    adc_sample = adc_read();
+    adc_fault = true;
+    logical_position = -1;
+    for (int i = 0; i < 6; ++i) {
+        if (adc_sample >= flap_calib[i].min_adc && adc_sample <= flap_calib[i].max_adc) {
+            logical_position = i;
+            adc_fault = false;
+            break;
+        }
+    }
+}
+
+int get_flap_position(void) {
+    return logical_position;
+}
+
+bool get_adc_fault(void) {
+    return adc_fault;
+}
+###### END FILE ######
+###### FILE: code/inc/flap_motor_actuation_unit.h ######
+#ifndef FLAP_MOTOR_ACTUATION_UNIT_H
+#define FLAP_MOTOR_ACTUATION_UNIT_H
+
+#include <stdbool.h>
+
+typedef enum {MOTOR_STOP, MOTOR_FWD, MOTOR_REV} motor_state_t;
+
+void motor_move_to_position(int target_position, int current_position);
+void motor_stop(void);
+void motor_handle_error(void);
+motor_state_t motor_get_state(void);
+
+#endif // FLAP_MOTOR_ACTUATION_UNIT_H
+###### END FILE ######
+###### FILE: code/src/flap_motor_actuation_unit.c ######
+#include "flap_motor_actuation_unit.h"
+// Hardware GPIO/PWM stubs
+static motor_state_t state = MOTOR_STOP;
+
+static void set_motor_output(motor_state_t s) {
+    // Replace with HAL to GPIO/PWM
+}
+
+void motor_move_to_position(int target_position, int current_position) {
+    if (target_position < current_position) {
+        state = MOTOR_REV;
+        set_motor_output(MOTOR_REV);
+    } else if (target_position > current_position) {
+        state = MOTOR_FWD;
+        set_motor_output(MOTOR_FWD);
+    } else {
+        state = MOTOR_STOP;
+        set_motor_output(MOTOR_STOP);
+    }
+}
+
+void motor_stop(void) {
+    state = MOTOR_STOP;
+    set_motor_output(MOTOR_STOP);
+}
+
+void motor_handle_error(void) {
+    motor_stop();
+}
+
+motor_state_t motor_get_state(void) {
+    return state;
+}
+###### END FILE ######
+###### FILE: code/inc/status_position_indicator_unit.h ######
+#ifndef STATUS_POSITION_INDICATOR_UNIT_H
+#define STATUS_POSITION_INDICATOR_UNIT_H
+
+void status_led_set(bool on);
+void position_indicator_update(int position);
+
+#endif // STATUS_POSITION_INDICATOR_UNIT_H
+###### END FILE ######
+###### FILE: code/src/status_position_indicator_unit.c ######
+#include "status_position_indicator_unit.h"
+#include <stdbool.h>
+// Replace these stubs with actual GPIO control
+void status_led_set(bool on) {
+    // real implementation controls power LED
+}
+void position_indicator_update(int position) {
+    // only update corresponding position LED; no pattern blinking
+}
+###### END FILE ######
+###### FILE: code/inc/control_logic_state_manager.h ######
+#ifndef CONTROL_LOGIC_STATE_MANAGER_H
+#define CONTROL_LOGIC_STATE_MANAGER_H
+
+#include <stdbool.h>
+
+typedef enum {
+    SYS_STATE_IDLE,
+    SYS_STATE_MOVE,
+    SYS_STATE_ERROR
+} system_state_t;
+
+void control_logic_init(void);
+void control_logic_poll(void);
+system_state_t control_logic_get_state(void);
+
+#endif // CONTROL_LOGIC_STATE_MANAGER_H
+###### END FILE ######
+###### FILE: code/src/control_logic_state_manager.c ######
+#include "control_logic_state_manager.h"
+#include "uart_command_handler.h"
+#include "position_feedback_handler.h"
+#include "flap_motor_actuation_unit.h"
+#include "status_position_indicator_unit.h"
+
+static system_state_t sys_state = SYS_STATE_IDLE;
+static int target_position = -1;
+static int current_position = -1;
+
+void control_logic_init(void) {
+    sys_state = SYS_STATE_IDLE;
+    target_position = -1;
+    current_position = -1;
+    status_led_set(true);
+    position_indicator_update(current_position);
+    motor_stop();
+}
+
+void control_logic_poll(void) {
+    // Poll for new UART command
+    int cmd;
+    if (uart_get_last_command(&cmd)) {
+        if (cmd >= 0 && cmd <= 5) {
+            target_position = cmd;
+            uart_clear_command();
+            sys_state = SYS_STATE_MOVE;
+        }
+    }
+    // Poll feedback
+    position_feedback_poll();
+    current_position = get_flap_position();
+    if (get_adc_fault()) {
+        sys_state = SYS_STATE_ERROR;
+        motor_handle_error();
+        return;
+    }
+    if (sys_state == SYS_STATE_MOVE) {
+        if (current_position == target_position && current_position != -1) {
+            motor_stop();
+            sys_state = SYS_STATE_IDLE;
+        } else if (current_position != -1) {
+            motor_move_to_position(target_position, current_position);
+        }
+    } else if (sys_state == SYS_STATE_IDLE) {
+        motor_stop();
+    }
+    position_indicator_update(current_position);
+}
+
+system_state_t control_logic_get_state(void) {
+    return sys_state;
+}
+###### END FILE ######
+###### FILE: code/src/main.c ######
+#include "control_logic_state_manager.h"
+
+// Stub for main hardware loop
+int main(void) {
+    control_logic_init();
+    while (1) {
+        control_logic_poll();
+        // Delay or wait for event/interrupt
+    }
+    return 0;
+}
+###### END FILE ######
