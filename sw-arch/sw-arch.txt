@@ -1,0 +1,96 @@
+1.0 Software Architecture Style Selection
+----------------------------------------
+Candidate Styles Evaluated:
+- Monolithic
+- Layered (high-level separation only)
+- Component-Based (SW units/modules with explicit interfaces)
+
+Evaluation Criteria:
+- System complexity: Simple, single actuator, limited I/O
+- HW interaction: Several direct drivers/interfaces
+- Testability: SW units must allow mapping to requirements
+- Maintainability: ASPICE L3 separation for future expandability
+
+Selected Architecture Style: Component-Based (modular)
+Justification:
+- Enables explicit mapping between software requirements and SW units
+- Simplifies testability and maintainability via clear separation
+- Layered approach not necessary due to system simplicity, but high-level layering is preserved informally
+- Monolithic rejected: does not allow traceable separation or testability
+
+2.0 Software Architecture Definition
+--------------------------------------
+
+Software Units and Responsibilities (all traceable to SWE.1):
+
+1. Command Interface Unit
+   - Responsibilities: Receives, validates, and parses UART commands. Ensures only one command is acted upon at a time. Passes valid target position requests to control logic. (SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-016)
+   - Interfaces Provided: FlapCommandRequest (to Control Logic)
+   - Interfaces Used: UART Peripheral
+
+2. Position Feedback Processing Unit
+   - Responsibilities: Acquires ADC readings, maps to position index using calibration, supplies current position to other SW units. (SWE-REQ-010, SWE-REQ-011, SWE-REQ-012, SWE-REQ-018, SWE-REQ-027)
+   - Interfaces Provided: CurrentFlapPosition
+   - Interfaces Used: ADC Peripheral
+
+3. Flap Movement/Motor Control Unit
+   - Responsibilities: Drives motor driver signals (GPIO, PWM) to move and stop flap. Responds to position feedback and control logic. (SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-008, SWE-REQ-009, SWE-REQ-017, SWE-REQ-019)
+   - Interfaces Provided: MotorDrive (to hardware)
+   - Interfaces Used: FlapCommandRequest, CurrentFlapPosition
+
+4. Status Indication Unit
+   - Responsibilities: Controls status/power LED and green position LEDs per current position and system state. (SWE-REQ-013, SWE-REQ-014, SWE-REQ-015, SWE-REQ-017)
+   - Interfaces Provided: StatusLEDOutputs, PositionLEDOutputs
+   - Interfaces Used: CurrentFlapPosition
+
+5. Control Logic Unit
+   - Responsibilities: Implements state management between idle, moving, target reached, error; orchestrates units above using clear inputs/outputs. (SWE-REQ-004, SWE-REQ-021, SWE-REQ-022, SWE-REQ-023, SWE-REQ-024, SWE-REQ-025)
+   - Interfaces Provided: None (internal)
+   - Interfaces Used: FlapCommandRequest, CurrentFlapPosition
+
+6. Calibration Data Handler
+   - Responsibilities: Stores and provides calibration parameters/lookup for ADC mapping. (SWE-REQ-027, SWE-REQ-028)
+   - Interfaces Provided: CalibrationData
+   - Interfaces Used: Flash/ROM storage
+
+7. Error Handler
+   - Responsibilities: Receives error flags from all units, handles safe state, ensures correct system outputs on fault. (SWE-REQ-030, SWE-REQ-031, SWE-REQ-032, SWE-REQ-025)
+   - Interfaces Provided: ErrorFlag, SafeOutputs
+   - Interfaces Used: Position Feedback Processing Unit, Motor Control Unit, Control Logic Unit
+
+No additional units present. No new requirements, behaviors, or mechanisms introduced.
+
+Execution Model
+----------------
+No explicit execution model or scheduling policy is mandated by the requirements at this stage.
+
+3.0 Architecture Representation
+-------------------------------
+A) Text-Based Diagram:
+
+[UART]-->
+ |       
+[V] Command Interface Unit  ---FlapCommandRequest--->  Control Logic Unit  ---MotorDrive--->  [Flap Movement/Motor Control Unit]
+                                        |                       |                  
+                                        v                       |
+                   [CurrentFlapPosition]<--Position Feedback----|
+                             ^                                  |
+                             |                                  |
+                 [Status Indication Unit]                       |
+                                                [Calibration Data Handler]
+                                                [Error Handler]<-----|
+                          [ADC] [GPIO] [PWM] [LEDs]
+
+B) Architecture Table:
+
+Software Unit | Responsibilities | Interfaces Provided | Interfaces Used
+--------------|------------------|---------------------|----------------
+Command Interface Unit | Validate & parse UART commands, enforce one-command-at-a-time | FlapCommandRequest | UART Peripheral
+Position Feedback Processing Unit | ADC read + logical position mapping | CurrentFlapPosition | ADC Peripheral
+Flap Movement/Motor Control Unit | Motor actuation via GPIO/PWM | MotorDrive | FlapCommandRequest, CurrentFlapPosition
+Status Indication Unit | LED signal control for power/flap pos | StatusLEDOutputs, PositionLEDOutputs | CurrentFlapPosition
+Control Logic Unit | Orchestrates command/feedback/motion unit operation | (internal orchestration) | FlapCommandRequest, CurrentFlapPosition
+Calibration Data Handler | Calibration for ADC-to-position map | CalibrationData | Flash/ROM Storage
+Error Handler | Safe-state transitions on errors | ErrorFlag, SafeOutputs | Position Feedback, Motor, Control Logic Units
+
+Traceability: All responsibilities and interfaces directly implement one or more software requirements (SWE-REQ-001 ... SWE-REQ-038) as referenced above. No additions, behavior changes, or implementation mechanisms beyond requirements present.
