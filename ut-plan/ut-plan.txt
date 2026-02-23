@@ -1,0 +1,179 @@
+# SWE.4 Unit Test Plan: HVAC Flap Actuator (ASPICE compliant)
+
+## Software Units Under Test
+1. UART Command Handler
+2. Position Feedback Handler
+3. Flap Motor Actuation Unit
+4. Status & Position Indicator Unit
+5. Control Logic & State Manager
+
+---
+
+## Test Case Format
+- TC_ID
+- SW-REQ(s)
+- Objective
+- Preconditions
+- Inputs
+- Expected Result
+- Pass/Fail Criteria
+
+---
+
+## UART Command Handler
+**Responsibilities:** Handles reception/validation of position commands over UART (SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-016, SWE-REQ-028)
+
+### Tests
+| TC_ID         | SW-REQ(s)        | Objective                                      | Preconditions           | Inputs                   | Expected Result                         |
+|---------------|------------------|------------------------------------------------|-------------------------|--------------------------|------------------------------------------|
+| UART_TC_001   | SWE-REQ-001      | Accept valid command 0..5                      | Board init; idle        | UART RX '5' + CR         | last_cmd_value=5; ready; returns true    |
+| UART_TC_002   | SWE-REQ-002,028  | Ignore out-of-range command                    | Board init; idle        | UART RX '9' + CR         | No change; last_cmd_value=-1; false      |
+| UART_TC_003   | SWE-REQ-028      | Ignore non-digit command                       | Board init; idle        | UART RX 'Z' + CR         | No change; last_cmd_value=-1; false      |
+| UART_TC_004   | SWE-REQ-001,003  | Only 1 command accepted at a time              | last_cmd_value=set      | UART RX '3' + CR         | Ignore until cleared                     |
+| UART_TC_005   | SWE-REQ-002      | Command buffer clears after result is read      | last_cmd_value=valid    | uart_clear_command()     | cmd_ready=false; value=-1                |
+
+Boundary/input fault tests covered: input range, input state, buffer clearing, non-digit detection, etc.
+
+Isolation: All UART RX is mocked (simulate ISR/data callback), no hardware used.
+
+---
+
+## Position Feedback Handler
+**Responsibilities:** ADC sampling, mapping ADC to logical flap position, reporting/flagging errors. (SWE-REQ-011,012,024,027,018)
+
+### Tests
+| TC_ID          | SW-REQ(s)     | Objective                                    | Preconditions | Inputs            | Expected Result                |
+|----------------|--------------|-----------------------------------------------|---------------|-------------------|-------------------------------|
+| PFH_TC_001     | SWE-REQ-011  | Valid ADC → correct logical position          | ready         | adc_read=51       | get_flap_position()=1         |
+| PFH_TC_002     | SWE-REQ-027  | ADC value out of any range → fault            | ready         | adc_read=2000     | get_flap_position()=-1; fault |
+| PFH_TC_003     | SWE-REQ-012  | Range boundaries (min/max) correct mapping    | ready         | adc_read=10/50    | get_flap_position()=0         |
+| PFH_TC_004     | SWE-REQ-024  | Calibration static, not modifiable            | ready         | mutate calib[]    | compile error                 |
+
+Mock adc_read function. No real ADC invoked.
+
+---
+
+## Flap Motor Actuation Unit
+**Responsibilities:** Handle GPIO/PWM for motor, on/off, direction, stop on error. (SWE-REQ-009,010,017,030)
+
+### Tests
+| TC_ID          | SW-REQ(s)     | Objective                                           | Preconditions         | Inputs           | Expected Result            |
+|----------------|--------------|----------------------------------------------------|-----------------------|------------------|---------------------------|
+| FMU_TC_001     | SWE-REQ-009  | Move to higher/lower target → correct state/output  | idle; valid positions | target=4, curr=2 | state=MOTOR_FWD           |
+| FMU_TC_002     | SWE-REQ-009  | Move to lower target                               | idle; valid positions | target=2, curr=4 | state=MOTOR_REV           |
+| FMU_TC_003     | SWE-REQ-010  | On startup, state is MOTOR_STOP                     | after init            | n/a              | state=MOTOR_STOP          |
+| FMU_TC_004     | SWE-REQ-030  | On error, output is MOTOR_STOP                      | error                 | motor_handle_error()| state=MOTOR_STOP      |
+
+All hardware calls stubbed/mocked.
+
+---
+
+## Status & Position Indicator Unit
+**Responsibilities:** Update status LED, only show valid position, no pattern. (SWE-REQ-013,014,015,017)
+
+### Tests
+| TC_ID        | SW-REQ(s)   | Objective                                  | Preconditions      | Inputs   | Expected Result              |
+|--------------|-------------|---------------------------------------------|--------------------|----------|-----------------------------|
+| IND_TC_001   | SWE-REQ-013 | Set status LED ON after successful init     | after init         | true     | LED ON                      |
+| IND_TC_002   | SWE-REQ-014 | Only one position LED ON after update       | state=valid pos    | pos=3    | Only pos3 LED ON            |
+| IND_TC_003   | SWE-REQ-015 | No blinking or pattern                      | ever               | n/a      | LEDs static/no pattern      |
+
+LED control functions stubbed/mocked.
+
+---
+
+## Control Logic & State Manager
+**Responsibilities:** Orchestrate system modes, implement main state machine, safe error & output policy. (SWE-REQ-004,005,006,007,008,020,021,022,023,029,030,032,033,034,035,036,037,038)
+
+### Tests
+| TC_ID         | SW-REQ(s)       | Objective                                               | Preconditions          | Inputs                        | Expected Result            |
+|---------------|-----------------|----------------------------------------------------------|------------------------|-------------------------------|---------------------------|
+| CLM_TC_001    | SWE-REQ-004,021 | Waits for UART in idle                                  | system idle            | n/a                           | sys_state=IDLE            |
+| CLM_TC_002    | SWE-REQ-022,023 | After valid command, moves flap                         | idle, cmd=2           | uart_get_last_command=2       | sys_state=MOVE; motor act  |
+| CLM_TC_003    | SWE-REQ-023,030 | On error, outputs safe, returns to idle                  | error simulated        | get_adc_fault=true            | sys_state=ERROR; stop      |
+| CLM_TC_004    | SWE-REQ-037,038 | State can be observed/tested by test/poll                | test running          | state poll                    | expected state visible     |
+
+All dependencies mocked. No integration; only SUT logic.
+
+---
+
+## Traceability Tables
+
+### 1. SW-REQ → Test Case
+| SW-REQ    | Test Cases                            |
+|-----------|---------------------------------------|
+| SWE-REQ-001 | UART_TC_001, UART_TC_004           |
+| SWE-REQ-002 | UART_TC_002, UART_TC_005           |
+| SWE-REQ-003 | UART_TC_004                        |
+| SWE-REQ-004 | CLM_TC_001                         |
+| SWE-REQ-005 | CLM_TC_002                         |
+| SWE-REQ-006 | CLM_TC_002                         |
+| SWE-REQ-007 | FMU_TC_001, FMU_TC_002             |
+| SWE-REQ-008 | FMU_TC_002                         |
+| SWE-REQ-009 | FMU_TC_001                         |
+| SWE-REQ-010 | FMU_TC_003                         |
+| SWE-REQ-011 | PFH_TC_001                         |
+| SWE-REQ-012 | PFH_TC_003                         |
+| SWE-REQ-013 | IND_TC_001                         |
+| SWE-REQ-014 | IND_TC_002                         |
+| SWE-REQ-015 | IND_TC_003                         |
+| SWE-REQ-016 | UART_TC_001                        |
+| SWE-REQ-017 | IND_TC_002                         |
+| SWE-REQ-018 | PFH_TC_001                         |
+| SWE-REQ-020 | CLM_TC_001                         |
+| SWE-REQ-021 | CLM_TC_001                         |
+| SWE-REQ-022 | CLM_TC_002                         |
+| SWE-REQ-023 | CLM_TC_002, CLM_TC_003             |
+| SWE-REQ-024 | PFH_TC_004                         |
+| SWE-REQ-027 | PFH_TC_002                         |
+| SWE-REQ-028 | UART_TC_003                        |
+| SWE-REQ-029 | CLM_TC_001                         |
+| SWE-REQ-030 | FMU_TC_004, CLM_TC_003             |
+| SWE-REQ-032 | CLM_TC_002                         |
+| SWE-REQ-033 | CLM_TC_003                         |
+| SWE-REQ-034 | CLM_TC_003                         |
+| SWE-REQ-035 | CLM_TC_004                         |
+| SWE-REQ-036 | CLM_TC_004                         |
+| SWE-REQ-037 | CLM_TC_004                         |
+| SWE-REQ-038 | CLM_TC_004                         |
+
+### 2. SW Unit → Test Case
+| SW Unit                        | Test Cases                      |
+|-------------------------------|---------------------------------|
+| UART Command Handler           | UART_TC_001, UART_TC_002, UART_TC_003, UART_TC_004, UART_TC_005 |
+| Position Feedback Handler      | PFH_TC_001, PFH_TC_002, PFH_TC_003, PFH_TC_004                  |
+| Flap Motor Actuation Unit      | FMU_TC_001, FMU_TC_002, FMU_TC_003, FMU_TC_004                  |
+| Status & Position Indicator    | IND_TC_001, IND_TC_002, IND_TC_003                              |
+| Control Logic & State Manager  | CLM_TC_001, CLM_TC_002, CLM_TC_003, CLM_TC_004                |
+
+---
+
+## Example C Unit Test Stub (for UART Command Handler)
+
+#include "unity.h"
+#include "uart_command_handler.h"
+
+TEST_CASE(UART_TC_001, "Accepts valid command") {
+    uart_rx_handler((void*)"5");
+    uart_rx_handler((void*)"\n");
+    int cmd;
+    TEST_ASSERT_TRUE(uart_get_last_command(&cmd));
+    TEST_ASSERT_EQUAL(5, cmd);
+}
+
+TEST_CASE(UART_TC_002, "Ignores out-of-range") {
+    uart_rx_handler((void*)"9");
+    uart_rx_handler((void*)"\n");
+    int cmd;
+    TEST_ASSERT_FALSE(uart_get_last_command(&cmd));
+}
+
+// ...more cases
+
+---
+
+**All mocks/stubs required. No hardware access or integration runs.**
+
+---
+
+# END OF SWE.4 UNIT TEST PLAN
