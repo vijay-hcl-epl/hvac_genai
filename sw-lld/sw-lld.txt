@@ -1,0 +1,29 @@
+1. UART Command Handler (uart_handler.c/.h)
+- Static receive buffer (one char or small queue)
+- Command parser (0-5, otherwise invalid)
+- API: int UART_GetCommand(void);
+
+2. Flap Position Manager (flap_manager.c/.h)
+- Function to map ADC value to logical position (0-5)
+- API: int FLAP_MapADC(uint16_t value);
+- Tracks and compares target vs current; issues move/stop commands
+
+3. Motor Controller (motor_control.c/.h)
+- Motor_Init(), Motor_Run(direction), Motor_Stop()
+- Direction: enum type (CW, CCW)
+- PWM setup static, no dynamic speed
+- HAL abstraction
+
+4. ADC Manager (adc_manager.c/.h)
+- ADC_Init(), ADC_Read()
+- Calibration values stored as #defines
+
+5. LED Driver (led_driver.c/.h)
+- led_init(), led_update_position(int pos), led_power_on()
+
+6. main.c
+- Infinite loop: read UART, check/command, map/compare position, update outputs, drive state transitions
+- Handles init/startup logic, error/safe state (no movement on invalid ADC, timeout handler optional)
+- No dynamic allocation; static file-scope/state vars only
+
+Each unit gets its own .c/.h (code/src, code/inc).
