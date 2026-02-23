@@ -1,0 +1,177 @@
+SYS.5 SYSTEM QUALIFICATION TEST SPECIFICATION (HVAC Flap Actuator)
+===================================================================
+
+1.0 INTRODUCTION
+-----------------
+This document specifies the System Qualification Test Specification (SYS.5) for the HVAC flap actuator. The tests validate the fully integrated system, executed on real hardware, and map directly to system requirements for ASPICE Level-3 compliance. No internal software logic or unit/module coverage is included.
+
+2.0 TRACEABILITY
+-----------------
+All test cases map to one or more System Requirement IDs (SYS-REQ-xxx) in sys-reqs/sys-reqs.txt.
+
+3.0 TEST CASES
+---------------
+
+Test Area 1: Power-Up & Initialization
+---------------------------------------
+SYS-TC-001
+- Mapped System Requirement IDs: SYS-REQ-018, SYS-REQ-019, SYS-REQ-014
+- Test Objective: Verify system initializes all peripherals, the motor is off at power up, initial position is detected/indicated, and power LED turns on.
+- Preconditions: System powered off and in normal hardware/configuration.
+- Test Inputs: Apply power to the PCB.
+- Test Steps:
+  1. Ensure the actuator flap is not at a position endpoint.
+  2. Apply power to the HVAC actuator system.
+  3. Observe LED and actuator state during initialization.
+- Expected Results: Power LED turns ON. Motor does not move. Flap position LED indicates actual flap location. UART is idle.
+- Pass/Fail Criteria: Pass if all expected results observed, fail if any present requirement is not met.
+
+SYS-TC-002
+- Mapped System Requirement IDs: SYS-REQ-008, SYS-REQ-019
+- Test Objective: Verify correct acquisition and reading from the flap position potentiometer at start-up.
+- Preconditions: As above.
+- Test Inputs: Adjust flap to a known position prior to power on.
+- Test Steps:
+  1. Set flap to a known mechanical position.
+  2. Power on system.
+  3. Confirm that flap position LED matches known position.
+- Expected Results: LED shows actual, correct position immediately after power up.
+- Pass/Fail Criteria: Pass if correct indication, fail if not.
+
+Test Area 2: Valid Flap Position Commands
+-----------------------------------------
+SYS-TC-003
+- Mapped System Requirement IDs: SYS-REQ-001, SYS-REQ-002, SYS-REQ-011
+- Test Objective: Confirm system moves flap to all supported positions on user command.
+- Preconditions: Powered up and idle at start position.
+- Test Inputs: UART numeric position commands (0, 1, 2, 3, 4, 5).
+- Test Steps:
+  1. Send each valid command (0–5) in sequence over UART.
+  2. Observe flap motor, movement, and feedback LED after each command.
+- Expected Results: Flap moves in correct direction and stops at commanded position; feedback LED matches command.
+- Pass/Fail Criteria: Pass if all moves/indications correct with no overshoot.
+
+SYS-TC-004
+- Mapped System Requirement IDs: SYS-REQ-003, SYS-REQ-005
+- Test Objective: Confirm the motor always stops when the commanded position is reached.
+- Preconditions: System at arbitrary position, waiting for user command.
+- Test Inputs: UART position commands.
+- Test Steps:
+  1. Issue a valid move command.
+  2. Observe when the flap reaches the intended position.
+  3. Observe that motor actuates only as needed, and stops upon target achieved.
+- Expected Results: No excess movement. Motor stops immediately upon final position as per feedback.
+- Pass/Fail Criteria: Pass if motor never overshoots and stops precisely as required.
+
+Test Area 3: Invalid & Boundary Conditions
+------------------------------------------
+SYS-TC-005
+- Mapped System Requirement IDs: SYS-REQ-012, SYS-REQ-023
+- Test Objective: Verify system ignores invalid or out-of-range UART commands and maintains correct operation.
+- Preconditions: Idle at valid position.
+- Test Inputs: UART commands: negative, > max, non-numeric.
+- Test Steps:
+  1. Issue invalid/out-of-range commands via UART while system is idle.
+  2. Observe actuator LEDs and motor.
+- Expected Results: Actuator does not move; LEDs remain unchanged; no system crash or reset.
+- Pass/Fail Criteria: Pass if system ignores invalid commands without malfunction.
+
+SYS-TC-006
+- Mapped System Requirement IDs: SYS-REQ-020, SYS-REQ-032
+- Test Objective: System detects boundary/unsafe conditions (e.g., ADC out-of-range), halts motor, and does not crash.
+- Preconditions: Flap in motion.
+- Test Inputs: Induce ADC out-of-range (e.g., by disconnecting pot or simulating fault).
+- Test Steps:
+  1. Trigger move command and, during operation, induce ADC fault.
+  2. Observe system reaction and motor state.
+- Expected Results: Motor stops immediately. System does not crash or reset.
+- Pass/Fail Criteria: Pass if system remains safe and operational post-fault.
+
+SYS-TC-007
+- Mapped System Requirement IDs: SYS-REQ-013
+- Test Objective: Confirm new user command is NOT accepted in the middle of a move.
+- Preconditions: Flap moving toward previous target.
+- Test Inputs: UART command during ongoing move.
+- Test Steps:
+  1. Initiate a move.
+  2. While motor actuates, send new command.
+- Expected Results: System ignores new command; flap movement/target unchanged.
+- Pass/Fail Criteria: Pass if only the initial command is acted upon until completion.
+
+SYS-TC-008
+- Mapped System Requirement IDs: SYS-REQ-034
+- Test Objective: Confirm system stability under invalid but simple errors (no lock-up, constant resets, or hazardous states).
+- Preconditions: Arbitrary valid system state.
+- Test Inputs: Abrupt UART disconnect, malformed command, rapid power cycling.
+- Test Steps:
+  1. Perform each disruptive input in isolation.
+  2. Observe system response and recoverability.
+- Expected Results: System never enters hazardous/unstable state.
+- Pass/Fail Criteria: Pass if system always recovers and remains safe.
+
+Test Area 4: Position Feedback & Monitoring
+-----------------------------------------------
+SYS-TC-009
+- Mapped System Requirement IDs: SYS-REQ-009, SYS-REQ-010
+- Test Objective: Accurate ADC-to-position mapping and continuous feedback.
+- Preconditions: Flap at known position, or in normal operational state.
+- Test Inputs: Manually change the flap position.
+- Test Steps:
+  1. Change flap position manually to boundary and intermediate points.
+  2. Observe position LED while system otherwise idle.
+- Expected Results: Position LED tracks actual flap position precisely, updates continuously with movement.
+- Pass/Fail Criteria: Pass if indication always matches true position.
+
+Test Area 5: Motor Control Behavior
+-----------------------------------
+SYS-TC-010
+- Mapped System Requirement IDs: SYS-REQ-006, SYS-REQ-007
+- Test Objective: Motor actuates ONLY on valid position change, halts on error, never actuates spuriously.
+- Preconditions: Idle at valid position, occasional induced software/hardware error.
+- Test Inputs: UART position command, induced error (e.g., ADC disconnect).
+- Test Steps:
+  1. Observe for any motor actuation during idle (should be none).
+  2. Initiate move command; observe start/stop behaviors.
+  3. During move, trigger error condition (see above).
+- Expected Results: Motor starts only on valid command, stops immediately on error, never drives randomly.
+- Pass/Fail Criteria: Pass if above conditions satisfied.
+
+Test Area 6: LED Status Indication
+-----------------------------------
+SYS-TC-011
+- Mapped System Requirement IDs: SYS-REQ-014, SYS-REQ-015, SYS-REQ-016, SYS-REQ-017
+- Test Objective: Power LED ON with power; only one position LED ON and correct throughout all system states. No blinking/animation.
+- Preconditions: Any valid operation state.
+- Test Inputs: Power on/off, position commands, manual flap movement.
+- Test Steps:
+  1. Vary power and command states to exercise all scenarios.
+  2. Observe indication at each stage.
+- Expected Results: Power LED ON only when powered; only correct position LED ON; all steady, no blinking.
+- Pass/Fail Criteria: Pass if indication matches requirements in all states.
+
+Test Area 7: End-to-End Behavior
+---------------------------------
+SYS-TC-012
+- Mapped System Requirement IDs: SYS-REQ-001, SYS-REQ-002, SYS-REQ-003, SYS-REQ-021, SYS-REQ-022, SYS-REQ-015
+- Test Objective: Complete end-to-end command-to-actuation scenario with observable outcomes at all stages.
+- Preconditions: System idle at known position.
+- Test Inputs: Valid UART user command for a different flap position.
+- Test Steps:
+  1. Send command via UART.
+  2. Observe: a) Flap moves, b) correct target reached, c) LEDs update accordingly, d) System remains idle and stable post action.
+- Expected Results: All system elements behave per the requirements throughout the workflow.
+- Pass/Fail Criteria: Pass if all correct outcomes, fail if any deviation.
+
+4.0 APPENDICES
+---------------
+4.1 Coverage Matrix (Test Case ↔ Requirement)
+[Tabular matrix mapping each SYS-TC-XXX to relevant SYS-REQ-XXX, built as above]
+
+4.2 Equipment/Setup
+- STM32F407G-DISC1-based HVAC actuator system
+- UART debugger/PC for command entry
+- Bench power supply
+- Oscilloscope/DMM for verification
+- Physical access to motor, flap, and status LEDs
+
+END OF DOCUMENT
