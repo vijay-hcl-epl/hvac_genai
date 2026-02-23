@@ -1,91 +1,90 @@
-=====================
+====================
 1. ARCHITECTURE STYLE SELECTION
-=====================
+====================
+
 Candidate Styles Considered:
-- Layered
-- Component-based
-- Monolithic
+- (A) Monolithic
+- (B) Layered
+- (C) Component-based
 
-Evaluation:
-Layered: The requirements (SWE.1) do not warrant a strict hardware-abstraction/service separation. Layering would not simplify or clarify responsibilities due to the small solution scope and absence of reusable business logic; rejected.
+Evaluation Criteria:
+- System Complexity: Low (single actuator, single control flow)
+- HW Interaction: Simple (UART, ADC, GPIO/PWM only)
+- Testability: High (single-path control, direct interface exposure)
+- Maintainability: Important for ASPICE traceability/modularity
+- ASPICE L3: Requires explicit artifact traceability, interface definition, and testable, modular decomposition
 
-Monolithic: Would fulfill requirements, but makes future maintainability and unit traceability more difficult; not preferred for ASPICE and testability.
+Justification:
+- Monolithic rejected: Does not support maintainability or modularity per SWE.1/testability and ASPICE goals.
+- Layered viable, but creates artificial barriers for such a flat functional scope.
+- Component-based SELECTED: Supports clear modularization for input, logic, actuator, and indication. Best fit to keep responsibilities testable and extendable as per SWE.1. Traceability is direct to functional decomposition and interfaces.
 
-Component-based: This approach matches the discrete aspect of each system function (command input, actuator control, feedback processing, indication). Small, responsible software units increase maintainability, testability, and alignment with SWE.1's traceability and ASPICE L3 (SWE.2.BP1/BP6). Selected.
-
-=====================
+====================
 2. SOFTWARE ARCHITECTURE DEFINITION
-=====================
+====================
 
-Software Units (mapped directly to SWE.1 with no additional behavior or requirements invented):
+Software Units (see Section 4 for mapping):
+- UART Command Handler
+- Position Manager
+- Motor Control Unit
+- ADC Acquisition & Mapping
+- LED/Status Driver
 
-1. Command Input Unit
-   - Responsibilities: Receives and interprets user UART commands. [SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-019]
-   - Interfaces Provided: Decoded Position Command
-   - Interfaces Used: UART peripheral
+Responsibilities and Traces:
+- UART Command Handler: Receives and decodes UART commands; ignores out-of-range input. [SWE-REQ-001,002,003,004,019,034,038,039]
+- Position Manager: Maintains target and current positions, manages state (idle/active). [SWE-REQ-005,006,007,024,025,026,027,028,029,031,043,044]
+- ADC Acquisition & Mapping: Reads analog feedback, maps ADC to discrete position, flags out-of-range. [SWE-REQ-012,013,014,015,020,030,033]
+- Motor Control Unit: Issues drive/stop/idle signals to DC motor as per target/feedback state, ensures safety rules. [SWE-REQ-008,009,010,011,021,035,040,041,042]
+- LED/Status Driver: Sets "power ON" and position LEDs as required. [SWE-REQ-016,017,018,022]
 
-2. Flap Position Control Unit
-   - Responsibilities: Implements state/control logic for flap movement in response to valid commands. [SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-024, SWE-REQ-025, SWE-REQ-026, SWE-REQ-027, SWE-REQ-028, SWE-REQ-031]
-   - Interfaces Provided: Target position and control outputs
-   - Interfaces Used: Command Input Unit, Feedback Acquisition Unit, Motor Actuation Unit
+Inter-unit Interfaces:
+- UART Command Handler -> Position Manager (command pass)
+- Position Manager <-> Motor Control Unit, ADC Acquisition
+- Position Manager -> LED/Status Driver
 
-3. Motor Actuation Unit
-   - Responsibilities: Drives, stops, and directs the DC motor according to commands from Flap Position Control Unit. [SWE-REQ-008, SWE-REQ-009, SWE-REQ-010, SWE-REQ-011, SWE-REQ-021]
-   - Interfaces Provided: Motor control signals (GPIO+PWM)
-   - Interfaces Used: Flap Position Control Unit
-
-4. Feedback Acquisition Unit
-   - Responsibilities: Continuously acquires and maps ADC data to flap position; notifies on out-of-range. [SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-015, SWE-REQ-020, SWE-REQ-030, SWE-REQ-033]
-   - Interfaces Provided: Current flap position
-   - Interfaces Used: ADC peripheral
-
-5. Status Indication Unit
-   - Responsibilities: Powers on LED; displays current position via LEDs. [SWE-REQ-016, SWE-REQ-017, SWE-REQ-018, SWE-REQ-022]
-   - Interfaces Provided: None (acts on state)
-   - Interfaces Used: Flap Position Control Unit
-
-6. Initialization/Startup Unit
-   - Responsibilities: Initializes hardware/peripherals at startup, reads flap position, puts system in idle before command loop. [SWE-REQ-024, SWE-REQ-025, SWE-REQ-011]
-   - Interfaces Provided: Signals to all units to start operation after configuration
-   - Interfaces Used: All hardware peripherals
-
-=====================
 Execution Model:
-=====================
-No explicit execution model or scheduling policy is mandated by the requirements at this stage. Only the functional flow outlined in SWE.1 must be realized; details of cyclic, event-driven, or preemptive scheduling are not specified or assumed.
+No explicit execution model or scheduling policy is mandated by the requirements at this stage.
 
-=====================
-A) Text-Based Architecture Diagram
-=====================
-Initialization/Startup Unit
-     |---> Command Input Unit <-- UART
-     |---> Feedback Acquisition Unit <-- ADC
-     |---> Flap Position Control Unit
-                 |         |           |       |
-                 v         v           v       v
-         Motor Actuation  Status Indication
-              Unit        Unit
+====================
+A) ARCHITECTURE DIAGRAM (TEXT)
+====================
 
+┌───────────────────────────────┐
+│       UART Command Handler    │
+│   (receives UART, parses)     │
+└──────────────┬────────────────┘
+               │ command (0-5)
+               ▼
+┌───────────────────────────────┐
+│        Position Manager       │
+│(tracks target/curr pos; idle/ │
+│  act state)                   │
+└───────┬────────┬──────────────┘
+        │        │
+        │        │ feedback
+        │        ▼
+        │   ┌──────────────┐
+        │   │   ADC Acq &  │
+        │   │   Mapping    │
+        │   └─────┬────────┘
+        │         │ pos
+        ▼         ▼
+┌──────────────┐ ┌─────────────┐
+│ Motor Ctrl   │ │ LED/Status  │
+│  Unit        │ │  Driver     │
+└──────────────┘ └─────────────┘
 
-"Startup Unit" enables the subordinate units. "Command Input" and "Feedback Acquisition" feed commands and position to "Flap Position Control," which directs "Motor Actuation" and triggers "Status Indication."
+====================
+B) ARCHITECTURE TABLE
+====================
 
-=====================
-B) Unit Table
-=====================
-Software Unit                    | Responsibilities                     | Interfaces Provided                  | Interfaces Used
--------------------------------  | -----------------------------------  | ------------------------------------ | ---------------------------------------------
-1. Initialization/Startup Unit   | Peripheral setup, power-up logic     | Init-complete signal                 | ADC, UART, GPIO, PWM
-2. Command Input Unit            | UART decode, valid command filter    | Decoded command                      | UART, Flap Position Control Unit
-3. Feedback Acquisition Unit     | ADC read, map to pos, out-of-range   | Current flap position                 | ADC, Flap Position Control Unit
-4. Flap Position Control Unit    | Command logic, idle/move/idle        | Position/move/stop commands           | Command Input, Feedback Acquisition, Motor Actuation, Status Indication
-5. Motor Actuation Unit          | Drive/stop motor                     | Motor signals (GPIO+PWM)              | Flap Position Control Unit
-6. Status Indication Unit        | LEDs ON/OFF by flap state            | (State is output)                     | Flap Position Control Unit, GPIO
+Software Unit         | Responsibilities                                                                | Interfaces Provided      | Interfaces Used
+----------------------|--------------------------------------------------------------------------------|-------------------------|--------------------------
+UART Command Handler  | Receive/decode UART commands. Range check. Ignore invalids.                     | Command (0-5) to PosMgr | UART
+Position Manager      | Track target/current pos, idle/active. Initiate control.                        | Target to Motor/LED     | Cmd from UART, Pos from ADC
+Motor Control Unit    | Actuate/stop DC motor based on targets/feedback. Safe shut-off/stop.           | Motor drive/stop        | Target/Idle from PM, Feedback from ADC
+ADC Acq & Mapping    | Sampling ADC, mapping to discrete pos, out-of-range detect.                     | Position to PM, Feedback| Analog In (ADC)
+LED/Status Driver     | Power ON and position LEDs (only one ON), as per current position/state.        | LED control             | Input from PositionMgr
 
-=====================
-CONSTRAINTS
-=====================
-- No behavior or requirements are invented beyond SWE.1/SYS-REQ.
-- No code, diagnostics, safety, or cybersecurity functions included.
-- All unit responsibilities trace directly to SWE.1.
-- No detailed implementation or scheduling described.
-- No unit-level algorithms, timing, or error recovery not stated in requirements.
+===================
+(All traces are strictly to SWE.1. No algorithm, concurrency, or RTOS imposed. Diagnostics/safety/cybersec excluded by rule.)
