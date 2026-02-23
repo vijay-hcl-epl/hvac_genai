@@ -1,0 +1,13 @@
+1. The software shall process user commands received via UART to select the target HVAC flap position (0-5).
+2. The software shall move the flap to the valid commanded position using DC motor control via GPIO and PWM.
+3. The software shall monitor real-time flap position using potentiometer feedback via ADC and translate ADC values to logical positions (0-5).
+4. The system shall display the current position using designated green LEDs, ensuring only one is active at a time.
+5. On startup, the software shall initialize peripherals (UART, ADC, GPIO, PWM) and reflect the initial flap position with LEDs.
+6. Invalid UART commands or ADC readings outside expected range shall be ignored and the motor safely stopped.
+7. The software shall implement state/logic for IDLE, MOVING, and HOLDING positions as defined in the system requirements.
+8. The software shall never attempt dynamic memory allocation and comply with MISRA C guidelines for embedded systems.
+9. The system power LED shall be turned on when the software is running.
+10. The system shall allow static calibration of ADC-to-flap position mapping in source code.
+11. The system shall be manually testable by UART commands and LED/motor observation.
+12. Communication or error response for invalid commands is not required.
+13. All motor and actuator control logic shall be encapsulated within software units/modules.
