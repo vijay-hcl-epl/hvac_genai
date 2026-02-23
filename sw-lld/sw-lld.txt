@@ -1,0 +1,98 @@
+# SWE.3 LOW-LEVEL DESIGN (LLD) — HVAC FLAP ACTUATOR
+
+---
+For each software unit defined in SWE.2, the following template and rules are strictly adhered to. No units, interfaces, or behaviors are introduced beyond those specified in SWE.1 and SWE.2. All requirements are fully traced. All data is static/local, no OS, no scheduling, and no code is provided or implied.
+
+======================================================================
+
+Software Unit: UART Command Handler
+
+1. Responsibilities  
+   - Handles reception and validation of position commands over UART (SWE-REQ-001, SWE-REQ-002, SWE-REQ-003). 
+   - Forwards validated commands to Control Logic.
+   - Does not handle command queuing, timing, or error response output beyond ignoring invalid input.
+
+2. Internal Data Design  
+   - Input buffer: static char[] for UART RX.  
+   - Validated input: static int for command value (0-5).
+   - Receive state (IDLE, RECEIVING, COMPLETE/INVALID).
+
+3. State Machine  
+   - States: IDLE (waiting), RECEIVING (accumulating chars), VALIDATING (checking input), COMPLETE (valid, signal main), INVALID (ignore).
+   - Events: UART RX, End-of-line/Receive complete, Out-of-range, Error.
+   - Actions: Move from IDLE to RECEIVING on RX, accumulate data, validate on EOL; valid moves to COMPLETE, invalid to INVALID (then back to IDLE).
+
+4. Algorithms & Control Flow  
+   - On RX event: Read char, append if digit (max 1 char - single digit 0-5), signal EOL or buffer full.
+   - If completed: Parse input, check range (0-5). If valid, forward to control logic; If invalid, clear buffer, return to IDLE.
+
+5. Interfaces (APIs)  
+   - Provided: uart_rx_handler(void* param) — receives UART input, triggers internal FSM.
+   - Required: send_cmd_to_control_logic(int position).
+
+6. Error Handling  
+   - Invalid UART or out-of-range: Discard, return to idle. No error output generated.
+
+7. Resource & Timing Considerations  
+   - Invoked on each UART RX event; typical processing <100μs per char; no reentrancy needed; all state static.
+
+8. Traceability  
+   - SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-016, SWE-REQ-028
+
+======================================================================
+
+Software Unit: Position Feedback Handler
+
+1. Responsibilities
+   - Handles ADC sampling. Maps value to [0-5] position. Flags error if out-of-range.
+   - Provides logical position, error status to control logic.
+   - Does not handle calibration storage (uses only constant data).
+
+2. Internal Data Design
+   - Static uint16_t adc_sample; static int logical_position (0-5 or -1 if invalid).
+   - Const struct with calibration table: {min, max} per position.
+   - Error flag: ADC_FAULT, boolean.
+
+3. State Machine
+   - States: IDLE (wait poll), SAMPLING (acquire ADC), MAPPING (lookup), OK (valid), FAULT (flag error).
+   - Events: Poll trigger, ADC completion, out-of-range.
+   - Actions: Sample ADC, check against calibration, set position/error, return to IDLE.
+   - If value not in any calibrated range: set FAULT, position = -1.
+
+4. Algorithms & Control Flow
+   - When poll triggered: Read ADC, for each calibration slot check min ≤ sample ≤ max; if match, position=N. None: FAULT.
+   - Signal position/error to control logic each time.
+
+5. Interfaces (APIs)
+   - Provided: get_flap_position(void) → int; get_adc_fault(void) → bool.
+   - Required: adc_read(void).
+
+6. Error Handling
+   - If no match in calibration table: set error, position invalid.
+   - All outputs default to safety if error.
+
+7. Resource & Timing Considerations
+   - Runs per periodic poll (typ. 10 ms or on demand).  < 20μs per acquisition. Not reentrant.
+
+8. Traceability
+   - SWE-REQ-011, SWE-REQ-012, SWE-REQ-024, SWE-REQ-027, SWE-REQ-018
+
+======================================================================
+
+Software Unit: Flap Motor Actuation Unit
+
+1. Responsibilities
+   - Handles GPIO/PWM output to L298N driver, controls direction and motor on/off. Stops motor on error/target.
+   - Does not generate movement beyond request.
+
+2. Internal Data Design
+   - Static enum {STOP, FWD, REV} motor_state.
+   - Static int desired_position.
+
+3. State Machine
+   - States: IDLE (off), MOVING_FWD, MOVING_REV, STOPPED_ON_TARGET, ERROR_STOP.
+   - Events: New move cmd, error signal, target reached.
+   - Actions: Set GPIO/PWM accordingly, stop on target/error.
+
+4. Algorithms & Control Flow
+   - On move cmd: Compare current and target; set state FWD/REV; activate PWM. On target/e
