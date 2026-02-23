@@ -1,0 +1,162 @@
+# SYS.5 SYSTEM QUALIFICATION TEST SPECIFICATION – HVAC FLAP ACTUATOR
+
+## 1.0 Introduction
+This System Qualification Test Specification defines the system-level verification for the HVAC flap actuator prototype, as derived strictly from system requirements (SYS-REQ-001 … SYS-REQ-038). All tests are designed to verify observable system behavior, using a real hardware bench setup. Internal software logic and architectural concerns are NOT in scope. Each test case is strictly traced to relevant System Requirement IDs.
+
+## 2.0 Test Environment
+- Hardware: Prototype unit (1x microcontroller board, DC motor/flap, L298N driver, UART interface, potentiometer, power/status LEDs, position LEDs x6)
+- Tools: Bench power supply, UART terminal, DMM/oscilloscope (as needed), ADC value monitor (manual/script-based)
+
+## 3.0 Test Case Structure (Template)
+- Test Case ID
+- Mapped System Requirement IDs
+- Test Objective
+- Preconditions
+- Test Inputs (UART commands, power events, physical)
+- Test Steps
+- Expected Results
+- Pass/Fail Criteria
+
+## 4.0 Test Cases
+
+### 4.1 Power-Up & Initialization
+#### SYS-TC-001 Power-up Initialization
+- Mapped System Requirement IDs: SYS-REQ-019, SYS-REQ-020, SYS-REQ-016, SYS-REQ-017
+- Test Objective: Verify correct peripheral initialization, motor OFF, and correct flap position indication at startup.
+- Preconditions: System powered OFF
+- Test Inputs: Power ON
+- Test Steps:
+  1. Switch on bench power to the system.
+  2. Observe the power/status LED.
+  3. Observe green position LEDs.
+  4. Observe motor activity and flap position.
+- Expected Results:
+  - Power/status LED turns ON immediately.
+  - Only one position LED (matching actual flap position) turns ON.
+  - Motor remains OFF at power-up.
+  - UART commands prompt correct system response (system is responsive after init).
+- Pass/Fail Criteria: All indicators and states conform on first power-up, with no misbehavior or unexpected movement.
+
+### 4.2 Valid Flap Position Commands
+#### SYS-TC-002 Flap Actuation (All Positions)
+- Mapped System Requirement IDs: SYS-REQ-003, SYS-REQ-004, SYS-REQ-005, SYS-REQ-008
+- Test Objective: Verify correct response to valid UART position commands 0–5; correct motor action and indication.
+- Preconditions: System powered ON and idle; initial flap position arbitrary (note initial position).
+- Test Inputs: UART commands for positions 0,1,2,3,4,5.
+- Test Steps:
+  1. For each position 0 to 5:
+     a. Issue UART command for the position.
+     b. Observe the motor direction.
+     c. Monitor flap and LED indicator.
+     d. Wait for motor stop.
+  2. Repeat for all starting positions.
+- Expected Results:
+  - Flap moves to commanded position.
+  - Motor rotates CW/CCW as appropriate.
+  - Motor stops at target (no overshoot).
+  - Only one green LED matches the target position after settling.
+- Pass/Fail Criteria: No overshoot, correct motor stop, correct LED, no extraneous movement.
+
+### 4.3 Invalid & Boundary Conditions
+#### SYS-TC-003 Out-of-Range Command
+- Mapped System Requirement IDs: SYS-REQ-006, SYS-REQ-015, SYS-REQ-029, SYS-REQ-033
+- Test Objective: System ignores out-of-range UART position commands.
+- Preconditions: System ON and in idle state.
+- Test Inputs: UART commands with out-of-range values (e.g., -1, 6, 255, invalid ASCII).
+- Test Steps:
+  1. Issue invalid UART command.
+  2. Monitor for any changes in flap, LEDs, motor activity.
+- Expected Results: System ignores command, no action/movement/LED change.
+- Pass/Fail Criteria: No visible system response or side effect for invalid input.
+
+#### SYS-TC-004 UART During Motion
+- Mapped System Requirement IDs: SYS-REQ-029, SYS-REQ-014
+- Test Objective: Evaluate how the system handles new valid UART command while flap is moving.
+- Preconditions: Flap moving following previous valid command.
+- Test Inputs: UART command for new position during actuation.
+- Test Steps:
+  1. Issue valid move command.
+  2. While motor is moving, issue another valid UART command (to another position).
+  3. Observe system response (does it process/queue/ignore as per requirements).
+- Expected Results: Only one command processed at a time; further commands ignored until movement completes.
+- Pass/Fail Criteria: System does not attempt to execute multiple commands at once; no instabilities.
+
+#### SYS-TC-005 ADC Out-of-Range
+- Mapped System Requirement IDs: SYS-REQ-009, SYS-REQ-011, SYS-REQ-033, SYS-REQ-034
+- Test Objective: System safety when ADC feedback is out-of-range (simulate unplug, faulty POT).
+- Preconditions: System ON, flap in valid position.
+- Test Inputs: Force ADC POT input to out-of-valid-band (disconnect, extreme voltage).
+- Test Steps:
+  1. Simulate ADC error during flap actuation and idle.
+  2. Observe motor state and LEDs.
+- Expected Results: Motor stops, system enters safe state, last valid position indicated on LED, system does not reset/lock-up.
+- Pass/Fail Criteria: Proper error response; system remains stable.
+
+### 4.4 Position Feedback & Monitoring
+#### SYS-TC-006 ADC Position Mapping
+- Mapped System Requirement IDs: SYS-REQ-010, SYS-REQ-011, SYS-REQ-012, SYS-REQ-038
+- Test Objective: Validate ADC reading is mapped to correct logical position, and system updates indicator LED accordingly.
+- Preconditions: System ON, flap at known positions (manipulate flap manually through full range if needed).
+- Test Inputs: Adjust POT for each target ADC range.
+- Test Steps:
+  1. Move flap (or POT) to each of the 0–5 positions; note ADC raw value.
+  2. Observe LED.
+- Expected Results: Each ADC range produces correct position LED and is repeatably mapped.
+- Pass/Fail Criteria: No ambiguous mapping; LED and status always reflect actual position.
+
+### 4.5 Motor Control Behavior
+#### SYS-TC-007 Motor Start/Stop Logic
+- Mapped System Requirement IDs: SYS-REQ-005, SYS-REQ-007, SYS-REQ-034
+- Test Objective: Ensure motor starts and stops in response to valid commands and halts on errors.
+- Preconditions: System powered ON.
+- Test Inputs: Valid/invalid UART commands, induce ADC error while moving.
+- Test Steps:
+  1. Command a move; verify motor starts.
+  2. Induce ADC error during movement.
+  3. Observe motor stop and safe state.
+- Expected Results: Motor runs only while moving (never when idle/at target/invalid/error), stops on error.
+- Pass/Fail Criteria: No unintended or continued movement.
+
+### 4.6 LED Status Indication
+#### SYS-TC-008 LED Behavior
+- Mapped System Requirement IDs: SYS-REQ-016, SYS-REQ-017, SYS-REQ-018
+- Test Objective: System status LED and position LEDs behave per requirements in all states.
+- Preconditions: System ON.
+- Test Inputs: Power events, UART commands to all positions, ADC errors.
+- Test Steps:
+  1. Cycle power; confirm power/status LED.
+  2. Send position commands; verify correct green LED.
+  3. Induce ADC error; confirm LEDs do not behave abnormally.
+- Expected Results: LEDs always reflect system/flap state; no flashing, ambiguity, or error indications outside requirement.
+- Pass/Fail Criteria: LED logic always and only matches requirements, no artifacts.
+
+### 4.7 End-to-End Behavior
+#### SYS-TC-009 User Command → Flap Movement → Feedback → Indicator
+- Mapped System Requirement IDs: SYS-REQ-003, SYS-REQ-004, SYS-REQ-005, SYS-REQ-011, SYS-REQ-017, SYS-REQ-022
+- Test Objective: Validate traceable end-to-end behavior: Command reception, actuation, position monitoring, LED update.
+- Preconditions: System ON, position arbitrary.
+- Test Inputs: UART commands for each position (0–5).
+- Test Steps:
+  1. Issue command for new position.
+  2. Observe motor/LED action through to completion.
+- Expected Results: Flap moves and stops as commanded, feedback and indication update as expected.
+- Pass/Fail Criteria: Observable system state and output meet all behaviors as per requirements; no internal or unobservable actions tested.
+
+## 5.0 Coverage Demonstration Table
+| Test Case ID | System Requirement IDs |
+|--------------|-----------------------|
+| SYS-TC-001   | 019, 020, 016, 017    |
+| SYS-TC-002   | 003, 004, 005, 008    |
+| SYS-TC-003   | 006, 015, 029, 033    |
+| SYS-TC-004   | 029, 014              |
+| SYS-TC-005   | 009, 011, 033, 034    |
+| SYS-TC-006   | 010, 011, 012, 038    |
+| SYS-TC-007   | 005, 007, 034         |
+| SYS-TC-008   | 016, 017, 018         |
+| SYS-TC-009   | 003, 004, 005, 011, 017, 022 |
+
+## 6.0 ASPICE L3 Conformance Statement
+All tests above strictly trace to system requirements, directly verify integrated HW+SW behavior, and are suitable for ASPICE Level 3 prototype qualification.
+
+## 7.0 Document Control
+Version: 1.0  |  Author: hv-ag-st-git-ft Agent |  Date: [AUTO-FILL]
