@@ -1,0 +1,109 @@
+# Software Architecture – HVAC Flap Actuator System
+
+## 1. Architecture Style Analysis
+
+### Candidate Architecture Styles Considered
+
+| Candidate        | Pros                                                                                  | Cons                                   | Suitability (per requirements)                                          |
+|------------------|---------------------------------------------------------------------------------------|----------------------------------------|-------------------------------------------------------------------------|
+| Layered          | Clear separation of concerns, supports maintainability and testability, lightweight   | Overhead may be unnecessary for simple system | Good, but adds unnecessary complexity given the monolithic nature       |
+| Component-based  | Encapsulates hardware abstraction, logic, and interface; easy to maintain             | Adds extra modularity; not needed for single-function, single-flap systems | Overkill given explicit single-use/single-flap design                   |
+| Monolithic (Decomposed into Logical Units) | Minimal overhead, matches simple, single-control function; responsibilities can still be separated logically in code structure | Care needed to preserve modifiability | Best fit: explicitly called for by requirements; matches ASPICE L3 separation/goals for lightweight demo |
+
+### Evaluation and Choice
+
+- **Complexity**: Requirements explicitly specify a single flap actuator, no concurrent activities, and a simple command-action-control pattern. No expansion, concurrent tasks, or distributed components are needed.
+- **Hardware Interaction**: All interactions are direct, tightly-coupled, and local, favoring direct, simple abstractions.
+- **Testability**: Requirements emphasize testability (UART, LEDs, observable motor movement); architecture should allow simple functional unit separation.
+- **Maintainability**: Architecture must be easily understandable/traceable for educational purposes.
+- **ASPICE L3 Alignment**: Separation of concerns, traceability, and well-documented interfaces required, but forbids unnecessary indirection.
+
+**Chosen Architecture Style:**  
+“A monolithic architecture logically decomposed into clearly separated software units (modules), where each unit maps to a set of responsibilities (command handling, position sensing, control, indication, etc.). No physically separate components/processes are introduced given the explicitly single-function, single-flap, single-thread requirements. This style provides traceability, logical separation, and maintainability without unnecessary overhead.”
+
+### Justification
+
+- Every alternative either does not add value (given constraints), or would contradict ASPICE L3's “no overengineering” demo philosophy for this prototype.
+- This chosen style cleanly separates concerns and responsibilities, aiding testability and maintenance, while supporting educational demonstration (per requirements).
+
+---
+## 2. Decomposition: Software Units, Responsibilities, Interfaces
+
+| Software Unit   | Responsibilities                                                                                                                                         | Interfaces Provided                | Interfaces Used                             |
+|-----------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------|---------------------------------------------|
+| Command Handler | Receives, parses, and validates UART user commands. Ensures only valid and idle-safe commands are accepted.                                              | `receive_command(pos: int)`        | UART driver, State Manager                  |
+| State Manager   | Maintains and transitions simple internal states (IDLE, MOVING, HOLD/STEADY). Guards that only one activity runs at a time.                              | `set_state(state)`, `get_state()`  | Command Handler, Control Logic              |
+| Position Sensing| Reads ADC potentiometer, applies calibration mapping, converts to logical position. Detects out-of-range and notifies others.                            | `get_current_position()`, `is_valid_position()` | ADC driver, Control Logic         |
+| Control Logic   | Determines required motor action; initiates, controls, and stops motor movement as required. Checks actual vs requested position.                        | `move_to_position(target: int)`    | Position Sensing, Motor Driver, State Manager|
+| Motor Driver    | Controls GPIO direction outputs and PWM-Enable signal to drive/stop the DC motor. Ensures safe motor OFF on startup, error, or at position.              | `set_direction(dir)`, `enable()`, `disable()` | HAL (GPIO, PWM), Control Logic    |
+| Status Indication| Updates power and position indicator LEDs (max 1 position LED ON). Maps logical position/state to output.                                               | `update_leds(power_on, pos_idx)`   | HAL (GPIO), State Manager, Position Sensing  |
+| HW Abstraction  | Provides minimal interface to hardware peripherals (UART, ADC, GPIO, PWM), stubbed as needed for testability.                                           | Low-level drivers                  | Microcontroller hardware                    |
+| Config/Constants| Stores flap ADC mapping, constants, no runtime reconfiguration.                                                   | `get_pos_thresholds()`, `init_config()` | Used by Position Sensing                |
+
+### Execution Model / Scheduling
+
+> “No explicit execution model or scheduling policy is mandated by the requirements at this stage.”
+- Requirements permit (and prototype philosophy prefers) a simple main-loop (“super-loop”) in which each software unit is called in sequence.
+- No RTOS, ISRs, threads, or concurrency are needed; timing and ordering are defined by main loop, which periodically checks for UART input, evaluates position/movement, and updates LEDs.
+- Any compliant single-threaded, event-driven, or polling architecture is permitted. Design remains agnostic at this level.
+
+---
+## 3. High-Level Architecture Diagram (Textual)
+
+```
+[UART/PC]
+    │         ┌──────────────┐
+    └───────►│ Command      │
+              │ Handler     │◄─────────────┐
+              └────┬────────┘              │
+                   │                       │
+              ┌────▼───────┐         ┌─────▼─────┐
+              │ State      │         │ HW        │
+              │ Manager    │         │ Abstraction│
+              └─┬────┬─────┘         └─────┬─────┘
+                │    │                      │
+         ┌──────▼─┐ ┌▼─────────┐     ┌──────▼───────┐
+         │Control │ │Position   │     │Config/Const. │
+         │ Logic  │ │Sensing    │     └──────────────┘
+         └─┬──────┘ └─────┬────┘
+           │              │
+      ┌────▼───┐     ┌────▼──────┐
+      │Motor   │     │Status     │
+      │Driver  │     │Indication │
+      └──┬─────┘     └────┬──────┘
+         │                │
+   [DC Motor]        [Power & Pos. LEDs]
+```
+
+---
+## 4. Architecture Traceability Table (to SWE.1)
+
+| Software Unit     | SWE.1 Requirements Addressed                                                                |
+|-------------------|--------------------------------------------------------------------------------------------|
+| Command Handler   | SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-005, SWE-REQ-042, SWE-REQ-044  |
+| State Manager     | SWE-REQ-005, SWE-REQ-025, SWE-REQ-026, SWE-REQ-046, SWE-REQ-047                            |
+| Position Sensing  | SWE-REQ-006, SWE-REQ-009, SWE-REQ-010, SWE-REQ-016, SWE-REQ-017, SWE-REQ-018, SWE-REQ-024, SWE-REQ-031 |
+| Control Logic     | SWE-REQ-007, SWE-REQ-008, SWE-REQ-011, SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-015, SWE-REQ-027, SWE-REQ-036 |
+| Motor Driver      | SWE-REQ-011, SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-015, SWE-REQ-041               |
+| Status Indication | SWE-REQ-019, SWE-REQ-020, SWE-REQ-043                                                      |
+| HW Abstraction    | SWE-REQ-021, SWE-REQ-022, SWE-REQ-023, SWE-REQ-024                                         |
+| Config/Constants  | SWE-REQ-009, SWE-REQ-017, SWE-REQ-031, SWE-REQ-033                                         |
+
+---
+## 5. Explicit Exclusions and Constraints
+
+- No requirement for RTOS, scheduling, or concurrency imposed.
+- No new architectural mechanisms (safety, security, error handling beyond requirement) added.
+- No deviation in required system behavior.
+- No introduction of new requirements.
+- No code-level or algorithmic design details present.
+
+---
+## 6. File Placement and Commit
+
+This file will be saved as:  
+sw-arch/sw-arch.txt  
+in branch: new-b2  
+of repo: vijay-hcl-epl/hvac_genai
+
+Pushing file as per instructions.
