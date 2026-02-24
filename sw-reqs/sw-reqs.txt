@@ -1,0 +1,173 @@
+# 1.0 Software Scope and Responsibility
+
+The software for the HVAC Flap Actuator system is responsible for:
+
+- Receiving and processing user commands for flap position via UART.
+- Controlling the actuation of a DC motor to adjust the air flap to the commanded position.
+- Acquiring position feedback using ADC from a potentiometer.
+- Indicating system and flap position status using LEDs.
+- Managing data, configuration, and error-handling logic such that the system behavior remains deterministic, bounded, testable, and implementation-neutral.
+
+---
+
+# 2.0 Software Functional Requirements
+
+## 2.1 User Command Handling
+
+SWE-REQ-001: The software shall receive user position commands via UART (trace: SYS-REQ-001, SYS-REQ-020, SYS-REQ-038).
+
+SWE-REQ-002: The software shall validate each received UART command to ensure it is a single ASCII numeric value representing a discrete flap position within the allowed range (trace: SYS-REQ-021, SYS-REQ-022, SYS-REQ-025).
+
+SWE-REQ-003: The software shall ignore and not process any UART command that is not a valid position code (0-5) (trace: SYS-REQ-023, SYS-REQ-035, SYS-REQ-053).
+
+SWE-REQ-004: The software shall process only one user command at a time and ignore further commands until the execution of the previous command is complete (trace: SYS-REQ-025, SYS-REQ-045).
+
+SWE-REQ-005: The software shall not send acknowledgments or error messages in response to invalid or out-of-range commands (trace: SYS-REQ-024).
+
+SWE-REQ-006: The software shall ignore new position commands if the requested position matches the current flap position [Implied] (trace: SYS-REQ-007).
+
+## 2.2 Flap Position Control Logic
+
+SWE-REQ-007: The software shall determine the current flap position from ADC feedback and compare it to the commanded target position (trace: SYS-REQ-002, SYS-REQ-016).
+
+SWE-REQ-008: The software shall decide the required direction of movement—clockwise or anti-clockwise—to reach the target position (trace: SYS-REQ-002, SYS-REQ-008).
+
+SWE-REQ-009: The software shall hold the flap at the commanded position after achieving the target (trace: SYS-REQ-006).
+
+SWE-REQ-010: The software shall ignore further position adjustment until a new valid command is received [Implied] (trace: SYS-REQ-006, SYS-REQ-025).
+
+## 2.3 Motor Control Logic
+
+SWE-REQ-011: The software shall control output signals to the DC motor driver to enable or disable motor movement as required (trace: SYS-REQ-003, SYS-REQ-010, SYS-REQ-039).
+
+SWE-REQ-012: The software shall set the motor direction using GPIO outputs based on the flap's required movement (trace: SYS-REQ-008, SYS-REQ-009).
+
+SWE-REQ-013: The software shall stop the motor when the feedback position matches the commanded target within defined tolerances (trace: SYS-REQ-004, SYS-REQ-011, SYS-REQ-034).
+
+SWE-REQ-014: The software shall stop the motor and prevent movement if position feedback is outside the defined calibration or operating range (trace: SYS-REQ-012, SYS-REQ-018, SYS-REQ-036, SYS-REQ-054).
+
+SWE-REQ-015: The software shall ensure the motor is off until a valid position command is received (trace: SYS-REQ-013, SYS-REQ-031).
+
+## 2.4 Position Feedback Processing
+
+SWE-REQ-016: The software shall acquire the analog position feedback signal from the potentiometer via ADC (trace: SYS-REQ-014, SYS-REQ-015, SYS-REQ-040).
+
+SWE-REQ-017: The software shall convert ADC readings to discrete logical flap positions using defined thresholds (trace: SYS-REQ-016, SYS-REQ-017, SYS-REQ-019).
+
+SWE-REQ-018: The software shall treat any ADC reading outside of configured calibration limits as “out-of-range” (trace: SYS-REQ-018, SYS-REQ-054).
+
+SWE-REQ-019: The software shall initialize and use ADC calibration data from static configuration (trace: SYS-REQ-019, SYS-REQ-047).
+
+## 2.5 Status Indication Control
+
+SWE-REQ-020: The software shall control a status LED to indicate system power-on (trace: SYS-REQ-026, SYS-REQ-041).
+
+SWE-REQ-021: The software shall control dedicated LEDs to indicate the current logical flap position (trace: SYS-REQ-027, SYS-REQ-028, SYS-REQ-041).
+
+SWE-REQ-022: The software shall ensure that only one position LED is active at any given time (trace: SYS-REQ-028).
+
+SWE-REQ-023: The software shall update the LED indication immediately upon detecting a change in flap position (trace: SYS-REQ-029, SYS-REQ-051).
+
+SWE-REQ-024: The software shall implement a simple indication scheme (one LED per position, ON/OFF, no blinking or color mixing) [Implied] (trace: SYS-REQ-030).
+
+---
+
+# 3.0 Software Interface Requirements
+
+SWE-REQ-025: The software shall provide a UART interface for receiving user commands (trace: SYS-REQ-020, SYS-REQ-038).
+
+SWE-REQ-026: The software shall obtain analog position feedback via ADC input from the potentiometer (trace: SYS-REQ-014, SYS-REQ-015, SYS-REQ-040).
+
+SWE-REQ-027: The software shall generate GPIO output signals to a motor driver, controlling both direction and enable/disable (trace: SYS-REQ-008, SYS-REQ-009, SYS-REQ-010, SYS-REQ-039).
+
+SWE-REQ-028: The software shall generate output signals to control one status LED and one LED per flap position via GPIOs (trace: SYS-REQ-026, SYS-REQ-027, SYS-REQ-028, SYS-REQ-041).
+
+SWE-REQ-029: The software shall interact only with UART, ADC, and GPIO interfaces as specified in system requirements (trace: SYS-REQ-042).
+
+---
+
+# 4.0 Software Behavioral Requirements
+
+SWE-REQ-030: The software shall initialize all peripherals (UART, ADC, GPIO, PWM/timers) and load static configuration data at power-up (trace: SYS-REQ-031).
+
+SWE-REQ-031: The software shall set the motor driver to a safe/disabled state at initialization (trace: SYS-REQ-013, SYS-REQ-031).
+
+SWE-REQ-032: The software shall detect and translate the current flap position via ADC immediately after startup (trace: SYS-REQ-031).
+
+SWE-REQ-033: The software shall wait for valid user command input during idle state (trace: SYS-REQ-032).
+
+SWE-REQ-034: Upon receiving a valid command, the software shall initiate position adjustment and only accept new commands after the requested position is reached (trace: SYS-REQ-033, SYS-REQ-045).
+
+SWE-REQ-035: The software shall indicate the new position on the appropriate LED once the commanded position is reached (trace: SYS-REQ-034).
+
+SWE-REQ-036: If an invalid command is received, the software shall ignore it and preserve the current system state (trace: SYS-REQ-035, SYS-REQ-053).
+
+SWE-REQ-037: If, during movement, the ADC returns an out-of-range value, the software shall stop the motor and return to idle (trace: SYS-REQ-036, SYS-REQ-054).
+
+SWE-REQ-038: The software shall operate in a command/execute/indicate logical sequence without reliance on explicit scheduling, periodicity, or state machines [Implied] (trace: SYS-REQ-037).
+
+---
+
+# 5.0 Software Data and Configuration Requirements
+
+SWE-REQ-039: The software shall store allowable flap positions, ADC threshold values, and calibration constants in static configuration at compile time (trace: SYS-REQ-017, SYS-REQ-019, SYS-REQ-047).
+
+SWE-REQ-040: The software shall use this configuration data for all conversions of ADC readings to logical positions (trace: SYS-REQ-016, SYS-REQ-019).
+
+SWE-REQ-041: The software shall maintain only the minimum required internal state information to track the latest user command, current logical flap position, and direction of last movement (trace: SYS-REQ-057).
+
+SWE-REQ-042: The software shall not allow user or run-time modification of calibration values (trace: SYS-REQ-048).
+
+---
+
+# 6.0 Software Error Handling Requirements
+
+SWE-REQ-043: If the software receives an invalid or unrecognized UART command, it shall ignore the command without generating error feedback (trace: SYS-REQ-023, SYS-REQ-024, SYS-REQ-035, SYS-REQ-053).
+
+SWE-REQ-044: If ADC position feedback is out of the valid range, the software shall halt the motor and enter idle behavior (trace: SYS-REQ-012, SYS-REQ-018, SYS-REQ-036, SYS-REQ-054).
+
+SWE-REQ-045: If the commanded position cannot be reached (e.g., faults or feedback does not change), the software shall ensure the system does not crash or lock up (trace: SYS-REQ-055, SYS-REQ-049).
+
+SWE-REQ-046: The software shall ensure all error handling is deterministic and cannot result in undefined or unbounded system behavior (trace: SYS-REQ-057).
+
+---
+
+# 7.0 Software Performance and Responsiveness Requirements
+
+SWE-REQ-047: The software shall provide command processing and control response that is prompt and suitable for human interaction (trace: SYS-REQ-050, SYS-REQ-051).
+
+SWE-REQ-048: The software shall update indicator LEDs promptly when flap position changes (trace: SYS-REQ-051).
+
+SWE-REQ-049: The software shall not attempt to guarantee real-time deadlines for any operation [Implied] (trace: SYS-REQ-052).
+
+---
+
+# 8.0 Software Resource Constraint Requirements
+
+SWE-REQ-050: The software shall use only static memory allocation; no dynamic memory allocation is permitted (trace: SYS-REQ-056).
+
+SWE-REQ-051: The software shall be structured to ensure execution is deterministic and bounded for all actions, even in case of invalid input (trace: SYS-REQ-057).
+
+SWE-REQ-052: The software shall avoid any resource consumption that could jeopardize deterministic operation (trace: SYS-REQ-057).
+
+---
+
+# 9.0 Software Testability Requirements
+
+SWE-REQ-053: The software shall support verification through manual and script-based command input over UART and observation of system response (trace: SYS-REQ-060).
+
+SWE-REQ-054: The software shall make system status and position observable via indicator LEDs for test purposes (trace: SYS-REQ-061).
+
+---
+
+# 10.0 Implied Software Requirements
+
+SWE-REQ-055: The software shall support only a single flap/motor and only one active user command at a time [Implied] (trace: SYS-REQ-043, SYS-REQ-044, SYS-REQ-045).
+
+SWE-REQ-056: The software shall not interact with or require any vehicle network, external communications, or advanced diagnostics protocols [Implied] (trace: SYS-REQ-046).
+
+SWE-REQ-057: The software shall be organized into logical modules corresponding to command handling, actuator control, feedback processing, and indication, only where practical [Implied] (trace: SYS-REQ-058).
+
+SWE-REQ-058: The software requirements and structure shall be simple and understandable by entry-level embedded engineers [Implied] (trace: SYS-REQ-059).
+
+SWE-REQ-059: The software shall not include execution model assumptions such as cyclic, periodic, RTOS-based, or multi-threaded operation [Implied] (trace: SYS-REQ-037, SYS-REQ-038, SYS-REQ-049, SYS-REQ-052).
