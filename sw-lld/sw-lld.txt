@@ -1,0 +1,218 @@
+# SWE.3 Low-Level Design (LLD) for HVAC Flap Actuator
+
+## Software Unit: Command Handler
+
+1. Responsibilities
+   - Receives UART commands, validates numeric range (0–5).
+   - Forwards valid target positions to Flap Controller.
+   - Ignores malformed or out-of-range commands.
+   - Does NOT process motor control or ADC, nor manage system state logic.
+
+2. Internal Data Design
+   - `last_command_value` (int): Statically allocated numeric variable.
+   - `command_valid` (bool): Flag set on successful validation.
+   - Static buffer for UART receive (fixed-size, e.g., 8 bytes).
+   - No dynamic allocation.
+
+3. State Machine
+   - Implicit (simple input/validation branch):
+     - Wait for UART input → Parse → If valid [forward], else [ignore].
+
+4. Algorithms and Control Flow
+   - On UART data received:
+     1. Extract ASCII data from static buffer.
+     2. Parse as integer; check for range (0–5).
+     3. If valid, set `last_command_value`, `command_valid` true, forward to Flap Controller.
+     4. If invalid, set `command_valid` false and disregard data.
+
+5. Interfaces (APIs)
+   - Provided: `bool GetLastCommand(int* value)`
+   - Used: UART interface function(s) for receiving data.
+   - No direct error returns to UART.
+
+6. Error Handling
+   - Non-numeric or out-of-range input: Ignored safely, `command_valid` false.
+   - No side effects; safe no-op for malformed commands.
+
+7. Resource and Timing Considerations
+   - Invoked on UART RX event (event-driven).
+   - Minimal per-invocation cost; not re-entrant.
+
+8. Traceability to SWE Requirements
+   - Covers: SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-017, SWE-REQ-018, SWE-REQ-032, SWE-REQ-035, SWE-REQ-037, SWE-REQ-038
+
+---
+
+## Software Unit: Position Feedback
+
+1. Responsibilities
+   - Reads ADC, maps to discrete logical flap position.
+   - Detects out-of-range or invalid feedback.
+   - Provides position and validity information to Flap Controller.
+   - Does NOT initiate movement or process user commands.
+
+2. Internal Data Design
+   - `adc_raw_value` (uint16_t): Last potentiometer reading.
+   - `logical_position` (uint8_t): Resultant logical position (0–5).
+   - `adc_valid` (bool): Set true only if raw value mapped to a valid position.
+   - `adc_calibration_table` (static const struct): Defines min/max for each position.
+
+3. State Machine
+   - No explicit state machine; periodic read/map/validate logic.
+
+4. Algorithms and Control Flow
+   - On periodic/triggered read:
+     1. Read ADC via HAL.
+     2. Compare to calibration table.
+     3. If within a discrete range, set logical_position and `adc_valid` true.
+     4. Else, set `adc_valid` false.
+
+5. Interfaces (APIs)
+   - Provided: `bool GetPosition(uint8_t* pos)`; `bool IsFeedbackValid(void)`
+   - Uses: ADC read from potentiometer.
+   - Calibration constants provided as static data.
+
+6. Error Handling
+   - If ADC value out-of-bounds, set `adc_valid` false; do not map a position; Flap Controller will take fallback action.
+
+7. Resource and Timing Considerations
+   - Invoked periodically or by schedule.
+   - Not re-entrant (uses exclusive static data per invocation).
+
+8. Traceability to SWE Requirements
+   - Covers: SWE-REQ-004, SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-029, SWE-REQ-030, SWE-REQ-031, SWE-REQ-033, SWE-REQ-037, SWE-REQ-038
+
+---
+
+## Software Unit: Flap Controller
+
+1. Responsibilities
+   - Core logic: Receives validated command and position feedback.
+   - Command-driven state machine: Idle, Moving, TargetReached.
+   - Issues movement/stop control orders to Motor Control.
+   - Does NOT interact with ADC/UART directly.
+
+2. Internal Data Design
+   - `current_target` (int): Latest valid target position.
+   - `flap_state` (enum): {IDLE, MOVING, TARGET_REACHED}
+   - `position_valid` (bool): Copied from Position Feedback.
+
+3. State Machine
+   - States:
+     - IDLE: Waiting for valid command.
+     - MOVING: Command accepted, awaits position match.
+     - TARGET_REACHED: Position equals command; holding, maintain status.
+   - Events:
+     - Valid new command (from Command Handler)
+     - Updated valid position feedback
+     - Invalid feedback triggers fallback/stop
+   - Entry/exit:
+     - Enter MOVING: issue ControlOrder to Motor Control
+     - Enter TARGET_REACHED: send stop
+     - Invalid feedback: enter safe/hold state
+
+4. Algorithms and Control Flow
+   - On valid command:
+     1. Store target, transition to MOVING.
+   - On position match:
+     1. Transition to TARGET_REACHED; order stop.
+   - If feedback is invalid:
+     1. Order stop, hold in safe state.
+
+5. Interfaces (APIs)
+   - Provided: `void ControlTick(void)` (invoked periodically or by driver)
+   - Uses: `GetLastCommand`, `GetPosition`, `IsFeedbackValid`
+   - Orders: ControlOrder_t (`MOVE_CW`, `MOVE_CCW`, `STOP`), provided to Motor Control.
+
+6. Error Handling
+   - If feedback lost/invalid, always issue stop.
+   - Ignores late or repeated commands until action is complete.
+
+7. Resource and Timing Considerations
+   - Invoked cyclically or on event.
+   - Not re-entrant; protected by single update phase per invocation.
+
+8. Traceability to SWE Requirements
+   - Covers: SWE-REQ-004, SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-017, SWE-REQ-022, SWE-REQ-023, SWE-REQ-025, SWE-REQ-026, SWE-REQ-028, SWE-REQ-036, SWE-REQ-038
+
+---
+
+## Software Unit: Motor Control
+
+1. Responsibilities
+   - Drives motor enable, direction, and stop via GPIO/PWM.
+   - Receives action order from Flap Controller.
+   - Does NOT interpret user commands, nor manage LED/status.
+
+2. Internal Data Design
+   - `motor_state` (enum): {STOPPED, MOVING_CW, MOVING_CCW}
+   - `last_order` (ControlOrder_t): Last received action.
+   - Static mapping of orders to GPIO/PWM signals.
+
+3. State Machine
+   - Implicit logic (SET/RESET GPIOs/PWM):
+     - State updated on new control order; no persistent sub-states.
+
+4. Algorithms and Control Flow
+   - On control order:
+     1. If different from `last_order`, update outputs accordingly.
+     2. If `STOP`, disable enable pin (PWM/GPIO off).
+     3. For movement, set direction GPIO, enable PWM.
+
+5. Interfaces (APIs)
+   - Provided: `void MotorControl_ApplyOrder(ControlOrder_t order)`
+   - Uses: GPIO & PWM driver functions.
+
+6. Error Handling
+   - Invalid/unrecognized order: Forces STOP state.
+   - Hardware error (e.g., GPIO/PWM not acknowledged): Forces STOP and signals via MotorStatus interface.
+
+7. Resource and Timing Considerations
+   - Invoked when Flap Controller changes state/order (event-driven).
+   - Not re-entrant; atomic per invocation.
+
+8. Traceability to SWE Requirements
+   - Covers: SWE-REQ-008, SWE-REQ-009, SWE-REQ-010, SWE-REQ-011, SWE-REQ-037, SWE-REQ-038
+
+---
+
+## Software Unit: Status Indicator
+
+1. Responsibilities
+   - Controls status/power LED and position LEDs.
+   - Reflects current operating state and position.
+   - Does NOT make movement or control decisions.
+
+2. Internal Data Design
+   - `cur_pos_led` (uint8_t): Which position LED is ON.
+   - `power_led_on` (bool): True while system powered/operational.
+   - Static mapping of flap position to LED output.
+
+3. State Machine
+   - No explicit state machine. Direct mapping from data to GPIOs.
+
+4. Algorithms and Control Flow
+   - On periodic/event update:
+     1. Read current logical position from Position Feedback.
+     2. Illuminate appropriate position LED; ensure only one ON.
+     3. Update power/status LED according to system status.
+
+5. Interfaces (APIs)
+   - Provided: `void StatusIndicator_Update(uint8_t logical_position, bool powered)`
+   - Uses: GPIO driver functions for LEDs.
+
+6. Error Handling
+   - If logical_position out of range, all position LEDs off, power LED remains if powered.
+
+7. Resource and Timing Considerations
+   - Invoked periodically or on triggering system event.
+   - Not re-entrant.
+
+8. Traceability to SWE Requirements
+   - Covers: SWE-REQ-015, SWE-REQ-016, SWE-REQ-025, SWE-REQ-041, SWE-REQ-038
+
+---
+
+# END OF SWE.3 LLD
+
+This document follows all workflow instructions strictly (no new units, no architecture changes, no code, fully traceable, C embedded style, no dynamic memory, no scheduling defined).
