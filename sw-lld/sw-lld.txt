@@ -1,0 +1,380 @@
+# Software Low Level Design (SWE.3)
+## HVAC Flap Actuator System
+
+**Branch:** new-b6  
+**Implementation language:** C (MISRA-style, no dynamic allocation)
+
+---
+
+# Software Unit: User Command Handler
+## 1. Responsibilities
+**Handles:**
+- Reception and validation of single numeric UART commands (positions 0–5)
+- Tracks command state (ready, busy, invalid)
+- Forwards valid commands to Flap Control Logic
+
+**Explicitly NOT Handling:**
+- Flap/motor control logic
+- ADC/position feedback
+- LED/status outputs
+- Scheduling or concurrency
+
+---
+
+## 2. Internal Data Design
+- `uint8_t received_command` (temporary storage for UART input)
+- `uint8_t validated_command` (stores latest valid command)
+- `bool command_in_progress` (flag: true when moving)
+
+---
+
+## 3. State Machine
+States:
+- IDLE: Waiting for command
+- VALIDATING: On UART RX, check range
+- BUSY: Block new commands if previous not complete
+
+Transitions:
+- On RX: IDLE→VALIDATING
+- If valid: VALIDATING→BUSY; if not: VALIDATING→IDLE
+- On completion: BUSY→IDLE
+
+Entry/Exit:
+- Entry to BUSY disables UART intake
+- Exit from BUSY enables UART intake
+
+---
+
+## 4. Algorithms and Control Flow
+```
+On UART RX:
+  If command_in_progress == false:
+    received_command = RX data
+    If received_command in [0,5]:
+      validated_command = received_command
+      command_in_progress = true
+      Forward to Flap Control Logic
+    Else:
+      Ignore (do not reply)
+  Else:
+    Ignore (busy)
+```
+---
+
+## 5. Interfaces (APIs)
+- void UserCmdHandler_Init(void);
+- void UserCmdHandler_UART_ISR(uint8_t rx_data);
+- bool UserCmdHandler_GetValidCmd(uint8_t* cmd);
+- void UserCmdHandler_NotifyMovementComplete(void);
+
+Uses:
+- UART driver RX
+- Flap Control Logic (forward command)
+
+Error Reporting:
+- None; ignores errors safely
+
+---
+
+## 6. Error Handling
+- Out-of-range or malformed input: Ignored
+- Command during busy: Ignored
+- No UART error flags exposed to rest of system
+
+---
+
+## 7. Resource and Timing Considerations
+- Event-driven (UART RX interrupt/context)
+- Not re-entrant (single buffer, single command at a time)
+- Worst case: minimal, just validation and flagging
+
+---
+
+## 8. Traceability to SWE Requirements
+SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-019, SWE-REQ-032
+
+
+
+# Software Unit: Flap Control Logic
+## 1. Responsibilities
+**Handles:**
+- Accepts validated position commands
+- Compares target/current position
+- Initiates/controls movement
+- Coordinates with Motor Driver/LED/Position Feedback
+
+**Explicitly NOT Handling:**
+- UART input
+- Raw ADC access
+- Direct GPIO/PWM/LED driving
+- Scheduling
+
+---
+
+## 2. Internal Data Design
+- `uint8_t target_position`
+- `uint8_t current_position` (cached from Position Feedback Handler)
+- `bool movement_active`
+- `uint8_t movement_direction` (enum: UP/DOWN)
+
+---
+
+## 3. State Machine
+States:
+- IDLE: Await command
+- MOVING: Moving flap
+- HOLD: Target reached
+
+Transitions:
+- Command accepted: IDLE→MOVING
+- Target reached: MOVING→HOLD
+- Hold done: HOLD→IDLE
+- Error detected: Any→IDLE
+
+---
+
+## 4. Algorithms and Control Flow
+```
+On new valid command:
+  If command ≠ current_position:
+    Set movement_direction (inc/dec)
+    movement_active = true
+    Loop:
+      Read current_position (from Feedback)
+      If current_position == target within tolerance:
+        movement_active = false
+        Command Motor Driver to stop
+        Update LEDs
+        Notify CmdHandler movement complete
+        Break
+```
+
+---
+
+## 5. Interfaces (APIs)
+- void FlapCtrlLogic_Init(void);
+- void FlapCtrlLogic_StartMovement(uint8_t target);
+- void FlapCtrlLogic_Update(void); // called in main/event loop
+
+Uses:
+- Motor Driver
+- Position Feedback Handler
+- LED Status Indicator
+- User Command Handler (notify movement complete)
+
+---
+
+## 6. Error Handling
+- ADC out of range: aborts movement, goes to idle
+- Position unachievable: timeout not mandated (see requirements), so will hold
+
+---
+
+## 7. Resource and Timing Considerations
+- Called periodically/event-driven
+- Not re-entrant
+- Moves only after previous completes
+
+---
+
+## 8. Traceability
+SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-008, SWE-REQ-023 to SWE-REQ-028, SWE-REQ-042
+
+
+
+# Software Unit: Motor Driver
+## 1. Responsibilities
+**Handles:**
+- Set/clear two GPIOs for motor direction
+- Set/clear PWM for motor enable
+- Only accepts direction/enable requests from Flap Control Logic
+
+**Explicitly NOT Handling:**
+- Command logic, position measurement
+- UART, LEDs, ADC
+- Scheduling
+
+---
+
+## 2. Internal Data Design
+- `bool motor_enabled`
+- `enum { DIR_CW, DIR_CCW } motor_direction`
+
+---
+
+## 3. State Machine
+- No explicit state machine. Transitions depend on Flap Control Logic requests.
+
+---
+
+## 4. Algorithms and Control Flow
+```
+void SetMotor(bool enable, direction):
+  Set GPIOs for direction
+  Set PWM for enable
+  Update motor_enabled, motor_direction
+```
+
+---
+
+## 5. Interfaces (APIs)
+- void MotorDriver_Init(void);
+- void MotorDriver_Set(bool enable, uint8_t direction);
+- bool MotorDriver_IsRunning(void);
+
+Uses:
+- GPIO/PWM HAL
+- Called only by Flap Control Logic
+
+---
+
+## 6. Error Handling
+- If error/bad input, disables motor (safe default)
+
+---
+
+## 7. Resource and Timing Considerations
+- Called event-driven
+- Not re-entrant
+
+---
+
+## 8. Traceability
+SWE-REQ-009, SWE-REQ-010, SWE-REQ-011, SWE-REQ-021
+
+
+# Software Unit: Position Feedback Handler
+## 1. Responsibilities
+**Handles:**
+- Reading ADC for position
+- Mapping ADC to logical 0–5 value using preconfigured ranges
+- Provides current position to Flap Control Logic
+- Detects/flags invalid ADC/out-of-range
+
+**Explicitly NOT Handling:**
+- Motor commands
+- UART input/commands
+- LED driving
+- Scheduling
+
+---
+
+## 2. Internal Data Design
+- `uint16_t adc_value`
+- `uint8_t logical_position`
+- `bool adc_valid`
+- `const uint16_t adc_range_map[6][2]`
+
+---
+
+## 3. State Machine
+- No explicit state machine. Called to sample/process on demand/from event loop.
+
+---
+
+## 4. Algorithms and Control Flow
+```
+Read ADC channel
+For each logical position 0–5:
+  if (adc_value in range):
+    logical_position = i
+    adc_valid = true
+    break
+if not in any range: adc_valid = false
+```
+
+---
+
+## 5. Interfaces (APIs)
+- void PosFeedback_Init(void);
+- void PosFeedback_Sample(void);
+- bool PosFeedback_IsValid(void);
+- uint8_t PosFeedback_GetLogicalPosition(void);
+- uint16_t PosFeedback_GetADCValue(void);
+
+Uses:
+- ADC HAL
+
+---
+
+## 6. Error Handling
+- Out-of-range: sets adc_valid false, rest of system can read this
+
+---
+
+## 7. Resource and Timing Considerations
+- Called periodically/event
+- Not re-entrant
+
+---
+
+## 8. Traceability
+SWE-REQ-012 to SWE-REQ-015, SWE-REQ-020, SWE-REQ-029, SWE-REQ-030, SWE-REQ-031
+
+
+# Software Unit: LED Status Indicator
+## 1. Responsibilities
+**Handles:**
+- Driving one system status LED
+- Driving six position LEDs, only one green LED on depending on position
+
+**Explicitly NOT Handling:**
+- UART input/commands
+- Motor driving
+- ADC acquisition
+- Scheduling
+
+---
+
+## 2. Internal Data Design
+- `uint8_t last_position`
+- `bool power_led_on`
+
+---
+
+## 3. State Machine
+- No explicit state machine. LED updates are atomic based on position inputs.
+
+---
+
+## 4. Algorithms and Control Flow
+```
+UpdateLEDs(pos):
+  Set only selected pos LED ON, all others OFF
+  power_led_on = true after init
+```
+
+---
+
+## 5. Interfaces (APIs)
+- void LEDIndicator_Init(void);
+- void LEDIndicator_SetPosition(uint8_t pos);
+- void LEDIndicator_SetPower(bool on);
+
+Uses:
+- GPIO HAL
+
+---
+
+## 6. Error Handling
+- If invalid position, turns off all position LEDs and sets power LED only
+
+---
+
+## 7. Resource and Timing Considerations
+- Called by Flap Control Logic or init
+- Not re-entrant
+
+---
+
+## 8. Traceability
+SWE-REQ-016, SWE-REQ-017, SWE-REQ-018, SWE-REQ-022, SWE-REQ-036
+
+---
+
+# END OF LLD
+
+Notes:
+- No new units or architecture changes made.
+- No implementation code, register, test, or HW schemes included.
+- Fully traceable to SWE.1, per SWE.3 and ASPICE Level 3.
