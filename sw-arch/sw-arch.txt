@@ -1,0 +1,116 @@
+# Software Architecture: HVAC Flap Actuator System
+
+## 1. Architectural Styles Considered
+
+Several architecture styles were evaluated in light of the provided system (SYS-REQ-*) and software (SWE-REQ-*) requirements:
+
+- **Monolithic Modular**: Single binary, logical separation by module or function only.
+- **Layered**: Separation by conceptual layers (e.g., hardware abstraction, application logic, interface).
+- **Component-based**: System composed of distinct, interacting software components (units).
+- **Service-Oriented/Microkernel**: Decomposition into communicating services or plug-in style units.
+
+## 2. Evaluation of Architecture Styles
+
+### Monolithic Modular
+- **Complexity**: Suitable for low-complexity, statically bounded, non-networked, single-control-loop systems.
+- **Hardware Interaction**: Direct, minimal abstraction required. All interfaces specified (UART, ADC, GPIO, PWM).
+- **Testability**: Sufficient with logical modularity.
+- **Maintainability**: Acceptable for a single-loop, educational demonstrator; modules can be clearly defined.
+- **ASPICE L3**: Traceability and modular responsibility mapping feasible.
+
+### Layered
+- **Complexity**: Not justified by requirements; adds abstraction layers without need for portability or large-scale separation.
+- **Hardware Interaction**: Indirect via abstraction, but requirements do not specify need for portability or HAL.
+- **Testability**: Layering aids testability, but requirements only demand static, deterministic, and simple mapping.
+- **Maintainability**: Slight edge, but increased indirection without technical need.
+
+### Component-based
+- **Complexity**: Overhead not justified for simple actuator control and indication system.
+- **Hardware Interaction**: Components may be overkill – no specified need for runtime extensibility.
+- **Testability**: Any needed testability is achieved by strong module boundaries and interfaces.
+
+### Service/Microkernel
+- **Complexity**: Unwarranted; requirements forbid multi-threading, dynamic allocation, or run-time binding.
+- **Testability**: Disproportionately complex for strictly bounded, static single-flap use case.
+
+## 3. Selected Software Architectural Style
+
+**Monolithic with Modular Logical Units**
+
+- Directly supports requirements for static, atomic, event-driven logic.
+- Enables clear traceability to software requirements (SWE-REQ-057, SWE-REQ-058), supports responsibility partitioning (SWE-REQ-057), static boundaries (SYS-REQ-058), and educational clarity.
+- Does not introduce superfluous abstraction or execution complexity.
+- *Explicitly justified by simple system context, traceability, hardware access, and ASPICE L3 intent.*
+
+**Other styles were not selected because they add complexity, abstraction, or dynamic capability not traceable to the provided requirements.**
+
+## 4. Software Units, Responsibilities, and Interfaces
+
+Software is logically decomposed into the following units, in direct alignment with requirements:
+
+### Unit Overview
+
+- **UART Command Handler**
+- **Position Feedback Processor**
+- **Flap Control Logic**
+- **Actuator Driver**
+- **LED Indicator Controller**
+- **Configuration & State Manager**
+
+### Unit Descriptions
+
+| Software Unit              | Responsibilities                                                                                     | Interfaces Provided                       | Interfaces Used |
+|---------------------------|----------------------------------------------------------------------------------------------------|-------------------------------------------|-----------------|
+| UART Command Handler      | Receive, validate, filter, and store new user commands; ignore invalid/duplicate commands           | Command input parser; New command notifier | UART RX, Configuration & State Manager |
+| Position Feedback Processor | Sample ADC, map value to logical position, detect out-of-range, calibration data use               | Current position data; Status updates      | ADC, Configuration & State Manager |
+| Flap Control Logic        | Compare target/current position; determine movement direction; manage control loop                  | Flap motion controller                    | Actuator Driver, Position Feedback Processor, Configuration & State Manager |
+| Actuator Driver           | Translate motion requests; manage GPIO/PWM to enable/disable and set motor direction                | Physical control APIs                     | GPIO, PWM, State data |
+| LED Indicator Controller  | Activate appropriate LEDs reflecting current position/power state                                   | LED control routines                      | GPIO, State data |
+| Configuration & State Manager | Store calibration, thresholds, current/target states; provide config/state on request              | Data/configuration provider; State machine | Static config, All other units |
+
+### Textual High-Level Architectural Diagram
+
+ HVac_Flap_Actuator_System
+        |
+   +----+----+-----------------------------+
+   |         |           |     |     |
+[UART]   [ADC]      [GPIO] [PWM] [LEDs]
+   |         |                      ^
+   |         |                      |
+   +---> UART Command Handler
+   |
+   +---> Position Feedback Processor
+   |
+   +---> Flap Control Logic
+   |
+   +---> Actuator Driver <-----> LED Indicator Controller
+   |
+   +---> Configuration & State Manager
+
+**Interactions:**
+- UART Command Handler receives and parses input commands.
+- Position Feedback Processor reads ADC and translates positions.
+- Flap Control Logic coordinates state/movement between command/feedback.
+- Actuator Driver controls hardware as instructed.
+- LED Indicator Controller reflects system state to users.
+- Configuration & State Manager is accessed by all as needed for calibration, state.
+
+## 5. Scheduling/Execution Model Statement
+
+**No explicit execution model or scheduling policy is mandated by the requirements at this stage.** All units are triggered in response to events (UART input, ADC read, flap state change), and execute, in a deterministic/atomic manner compliant with requirements (SWE-REQ-059, SYS-REQ-037).
+
+## 6. Traceability
+
+- All units and interfaces are directly traceable to partitioned requirements (SWE-REQ-057, SYS-REQ-058) and mapped via responsibilities to traceable requirements sections (functional, interface, error-handling, config/state, testability).
+- No new requirements, behaviors, or mechanisms have been introduced.
+
+## 7. Compliance and Constraints
+
+- No architectural mechanisms, abstractions, or complexity have been added that are not traceable to requirements.
+- The architecture is simple, statically bounded, testable, and suitable for the educational, single-function, non-production demonstrator use case as required.
+- No safety, security, or diagnostics have been added, per instruction.
+- No implementation or scheduling detail is present.
+
+---
+
+*End of sw-arch.txt*
