@@ -1,0 +1,94 @@
+1.0 System Overview
+
+SYS-REQ-001: The HVAC flap actuator system SHALL provide automated movement of air-control flap(s) in response to user or external commands.
+SYS-REQ-002: The system SHALL operate across the automotive supply voltage range.
+SYS-REQ-003: The system SHALL support at least one flap actuator controlled by an electric motor.
+SYS-REQ-004: The system SHALL include mechanisms for position feedback and user command input.
+SYS-REQ-005: All electrical, electronic, and interface requirements SHALL comply with automotive-grade standards. [Implied]
+
+2.0 Flap Position Control
+
+SYS-REQ-006: The system SHALL receive target flap position commands from an external user interface or controller.
+SYS-REQ-007: The system SHALL convert target flap positions to actionable internal control signals.
+SYS-REQ-008: The system SHALL command the actuator to move to the specified target position within the mechanical limits.
+SYS-REQ-009: The system SHALL prevent flap movement beyond calibrated mechanical end stops.
+SYS-REQ-010: The system SHALL allow immediate new position commands during movement to update target position.
+SYS-REQ-011: The system SHALL enable cancellation or interruption of a position change by a new valid command.
+SYS-REQ-012: The system SHALL maintain current position in the absence of valid commands.
+
+3.0 Motor Control
+
+SYS-REQ-013: The system SHALL control motor drive signals to achieve target flap position.
+SYS-REQ-014: The system SHALL support bidirectional motor movement.
+SYS-REQ-015: The system SHALL implement controlled start and stop of the actuator motor to prevent sudden jerks or noise. [Implied]
+SYS-REQ-016: The system SHALL disengage motor drive when the target position is reached.
+SYS-REQ-017: The system SHALL detect and report overcurrent from the actuator motor.
+SYS-REQ-018: The system SHALL detect and prevent actuator stall by monitoring current or position feedback. [Implied]
+SYS-REQ-019: The system SHALL operate the motor only while a valid movement command is active.
+
+4.0 Position Feedback Acquisition & Processing
+
+SYS-REQ-020: The system SHALL acquire continuous or periodic position feedback from a sensor (e.g., potentiometer, encoder).
+SYS-REQ-021: The system SHALL process the raw position sensor signal to derive current flap position.
+SYS-REQ-022: The system SHALL detect out-of-range or implausible sensor values and flag faults.
+SYS-REQ-023: The system SHALL use derived flap position feedback to detect target achievement and stalls.
+SYS-REQ-024: The system SHALL ignore or filter transient sensor anomalies to avoid false movement/fault triggers. [Implied]
+
+5.0 User Command Interface
+
+SYS-REQ-025: The system SHALL expose an interface for receiving user or controller commands (e.g., via UART).
+SYS-REQ-026: The system SHALL validate all received commands for correct range, syntax, and format.
+SYS-REQ-027: The system SHALL ignore or explicitly reject invalid commands and report error.
+SYS-REQ-028: The system SHALL acknowledge receipt of all valid commands over the command interface.
+
+6.0 Status Indication
+
+SYS-REQ-029: The system SHALL provide a status indication output for at least "normal operation," "in motion," and "fault" states.
+SYS-REQ-030: The system SHALL update indicators within 150 ms after a state change. [Implied]
+SYS-REQ-031: The status indication SHALL be exposed via LEDs and/or digital output.
+SYS-REQ-032: The system SHALL indicate an "invalid command" error in case of out-of-spec input.
+
+7.0 System Behavior (power-up, idle, normal, target reached, invalid input)
+
+SYS-REQ-033: The system SHALL initialize all interfaces and outputs to defined states upon power-up.
+SYS-REQ-034: The system SHALL remain idle and not actuate the flap until a valid command is received.
+SYS-REQ-035: Upon reaching target position, the system SHALL enter a stationary state and disengage drive.
+SYS-REQ-036: If invalid input is detected, the system SHALL not actuate the flap and SHALL indicate an error state.
+SYS-REQ-037: The system SHALL clear error state automatically upon receiving a new valid command. [Implied]
+
+8.0 Interfaces (UART, motor driver, ADC, LEDs)
+
+SYS-REQ-038: The system SHALL provide a UART interface for command communication and system status reporting.
+SYS-REQ-039: The system SHALL interface with a motor driver for actuator control.
+SYS-REQ-040: The system SHALL acquire analog (ADC) or digital signals from the position sensor.
+SYS-REQ-041: The system SHALL provide digital outputs for LED status indication.
+SYS-REQ-042: All interface signals SHALL meet specified electrical and timing requirements per datasheet. [Implied]
+
+9.0 Constraints & Assumptions
+
+SYS-REQ-043: The system SHALL operate reliably within specified automotive environmental constraints (temperature, vibration, voltage, EMC).
+SYS-REQ-044: The system SHALL be designed assuming integration into an HVAC module with power appropriately protected and filtered. [Implied]
+
+10.0 Non-Functional Requirements
+10.1 Responsiveness
+SYS-REQ-045: The system SHALL respond to actuation commands and status queries within 200 ms.
+10.2 Error Handling & Edge Cases
+SYS-REQ-046: The system SHALL record and report detected errors, including position out-of-range, motor overcurrent, and interface fault.
+10.3 Resource Constraints
+SYS-REQ-047: The system SHALL minimize consumption of power, processing, and memory resources where not in active motion.
+10.4 Maintainability & Modularity
+SYS-REQ-048: The system SHALL allow isolation and test of each interface and subcomponent in system integration testing. [Implied]
+10.5 Testability
+SYS-REQ-049: The system SHALL support injection of simulated position feedback for test purposes. [Implied]
+SYS-REQ-050: The system SHALL provide diagnostic outputs for all observable system-level behaviors. [Implied]
+
+
+Architecture-Relevant Considerations Derived from System Requirements
+
+Concurrency presence/absence: Requirements allow for concurrent actions—e.g., status indication updates and command reception may occur while motor is moving. The system must safely manage multiple simultaneous external events (commands, faults, feedback) but does not imply nor prohibit task concurrency at the implementation level.
+
+Interaction complexity: The system features multiple interacting interfaces (user commands, motor drivers, feedback sensors, status outputs) with defined points of interlock/feedback.
+
+Control complexity: Target position tracking with feedback, fault detection/handling, and error-recovery logic introduce moderate control complexity. Firmware must manage state changes, transitions, and error conditions.
+
+Expandability: Requirements are structured so new interfaces (additional feedback sensors, new status outputs), new modes (diagnostic, calibration), or expansion to multi-flap support can be accommodated without changing the core requirements or violating constraints.
