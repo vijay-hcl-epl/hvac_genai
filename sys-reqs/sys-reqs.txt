@@ -1,0 +1,65 @@
+1.0 System Overview  
+The HVAC Flap Actuator is responsible for controlling the position of an air flow regulating flap based on received commands, providing feedback on flap status, and interacting over defined automotive interfaces.
+
+2.0 Flap Position Control  
+SYS-REQ-001: The system SHALL move the flap to the target position command received from the control unit or user interface within specified tolerance.  
+SYS-REQ-002: The system SHALL reject or report commands outside the valid physical range of the flap actuator.
+
+3.0 Motor Control  
+SYS-REQ-003: The system SHALL control the DC motor to move the flap towards the target position.  
+SYS-REQ-004: The system SHALL stop the motor when the target position is reached or on detection of a fault.
+
+4.0 Position Feedback Acquisition & Processing  
+SYS-REQ-005: The system SHALL acquire the current position of the flap via a position sensor.  
+SYS-REQ-006: The system SHALL process the sensor signal to determine the actual flap position within ±2° accuracy.
+
+5.0 User Command Interface  
+SYS-REQ-007: The system SHALL support reception of position commands via UART.  
+SYS-REQ-008: The system SHALL validate received commands for range and format before accepting.
+
+6.0 Status Indication  
+SYS-REQ-009: The system SHALL provide visual status indication using LEDs for the following states: power-up, idle, active movement, target reached, error/fault.  
+[Implied]: Distinct LED statuses for each system state.
+
+7.0 System Behavior (power-up, idle, normal, target reached, invalid input)  
+SYS-REQ-010: On power-up, the system SHALL initialize, self-check, and indicate readiness via LED.  
+SYS-REQ-011: In idle state, the system SHALL conserve power and monitor for incoming commands.  
+SYS-REQ-012: On target reached, the system SHALL stop all motion, indicate status, and send feedback.  
+SYS-REQ-013: On invalid input, the system SHALL ignore the command and indicate error status.  
+[Implied]: System returns to idle after motion completes or if an error occurs.
+
+8.0 Interfaces (UART, motor driver, ADC, LEDs)  
+SYS-REQ-014: The system SHALL expose a UART interface for command and status communication.  
+SYS-REQ-015: The system SHALL interface with a motor driver to actuate the DC motor.  
+SYS-REQ-016: The system SHALL use an ADC to read analog position signals.  
+SYS-REQ-017: The system SHALL use GPIOs for LED status indication.
+
+9.0 Constraints & Assumptions  
+SYS-REQ-018: The system SHALL operate within 8V–16V DC vehicle supply voltage.  
+SYS-REQ-019: The system SHALL support flap positions between 0% (fully closed) and 100% (fully open).
+
+10.0 Non-Functional Requirements
+
+  10.1 Responsiveness  
+  SYS-REQ-020: The system SHALL achieve commanded flap position within 500ms under normal conditions.
+
+  10.2 Error Handling & Edge Cases  
+  SYS-REQ-021: The system SHALL detect and report sensor failures, motor faults, and invalid commands within 50ms of occurrence.
+
+  10.3 Resource Constraints  
+  SYS-REQ-022: The system SHALL execute all control and feedback functions using <= 128KB Flash and <= 16KB RAM.
+
+  10.4 Maintainability & Modularity  
+  SYS-REQ-023: The system SHALL structure software to separate command parsing, motor control, sensor processing, and status indication.
+
+  10.5 Testability  
+  SYS-REQ-024: The system SHALL support diagnostic commands for testing all interfaces and error conditions.
+
+---
+
+Architecture-Relevant Considerations Derived from System Requirements
+
+- Concurrency: No explicit concurrency mandated by requirements; however, simultaneous acquisition of commands and feedback/update may introduce parallelism.
+- Interaction Complexity: Moderate, with defined command processing, feedback, and multiple states.
+- Control Complexity: State-based behaviors covering power-up, idle, movement, target reached, invalid input, and errors.
+- Expandability: Clear separation of interfaces and state logic allow for potential integration with additional communication protocols or extended diagnostics in future variants.
