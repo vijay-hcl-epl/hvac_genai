@@ -1,0 +1,69 @@
+HVAC Flap Actuator Software Architecture
+========================================
+
+1. Architecture Style Selection & Justification
+------------------------------------------------
+Candidate styles: Monolithic, Layered, Component-based
+
+Evaluation:
+- System complexity is low (single actuator, no multitasking)
+- Explicit requirements call for separation/modularity: SYS-REQ-051
+- Maintainability and testability are important
+- All hardware interaction via microcontroller peripherals (GPIO, ADC, UART, PWM)
+- No real-time, concurrent, or scheduling requirements
+
+Decision:
+Layered/component-based hybrid is selected, with clear separation for:
+- User Command Handling
+- Flap Position Control
+- Motor Control
+- Feedback Acquisition
+- Status Indication
+
+This follows the explicit maintainability requirement and ASPICE L3 traceability. Monolithic approach would not satisfy the modularity requirement. Full component-based is excessive for current system complexity. The selected style is justified because it is both simple and extensible.
+
+2. Architectural Units and Responsibilities
+--------------------------------------------
+| Software Unit                | Responsibilities                                            | Interfaces Provided            | Interfaces Used             |
+|------------------------------|------------------------------------------------------------|-------------------------------|-----------------------------|
+| User Command Handler         | Parse/validate UART commands, issue target position updates | Command parser, API to Flap   | UART RX, Flap Position API  |
+| Flap Position Control        | State logic: idle, move, hold; target/curr pos compare     | Movement logic API            | Motor Control, Feedback API |
+| Motor Control Unit           | Drive motor per commands, stop on position/limits          | Motor driver API              | GPIO/PWM, Flap Ctrl API     |
+| Position Feedback Handling   | Read ADC, extract logical position, provide to control     | Position Provider API         | ADC, Flap Ctrl API          |
+| Status Indication Handler    | Reflect power/position state via LEDs                      | LED update API                | Flap Position, GPIO         |
+| Hardware Interface Drivers   | Low-level access to UART/GPIO/ADC/PWM                      | Peripheral driver APIs        | STM32 HAL / Direct HW       |
+
+3. Component Interactions Diagram
+----------------------------------
+(USER) --UART--> [User Command Handler]
+       <--------
+   |
+   v
+[Flap Position Control] <-------- [Position Feedback Handling] <---ADC---
+   |
+   v
+[Motor Control Unit]   ---> GPIO/PWM ---> MOTOR
+   |
+   v
+[Status Indication Handler] ---> GPIO ---> LEDs
+
+4. Scheduling & Execution Model
+--------------------------------
+No explicit execution or scheduling model is mandated by requirements. The control loop may be event-driven (on UART command) or in a simple polling loop (as proven/testable), with no concurrency or preemption.
+
+5. Traceability & Constraints
+-----------------------------
+- All units trace directly to software/system requirements (see SYS-REQ-051, non-functional and interface requirements)
+- No safety/security logic added, no dynamic allocation, no multitasking
+- No changes to specified system state logic or interfaces
+
+6. Further Notes
+-----------------
+- The architecture is easily extendable if more actuators or sophisticated indication/diagnostics are required in the future.
+- No additional non-mandated mechanisms have been introduced.
+- No detailed design or code included (SWE.3 responsibility)
+
+7. Appendix: References
+------------------------
+- System Requirements: sys-reqs/sys-reqs.txt
+- Software Requirements: sw-reqs/sw-reqs.txt
