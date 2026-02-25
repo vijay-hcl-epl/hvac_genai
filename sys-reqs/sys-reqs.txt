@@ -1,0 +1,60 @@
+1.0 System Overview
+The HVAC flap actuator system positions an airflow-directing flap per user request, provides feedback on its status, and safeguards operation with error handling.
+
+2.0 Flap Position Control
+SYS-REQ-001: The system SHALL receive flap position targets via the user command interface and respond within 200 ms.
+SYS-REQ-002: The system SHALL ensure flap positioning accuracy within ±2 degrees of target position.
+[Implied]
+SYS-REQ-003: The system SHALL reject position targets outside allowable mechanical range and indicate error.
+
+3.0 Motor Control
+SYS-REQ-004: The system SHALL command the motor driver to move the flap to the target position as needed.
+SYS-REQ-005: The system SHALL stop the motor when the flap is within the position tolerance band.
+
+4.0 Position Feedback Acquisition & Processing
+SYS-REQ-006: The system SHALL acquire flap position feedback from the position sensor at least every 50 ms.
+SYS-REQ-007: The system SHALL detect sensor faults (disconnected, shorted) and indicate error.
+
+5.0 User Command Interface
+SYS-REQ-008: The system SHALL support UART communication for accepting flap target position commands.
+SYS-REQ-009: The system SHALL ignore malformed or out-of-range commands and indicate error.
+
+6.0 Status Indication
+SYS-REQ-010: The system SHALL use LEDs to indicate normal operation, movement in progress, target reached, and error states.
+
+7.0 System Behavior
+SYS-REQ-011: On power-up, the system SHALL initialize to a safe state without moving the flap until a valid command is received.
+SYS-REQ-012: The system SHALL maintain current flap position during idle.
+SYS-REQ-013: The system SHALL indicate and react safely to invalid input or detected hardware faults.
+
+8.0 Interfaces
+SYS-REQ-014: The system SHALL communicate with external devices via UART for commands and feedback.
+SYS-REQ-015: The system SHALL interface with a motor driver circuit for actuation.
+SYS-REQ-016: The system SHALL acquire analog/digital signals from the flap position sensor (ADC).
+SYS-REQ-017: The system SHALL drive status LEDs as outputs.
+
+9.0 Constraints & Assumptions
+SYS-REQ-018: The system SHALL operate within an ambient temperature range of -40°C to +85°C.
+SYS-REQ-019: Supply voltage range for the system SHALL be 9V to 16V.
+[Implied]
+
+10.0 Non-Functional Requirements
+10.1 Responsiveness
+SYS-REQ-020: The system SHALL process and act on user commands within 200 ms.
+10.2 Error Handling & Edge Cases
+SYS-REQ-021: The system SHALL detect and indicate communication faults, sensor issues, or out-of-range requests.
+10.3 Resource Constraints
+SYS-REQ-022: The system SHALL use less than 32kB program memory and 4kB RAM.
+[Implied]
+10.4 Maintainability & Modularity
+SYS-REQ-023: The design SHALL separate control, interfacing, and error handling functions.
+[Implied]
+10.5 Testability
+SYS-REQ-024: All requirements SHALL be verifiable through test or inspection.
+
+---
+Architecture-Relevant Considerations Derived from System Requirements
+- Concurrency: Mostly sequential operations; potential for parallel sensor acquisition and UART command receipt but not strictly required.
+- Interaction Complexity: Simple with clear responsibility separation (command, actuation, feedback, indication).
+- Control Complexity: Basic closed-loop feedback control for positioning, error-state handling.
+- Expandability: Modularized interfaces and atomic requirements make future extensions (additional indication types, sensor types, etc.) straightforward with low coupling.
