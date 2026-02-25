@@ -1,0 +1,242 @@
+# HVAC Flap Actuator Software Low Level Design (LLD)
+# Branch: febsnd-252a
+# Based on: sw-reqs/sw-reqs.txt, sw-arch/sw-arch.txt
+# Follows ASPICE SWE.3, MISRA C, No dynamic allocation, No scheduling info, No new units
+
+-------------------------------------------------------------------------------
+
+Software Unit: Command Handler
+
+1. Responsibilities
+- Parse UART (single digit 0-5), deduplicate and validate user input
+- Raise position change events
+- Does NOT handle hardware errors, motor logic, or position feedback
+
+2. Internal Data Design
+- RX UART buffer [char, static, single byte]
+- Validation flag [bool]
+- Parsed command value [uint8_t]
+
+3. State Machine (if applicable)
+No explicit state machine. Operates event/trigger driven when RX data arrives.
+
+4. Algorithms and Control Flow
+- Wait for RX UART data
+- On data received:
+  - Check if data is numeric and within 0..5
+  - If valid and not duplicate:
+      - Set flag, pass value to Position Control unit
+  - Else ignore
+
+5. Interfaces (APIs)
+- Provide: Command_Received(uint8_t position)
+- Require: UART_RX(), Position_Control_Notify(uint8_t)
+
+6. Error Handling
+- Ignore non-numeric or out-of-range input per SWE-REQ-037
+- No feedback on invalid input
+
+7. Resource and Timing Considerations
+- Triggered by UART receive event
+- Not reentrant (single-user, single-command model)
+- Worst-case: one UART RX processed at a time
+
+8. Traceability to SWE Requirements
+SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-021, SWE-REQ-037
+
+-------------------------------------------------------------------------------
+
+Software Unit: Position Control
+
+1. Responsibilities
+- Hold and compare target vs current position
+- Initiate actuation if required
+- Manage flap logic state
+- Does NOT read UART or drive actual hardware
+
+2. Internal Data Design
+- Current Position [uint8_t]
+- Target Position [uint8_t]
+- Actuation Requested/Active [bool]
+
+3. State Machine (if applicable)
+Pseudo-state: IDLE, ACTUATING
+Transitions:
+- IDLE: on new command -> ACTUATING
+- ACTUATING: on position reached/error -> IDLE
+
+4. Algorithms and Control Flow
+- On target set (from Command Handler):
+    if (target != current) && valid -> request actuation
+    else -> do nothing
+- On periodic/feedback notify:
+    if currently actuating && current == target -> notify Motor Controller to stop
+- If error (via Feedback): cancel/abort
+
+5. Interfaces (APIs)
+- Provide: Position_Control_Notify(uint8_t current), Actuation_Request()
+- Require: Command_Received(uint8_t), Feedback_Notify(), Motor_Command()
+
+6. Error Handling
+- If notified error by Feedback: abort actuation
+- If invalid feedback: ignore new commands
+
+7. Resource and Timing Considerations
+- Driven by command or feedback event
+- Not reentrant
+
+8. Traceability to SWE Requirements
+SWE-REQ-004, SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-028, SWE-REQ-029, SWE-REQ-035
+
+-------------------------------------------------------------------------------
+
+Software Unit: Feedback Processor
+
+1. Responsibilities
+- Read ADC to measure flap position
+- Map ADC readings to discrete logical positions (0-5)
+- Detect out-of-range/error
+
+2. Internal Data Design
+- ADC value [uint16_t]
+- Position Table with thresholds [const array]
+- Position Valid [bool]
+
+3. State Machine (if applicable)
+No explicit state machine. Repeated/periodic or event-driven sampling.
+
+4. Algorithms and Control Flow
+- Acquire ADC reading
+- Compare to threshold table
+- Map to [0:5] or invalid
+- Notify Position Control and Status Indicator with value/validity
+
+5. Interfaces (APIs)
+- Provide: Feedback_Notify(uint8_t current, bool valid)
+- Require: ADC_Read()
+
+6. Error Handling
+- On ADC out-of-range -> set valid=false, notify units
+- Ignore invalid measurements if hardware error
+
+7. Resource and Timing Considerations
+- Periodic or on-demand sampling
+- Not reentrant
+
+8. Traceability to SWE Requirements
+SWE-REQ-014, SWE-REQ-015, SWE-REQ-016, SWE-REQ-022, SWE-REQ-033, SWE-REQ-034, SWE-REQ-038
+
+-------------------------------------------------------------------------------
+
+Software Unit: Motor Controller
+
+1. Responsibilities
+- Set motor direction and enable/disable
+- Stop-on-target or error
+- Enforce only one direction output at a time (per SWE-REQ-013)
+
+2. Internal Data Design
+- Direction [enum]
+- Enabled [bool]
+
+3. State Machine (if applicable)
+No explicit state machine. State determined by invocation context.
+
+4. Algorithms and Control Flow
+- On actuation request:
+    - Set direction outputs
+    - Enable motor
+- On stop request or error:
+    - Disable motor
+    - Reset direction
+
+5. Interfaces (APIs)
+- Provide: Motor_Command(dir, enable)
+- Require: GPIO_Set(), PWM_Set()
+
+6. Error Handling
+- Disable motor on error/invalid state
+- Never enable both directions
+
+7. Resource and Timing Considerations
+- Invoked by Position Control
+- Not reentrant
+
+8. Traceability to SWE Requirements
+SWE-REQ-008, SWE-REQ-009, SWE-REQ-010, SWE-REQ-011, SWE-REQ-012, SWE-REQ-013, SWE-REQ-023, SWE-REQ-038, SWE-REQ-039
+
+-------------------------------------------------------------------------------
+
+Software Unit: Status Indicator
+
+1. Responsibilities
+- Light power LED on boot
+- Display single position LED (only one active)
+- Does NOT implement blinking patterns/diagnostics
+
+2. Internal Data Design
+- Position LED state [uint8_t: 0..5]
+- Power LED state [bool]
+
+3. State Machine (if applicable)
+No explicit state machine. Control is direct on notification.
+
+4. Algorithms and Control Flow
+- On boot: power LED ON
+- On position update: set one LED in [0..5], clear others
+
+5. Interfaces (APIs)
+- Provide: LED_Display(uint8_t), PowerLED_Set(bool)
+- Require: GPIO_Set()
+
+6. Error Handling
+- No action for invalid LED index (silent ignore)
+
+7. Resource and Timing Considerations
+- Change only on command or feedback event
+- Not reentrant
+
+8. Traceability to SWE Requirements
+SWE-REQ-017, SWE-REQ-018, SWE-REQ-019, SWE-REQ-020, SWE-REQ-024, SWE-REQ-027
+
+-------------------------------------------------------------------------------
+
+Software Unit: HW Abstraction
+
+1. Responsibilities
+- Provide static, direct access to peripherals (GPIO, ADC, PWM, UART)
+- No logic, just interface mapping
+
+2. Internal Data Design
+- Peripheral register handles [structs, per API]
+
+3. State Machine (if applicable)
+Not applicable; stateless utility layer
+
+4. Algorithms and Control Flow
+- Directly map logical IO/API to MCU calls
+
+5. Interfaces (APIs)
+- Provide: UART_RX(), GPIO_Set(), PWM_Set(), ADC_Read()
+- Require: None
+
+6. Error Handling
+- Return error code to caller (if peripheral fault)
+
+7. Resource and Timing Considerations
+- All usage is direct/foreground
+- Not reentrant, protected by design
+
+8. Traceability to SWE Requirements
+SWE-REQ-021, SWE-REQ-022, SWE-REQ-023, SWE-REQ-024, SWE-REQ-025, SWE-REQ-026, SWE-REQ-043, SWE-REQ-044, SWE-REQ-045
+
+-------------------------------------------------------------------------------
+
+# EXPLICIT EXCLUSIONS
+- No source code or register-level details
+- No scheduling/task/execution logic
+- No unit/integration test cases
+- No hardware schematics
+- No new software units introduced
+
+# END OF FILE
