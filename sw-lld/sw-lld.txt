@@ -1,0 +1,320 @@
+# Software Low-Level Design (SWE.3): HVAC Flap Actuator
+
+## Version: 1.0 | Branch: febwernd-252a
+
+---
+
+## Software Unit: Command Handler
+
+### 1. Responsibilities
+- Accept and validate position commands from UART (SWE-REQ-001, SWE-REQ-002).
+- Map valid commands to logical flap positions (SWE-REQ-004).
+- Ignore invalid commands (SWE-REQ-003, SWE-REQ-035).
+- Provide position command interface to Motor Control Logic (SWE-REQ-021).
+- Does NOT process feedback, drive hardware directly, or manage error signaling.
+
+### 2. Internal Data Design
+- `uint8_t rx_buffer[UART_RX_BUF_SIZE];` // UART receive buffer
+- `uint8_t validated_cmd;`              // Last valid command
+- `enum {CMD_VALID, CMD_INVALID} cmd_state;`
+- `static const uint8_t valid_positions[6] = {0,1,2,3,4,5};` // Fixed
+
+### 3. State Machine (if applicable)
+- States: WAIT_FOR_CMD, VALIDATE_CMD, CMD_IGNORED, CMD_ACCEPTED
+- Events: UART byte received, buffer complete
+- Transitions: On complete command => validate => set state
+- No complex behavior; simple branch.
+
+### 4. Algorithms and Control Flow
+- Wait for UART RX event; buffer ASCII
+- If received, check if in range '0'-'5'; else ignore
+- On valid: set target, notify control logic
+- On invalid: set state CMD_IGNORED
+
+### 5. Interfaces (APIs)
+- Public: `get_validated_cmd(void)`
+- Requires: UART driver API `uart_read_byte()`, informs Motor Control Logic of new target
+- Parameter: void; Return: command value or error
+
+### 6. Error Handling
+- Invalid commands ignored (SWE-REQ-035)
+- No error reporting; maintains last good
+- No diagnostics to user (SWE-REQ-037)
+
+### 7. Resource and Timing
+- Invoked on UART event
+- Worst-case: validation within 1 ms
+- Not reentrant
+
+### 8. Traceability
+- SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-005, SWE-REQ-021, SWE-REQ-035, SWE-REQ-037
+
+---
+
+## Software Unit: Motor Control Logic
+
+### 1. Responsibilities
+- Compare target and actual flap positions (SWE-REQ-006)
+- Command, start, stop movement (SWE-REQ-007, SWE-REQ-008)
+- Compute and set direction; control enable (SWE-REQ-010, SWE-REQ-011)
+- Observe boundaries (SWE-REQ-013)
+- Disable motor on error or idle (SWE-REQ-012, SWE-REQ-027, SWE-REQ-034)
+- Does NOT read user commands, ADC, or manage LEDs directly
+
+### 2. Internal Data Design
+- `uint8_t current_position, target_position, last_commanded_position;`
+- `enum motor_state {IDLE, MOVING, STOPPED, ERROR};`
+- `enum mot_dir {CW, CCW};`
+
+### 3. State Machine
+- States: IDLE, MOVING, STOPPED, ERROR
+- Events: position update, command update, error detected
+- Transitions:
+    - IDLE->MOVING on new target
+    - MOVING->STOPPED on position match
+    - MOVING->ERROR on feedback error
+    - ERROR->IDLE by user reset
+
+### 4. Algorithms/Control Flow
+- On command/feedback: compare positions
+- If target != current, start motor, set dir
+- If match, stop motor
+- If error signaled, disable motor
+- Boundary condition: do not exceed limit
+
+### 5. Interfaces (APIs)
+- Public: `set_target_position(uint8_t pos)`, `motor_logic_step(void)`
+- Requires: Motor Driver, Position Feedback API
+- Parameter: position
+- Return: status code
+
+### 6. Error Handling
+- Feedback error disables motor (SWE-REQ-034, 036)
+- Ignores out-of-range target
+- Maintains last safe state
+
+### 7. Resource/Timing
+- Step function called upon update
+- Assumed < 2 ms/step execution
+- Not reentrant
+
+### 8. Traceability
+- SWE-REQ-006, SWE-REQ-007, SWE-REQ-008, SWE-REQ-009, SWE-REQ-010, SWE-REQ-011, SWE-REQ-012, SWE-REQ-013, SWE-REQ-027, SWE-REQ-034, SWE-REQ-036
+
+---
+
+## Software Unit: Position Feedback Logic
+
+### 1. Responsibilities
+- Acquire and process ADC feedback (SWE-REQ-014)
+- Map ADC to logical positions (SWE-REQ-015)
+- Validate feedback range; flag errors (SWE-REQ-016)
+- Does NOT command motor, handle user commands, or manage LEDs directly
+
+### 2. Internal Data Design
+- `uint16_t adc_value;`
+- `uint8_t logical_position;`
+- `static const uint16_t adc_ranges[6];` // from calibration
+
+### 3. State Machine
+- No explicit state machine; stateless mapping (sample-process-report)
+- Notes: If ADC is out of range -> report error
+
+### 4. Algorithms/Control Flow
+- Read ADC, for(i=0..5): if in range, assign logical position
+- If no match, flag error
+- Boundary: ADC out-of-range error
+
+### 5. Interfaces (APIs)
+- Public: `update_feedback(void)`, `get_position(void)`
+- Requires: ADC Driver
+
+### 6. Error Handling
+- Out-of-range ADC treated as ERROR
+- No diagnostics to user (SWE-REQ-037)
+
+### 7. Resource/Timing
+- Run on demand or periodically
+- < 1 ms/feedback read
+- Not reentrant
+
+### 8. Traceability
+- SWE-REQ-014, SWE-REQ-015, SWE-REQ-016, SWE-REQ-017, SWE-REQ-023, SWE-REQ-032, SWE-REQ-033, SWE-REQ-036, SWE-REQ-037
+
+---
+
+## Software Unit: LED Status Indication
+
+### 1. Responsibilities
+- Set LED to show system power and status (SWE-REQ-018)
+- Display flap position (only one ON at a time, SWE-REQ-019)
+- Uses GPIO outputs (SWE-REQ-020)
+- Indicate stop/idle/error if needed (SWE-REQ-029)
+- Does NOT directly process commands or feedback, or control motor
+
+### 2. Internal Data Design
+- `uint8_t active_status;`     // Power/idle/error
+- `uint8_t position_leds[6];` // 1-hot encoding
+
+### 3. State Machine
+- No complex state - explicit LED combinatorics
+- Power/idle/status/event => show
+
+### 4. Algorithms/Control Flow
+- On power up: power LED ON
+- On position update: set corresponding LED, clear others
+- On error: set error/state LED
+
+### 5. Interfaces (APIs)
+- Public: `update_leds(uint8_t system_state, uint8_t pos)`
+- Requires: GPIO driver
+
+### 6. Error Handling
+- Error/status LED on error/idle
+- No diagnostics routed externally
+
+### 7. Resource/Timing
+- Updated on system events (init, new position, error)
+- < 0.5 ms/update
+- Not reentrant
+
+### 8. Traceability
+- SWE-REQ-018, SWE-REQ-019, SWE-REQ-020, SWE-REQ-024, SWE-REQ-029
+
+---
+
+## Software Unit: UART Driver
+
+### 1. Responsibilities
+- UART receive/transmit abstraction
+- Provide character stream to Command Handler (SWE-REQ-021)
+- Does NOT buffer/process/flap logic
+
+### 2. Internal Data Design
+- `uint8_t rx_byte;` last received
+- Control/status bits as required by HW
+
+### 3. State Machine
+- No explicit state
+
+### 4. Algorithms/Control Flow
+- Raw byte read/write
+
+### 5. Interfaces (APIs)
+- Public: `uart_read_byte(void)`, `uart_send_byte(uint8_t)`
+- Requires: HW registers
+
+### 6. Error Handling
+- Hardware framing/error status read, ignored above
+
+### 7. Resource/Timing
+- IRQ or polling driven
+
+### 8. Traceability
+- SWE-REQ-021, SWE-REQ-043, SWE-REQ-044, SWE-REQ-045
+
+---
+
+## Software Unit: ADC Driver
+
+### 1. Responsibilities
+- Acquire analog value from potentiometer
+- Provide abstraction to Feedback Logic (SWE-REQ-023)
+- Does NOT buffer/interpret values
+
+### 2. Internal Data Design
+- `uint16_t last_adc_result;`
+
+### 3. State Machine
+- No explicit state
+
+### 4. Algorithms/Control Flow
+- Single channel sampling
+
+### 5. Interfaces (APIs)
+- Public: `adc_read(void)`
+- Return: value
+- Requires: HW registers
+
+### 6. Error Handling
+- Hardware error bits ignored above
+
+### 7. Resource/Timing
+- On-demand or polled
+
+### 8. Traceability
+- SWE-REQ-023
+
+---
+
+## Software Unit: Motor Driver
+
+### 1. Responsibilities
+- Provide enable/disable interface to motor (SWE-REQ-022)
+- Control direction via GPIO/PWM
+- Does NOT interpret application logic
+
+### 2. Internal Data Design
+- Direction and enable bits
+- IO status
+
+### 3. State Machine
+- No explicit state
+
+### 4. Algorithms/Control Flow
+- Set/clear enable, set direction
+
+### 5. Interfaces (APIs)
+- Public: `motor_set_enable(uint8_t en)`, `motor_set_dir(uint8_t)`
+- Requires: GPIO driver
+
+### 6. Error Handling
+- Output disables on error
+
+### 7. Resource/Timing
+- Immediate execution
+
+### 8. Traceability
+- SWE-REQ-022
+
+---
+
+## Software Unit: GPIO Driver
+
+### 1. Responsibilities
+- Provide digital output abstraction (SWE-REQ-024)
+- Used by LED, motor, etc.
+- Does NOT interpret logic/commands
+
+### 2. Internal Data Design
+- Pin number/level table
+
+### 3. State Machine
+- No explicit state
+
+### 4. Algorithms/Control Flow
+- Set/reset pin
+
+### 5. Interfaces (APIs)
+- Public: `gpio_set(uint8_t pin, uint8_t val)`
+
+### 6. Error Handling
+- None; hardware manages electrical
+
+### 7. Resource/Timing
+- Immediate execution
+
+### 8. Traceability
+- SWE-REQ-024
+
+---
+
+## Mandatory LLD Exclusions
+- No new software units, APIs, or tasks defined
+- No execution or scheduling redefinition.
+- No implementation code, register manipulation, unit/integration test, or HW schematics provided.
+
+---
+
+## End of Document
+
