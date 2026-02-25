@@ -1,0 +1,91 @@
+# HVAC Flap Actuator Software Architecture (ASPICE SWE.2)
+
+## 1. Architecture Style Selection and Justification
+
+### Candidates considered
+- **Monolithic (main-loop only):** Simple, hard to maintain/trace, fails requirements for separation and explicit responsibility.
+- **Layered (Application/HAL):** Too complex/formal for requirements, unjustified abstraction for a prototype/learning system.
+- **Component-based (modular, direct):** Matches needs for clear boundaries, testability, traceability, ASPICE alignment, and maintainability for a microcontroller firmware prototype.
+
+**Selected style:**
+- **Component-based modular architecture**
+
+**Justification:**
+- Requirement-driven explicit separation (SYS-REQ-049, SWE-REQ-035, SWE-REQ-048, et al).
+- Clear, maintainable assignment of responsibilities.
+- Unit-to-requirement traceability.
+- Avoids unnecessary complexity/layers.
+- Facilitates testing (SWE.1, SYS-REQ-050/051).
+
+
+## 2. Software Units and Responsibilities
+
+| Software Unit      | Responsibilities                                                                 | Interfaces Provided      | Interfaces Used              |
+|--------------------|----------------------------------------------------------------------------------|-------------------------|------------------------------|
+| Command Handler    | Parse UART commands, filter/validate user input, raise position change events     | User Command API        | UART Rx                      |
+| Position Control   | Hold/compare target vs. current pos, request actuations, manage actuation logic  | Control Event API       | Command Handler, Feedback    |
+| Feedback Processor | Acquire ADC, map to position, error/out-of-range detect                          | Position Feedback API   | ADC Input                    |
+| Motor Controller   | Motor direction/enable, stop-on-target/safe, avoid H-bridge fault                | Motor Hardware API      | Position Control             |
+| Status Indicator   | Power and position LEDs (one-hot), reflect state changes                         | LED Control API         | Position Control, Feedback   |
+| HW Abstraction     | Peripheral access (GPIO, ADC, PWM, UART), wrap for modular units                 | Peripheral APIs         | MCU hardware                 |
+
+
+## 3. High-Level Architecture Diagram (textual)
+
+```
++---------------------+      +-----------------+      +---------------------+
+|   Command Handler   +----->| Position Control+----->|  Motor Controller   |
+|   (UART API)        |      | (Target/Current)|      | (GPIO/PWM API)      |
++---------------------+      +-----------------+      +---------------------+
+           |                         |                        |
+           v                         v                        |
++-------------------+        +-----------------+              |
+| Feedback Processor|------->| Status Indicator|<-------------+
+| (ADC API)         |        | (LED GPIO API)  |
++-------------------+        +-----------------+
+                                   ^
+                                   |
+                          +----------------------+
+                          | HW Abstraction Layer |
+                          +----------------------+
+```
+
+
+## 4. SW Unit Table
+
+| Software Unit      | Responsibilities                                             | Interfaces Provided   | Interfaces Used              |
+|--------------------|-------------------------------------------------------------|----------------------|------------------------------|
+| Command Handler    | Parse UART (single digit 0-5), deduplicate/filter commands  | To Pos Ctrl          | UART Rx                      |
+| Position Control   | Initiate/coordinate actuation, position monitoring          | Actuation/Events     | Command Handler, Feedback    |
+| Feedback Processor | Read ADC, discrete mapping, error detect                    | Feedback API         | ADC Input                    |
+| Motor Controller   | Set motor signals, stop on error/target, safe logic         | Motor HW API         | Position Control             |
+| Status Indicator   | LED control (power, only one green active at a time)        | LED signals          | Position Control, Feedback   |
+| HW Abstraction     | Peripheral access (GPIO, ADC, PWM, UART)                   | Peripheral APIs      | Direct MCU                   |
+
+
+## 5. Execution Model Statement
+
+Per requirements: 
+"No explicit execution model or scheduling policy is mandated by the requirements at this stage."
+- Responsiveness requirement only (SYS-REQ-042, SWE-REQ-041) -- simple event-driven or loop structure is sufficient.
+
+
+## 6. Architectural Constraints and Rationale
+- No OS, threads, or tasks: not present in requirements, explicitly excluded (SWE-REQ-Explicit Exclusions).
+- Single MCU, single user, one flap
+- No concurrency or parallelism required or allowed
+- Testability and traceability required at unit level
+- Static/prototype config only; no dynamic allocation
+
+## 7. Traceability to SWE.1/SYS-REQs
+- Units map directly to requirement areas:
+   - Command, Position, Motor, Feedback, Status, HW Access
+- No new functionality/mechanisms added
+- All system functions trace back to provided SWE.1 and system requirements
+
+## 8. Exclusions/Non-Goals
+- No safety, diagnostics, comm stack, security, vehicle networking, task scheduling, or advanced error handling present.
+- No implementation details (algorithms, data types) included (left to SWE.3)
+
+---
+**This file is auto-generated for branch febsnd-252a following explicit ASPICE workflow, requirements, and instruction context.**
