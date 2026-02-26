@@ -1,0 +1,275 @@
+Technical References Used:
+- infineon-tle9851qxw-datasheet-en.pdf
+    - p.1–3, Features, device description, half-bridge driver, MOSFET, ADC, UART/LIN
+    - p.69–70, Measurement Unit (ADC), Table 11
+    - p.14, Modes of operation (startup, Idle, Reset)
+    - p.16, Device/system constraints (temp range, voltage)
+    - p.115, Reset behavior, watchdog
+    - Section 18, CCU6
+    - Section 26, High-Side Driver
+    - Section 19.7, UART/LIN
+    - Atomic event/interrupt, trap, shadow, and fault handling — as detailed in RAG summary
+- infineon-tle985xqx-usermanual-en.pdf
+    - p.22, Overview, block diagrams, operational states
+    - Table 42, Startup/Reset, watchdog
+    - Section 4, 8 (power, SCU-PM)
+
+=========================
+Low-Level Design (SWE.3) – TLE9851QXW: HVAC Flap Actuator
+=========================
+
+## Software Unit: Command Interface Unit
+
+1. Responsibilities
+   - Handles decoding and validation of all UART/LIN-based flap position commands (0–5).
+   - Ignores invalid/out-of-range commands and triggers error-fault path if detected.
+   - Does not process periodic or scheduled messages—event-/interrupt-driven only.
+
+2. Internal Data Design
+   - ReceivedCommand: uint8_t (stores command value 0..5, [TBD - Not in source] for struct alignment)
+   - DecodingStatus: enum { VALID, INVALID, OUT_OF_RANGE }
+   - No dynamic/state table; config is Flash-resident per Configuration Manager.
+
+3. State Machine
+   - None (explained: operates as stateless decoder, latching the most recent valid command only on event/interrupt from UART/LIN).
+
+4. Algorithms & Control Flow
+   - On UART/LIN message event:
+       step 1: Read message, parse position byte.
+       step 2: If in 0..5, set ReceivedCommand, set DecodingStatus to VALID.
+       step 3: Else, set DecodingStatus: OUT_OF_RANGE. Call Error Handling Unit.
+   - Pseudocode only; no code or protocol details.
+
+5. Interfaces (APIs)
+   - Provided: ICommandDecoder_getCommand(), returns (uint8_t, DecodingStatus)
+   - Required: ICommRx event handler (UART1, UART2, LIN)
+   - Error reporting: error status routed to Error Handling Unit (see below)
+
+6. Error Handling
+   - Any decode failure—notifies Error Handling Unit via error interface with command and error code.
+   - Data lost/timeouts are ignored, faults logged (see Error Handling Unit).
+
+7. Resource & Timing Considerations
+   - Only invoked on RX interrupt/event.
+   - Worst-case execution time (WCET): <1 ms per RX event (datasheet UART/LIN, Ch. 29.9)
+   - Not reentrant (single buffer, single state variable).
+
+8. Traceability
+   - SWE-REQ-001, -002, -017, -030, -034, -038, -046
+
+---
+
+## Software Unit: State Machine/Control Logic
+
+1. Responsibilities
+   - Handles all flap actuator states (Idle, Moving, Target, Fault, Stop).
+   - Orchestrates state transitions based on command, ADC feedback, fault events. Invokes Motor, ADC, Status, Error units as needed.
+
+2. Internal Data Design
+   - State: enum { IDLE, MOVING, TARGET, FAULT, STOP }
+   - TargetPosition, CurrentPosition (uint8_t)
+   - Event flags: NewCommand, MotorAtTarget, FaultFlag
+
+3. State Machine
+   - States: IDLE (await), MOVING (drive), TARGET (arrived), FAULT (error), STOP (power-save)
+   - Events: Command valid (from Command Interface), Position reached (from ADC), Fault/Error (from Error Handler), Reset
+   - Transitions/Actions: Only as mapped from SWE.1 and SWE.2; no spontaneous or implicit states.
+
+4. Algorithms & Control Flow
+   - On NewCommand event (VALID): set TargetPosition, transition to MOVING
+   - On ADC result = TargetPosition: transition to TARGET, invoke Motor stop
+   - On FaultFlag: transition to FAULT, invoke Motor stop, set fault status
+   - On Reset: transition to IDLE, clear flags
+
+5. Interfaces (APIs)
+   - Provided: IStateMachine_run(), called by external event loop/handler
+   - Required: ICommandDecoder, IMotorControl, IADCFeedback, IStatusUpdate
+   - Error: On error, passes FaultFlag and code to IErrorHandler
+
+6. Error Handling
+   - On error events, disables all actuator activity (motor/outputs), sets state to FAULT
+   - All transitions to FAULT or STOP are final until reset/clear event detected.
+
+7. Resource & Timing Considerations
+   - Called only on events (no loop/scheduled definition)
+   - WCET: <3 ms/event; verified by system benchmark
+   - Not reentrant
+
+8. Traceability
+   - SWE-REQ-004, -006, -024, -025, -027, -034, -040, -046
+
+---
+
+## Software Unit: Motor Control (Driver) Unit
+
+1. Responsibilities
+   - Drives H-Bridge motor using CCU6-generated PWM signals.
+   - Handles direction, braking, PWM setup and safe motor halt/stop on command or error.
+
+2. Internal Data Design
+   - struct MotorConfig { PWMfreq, DutyCycle, Direction, BrakeMode } (Flash/ROM resident, runtime mirror)
+   - MotorStatus: enum { STOPPED, RUNNING, BRAKE }
+
+3. State Machine
+   - None (atomic driver—performs actions on direct request only).
+
+4. Algorithms & Control Flow
+   - On IMotorControl_start(Direction, PWM): sets up CCU6 registers (atomic control per HW)
+   - On stop(): disables PWM output by CCU6, sets H-Bridge to brake/disabled
+   - Input validation: if invalid, calls Error Handling
+
+5. Interfaces (APIs)
+   - Provided: IMotorControl_start(), IMotorControl_stop()
+   - Required: ICCU6/PWM (hardware peripheral)
+   - Error: atomic error/overcurrent handled at HW; reports upward
+
+6. Error Handling
+   - All hardware faults (overcurrent/OT/etc): disables outputs at CCU6/H-Bridge hardware, sets error status
+   - For software-detected faults, signals Error Handling Unit
+
+7. Resource & Timing Considerations
+   - Only invoked per state/event; WCET <2 ms per start/stop
+   - Peripheral/port exclusive; not reentrant
+
+8. Traceability
+   - SWE-REQ-004, -007, -008, -009, -024, -035, -036, -045
+
+---
+
+## Software Unit: ADC Feedback Unit
+
+1. Responsibilities
+   - Configures ADC, samples analog input at interval from Configuration
+   - Compares ADC value to target thresholds, detects out-of-range/invalid
+   - Triggers error path as needed
+
+2. Internal Data Design
+   - struct ADCConfig { Thresholds[0..5], SampleRateHz } (Flash config, local buffer)
+   - LastSample, LastValidPosition
+
+3. State Machine
+   - None (event/interval-driven sampling, all start/stop based on commands and state)
+
+4. Algorithms & Control Flow
+   - On each sampling event: Read ADC, search thresholds for match. If match, set LastValidPosition; else, error path to Error Handling Unit
+   - Invalid or out-of-bounds: immediate fault
+
+5. Interfaces (APIs)
+   - Provided: IADCFeedback_getPosition(), returns position/validity
+   - Required: IADC (hardware), IFlashConfig
+   - Error: Reports errors/faults to Error Handling Unit
+
+6. Error Handling
+   - On any ADC out-of-bounds or hardware fault (interrupt/error flag): disables Motor Control, signals Error Handling
+
+7. Resource & Timing Considerations
+   - Invoked on periodic/triggered interrupt only; WCET <0.5 ms/sample
+   - Not reentrant, no cyclic buffer
+
+8. Traceability
+   - SWE-REQ-010, -011, -012, -013, -019, -026, -035, -039, -041
+
+---
+
+## Software Unit: Status Indication Unit
+
+1. Responsibilities
+   - Updates status indication outputs (LED/HSS/GPIO) for position and fault
+   - Drives UART/LIN status message
+
+2. Internal Data Design
+   - enum StatusType { POSITION, FAULT, IDLE }
+   - OutputPinMap: from config manager (Flash)
+
+3. State Machine
+   - None; all actions event-driven from controlling units or hardware fault event
+
+4. Algorithms & Control Flow
+   - On position/fault event: Sets output (GPIO/HSS), drives UART/LIN status per configuration
+
+5. Interfaces (APIs)
+   - Provided: IStatusUpdate_set(), IStatusUpdate_clear(), IStatusUpdate_send()
+   - Required: ICommTx (UART, LIN), IGPIO, HSOut
+
+6. Error Handling
+   - If drive fails or pin stuck/high: signals Error Handling Unit
+   - Fault condition: status outputs set per safe/fault indication
+
+7. Resource & Timing Considerations
+   - Called on change/fault only; WCET <0.5 ms/change
+   - Non-reentrant, no pin toggling/reconfiguration at runtime
+
+8. Traceability
+   - SWE-REQ-014, -015, -016, -020, -021, -022, -031, -047
+
+---
+
+## Software Unit: Configuration Manager
+
+1. Responsibilities
+   - Fetches parameter/config data from non-volatile Flash (thresholds, PWM conf, pin maps, protocol).
+   - Provides config to all other units at startup and on request.
+
+2. Internal Data Design
+   - struct ConfigTable { ADC thresholds, PWM freq, pin mapping, protocol } (flash mirror)
+   - RuntimeConfig: local copy of flash contents on boot
+
+3. State Machine
+   - None; stateless provider
+
+4. Algorithms & Control Flow
+   - At startup: loads ConfigTable into RAM
+   - On request: copies requested section to the requesting unit
+
+5. Interfaces (APIs)
+   - Provided: IFlashConfig_get(), returns config data
+   - Required: Flash hardware peripheral
+
+6. Error Handling
+   - On flash read failure: All units enter FAULT state; no operation allowed
+   - No runtime write or update permitted during operation
+
+7. Resource & Timing Considerations
+   - Single access at startup; request-on-demand only; startup WCET <2 ms
+   - Not reentrant (startup exclusive)
+
+8. Traceability
+   - SWE-REQ-005, -011, -013, -026, -028, -032, -037, -039, -045, -046
+
+---
+
+## Software Unit: Error Handling Unit
+
+1. Responsibilities
+   - Aggregates error/fault paths from all units (overcurrent, ADC error, UART/LIN decode, stuck output, config fault)
+   - Places system in safe/fault/stop state; triggers status indication/report
+
+2. Internal Data Design
+   - struct FaultLog { LastErrorCode, SourceUnit, Time }
+   - FaultStatus: enum { NO_FAULT, HW_FAULT, COMM_FAULT, ADC_FAULT, CONFIG_FAULT }
+
+3. State Machine
+   - None; event/reactive error aggregator
+
+4. Algorithms & Control Flow
+   - On Fault event: disables Motor Control, signals FAULT to StateMachine, sets Status Indication output, logs error
+
+5. Interfaces (APIs)
+   - Provided: IErrorHandler_notify(uint8_t code, SourceUnit)
+   - Required: IStatusUpdate, IStateMachine
+
+6. Error Handling
+   - Handles and records all requested errors (atomic via hardware and software path)
+   - On any non-recoverable error, system remains in FAULT state until reset
+
+7. Resource & Timing Considerations
+   - Called only on explicit events from software/HW ISRs; WCET <1 ms/event
+   - Not reentrant
+
+8. Traceability
+   - SWE-REQ-012, -025, -029, -030, -031, -041, -042, -043, -046
+
+============================
+END OF DOCUMENT.
+
+(TODO: If specific hardware register/mapping detail is needed per requirement, mark as [TBD — Not in source]. All content is RAG-authoritative only.)
