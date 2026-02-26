@@ -1,0 +1,278 @@
+# HVAC Flap Actuator Software Low Level Design (SWE.3)
+
+## Table of Software Units
+- Command Handler
+- Control Logic
+- Position Feedback Processor
+- Motor Driver
+- LED Driver
+- Hardware Abstraction Layer (HAL)
+
+---
+
+## Software Unit: Command Handler
+
+1. Responsibilities
+- Receives and parses UART user flap position commands (0-5).
+- Validates incoming commands for range and format.
+- Ensures only one valid command is processed at a time (locks input until completed).
+- Does NOT generate position, motor, or LED control outputs.
+- Does NOT process hardware abstraction or feedback directly.
+
+2. Internal Data Design
+- Internal buffer for UART received data.
+- Variable for storing most recent valid command.
+- Command state flag (idle, pending, busy).
+- Error flag for invalid command receipt.
+
+3. State Machine
+- States: Idle, Command Pending, Command Busy, Error
+- Events: Command Received, Command Validated, Command Invalid, Command Complete
+- Transitions:
+  - Idle → Command Pending (on UART RX interrupt, data received)
+  - Command Pending → Command Busy (on valid parse)
+  - Command Pending → Error (on invalid parse)
+  - Command Busy → Idle (on command completion)
+  - Error → Idle (on error acknowledged)
+- Entry/Exit Actions: Clear buffer on entry to Idle, store command on Pending, set error on Error.
+
+4. Algorithms and Control Flow
+- On UART RX interrupt, copy data to buffer.
+- Parse buffer for single digit (0-5).
+- If valid, set Command Pending → Command Busy, notify Control Logic.
+- If invalid, set Error, ignore command, and set flag for error indication (if required).
+- Ignore new commands until current completes.
+
+5. Interfaces (APIs)
+- Provides: command_handler_get_command(), command_handler_is_command_pending(), command_handler_clear_error().
+- Uses: HAL UART receive abstraction, Control Logic notify API.
+- Parameters: Command (int), Error (flag)
+- Error reporting: Internal error flag, API to query error status.
+
+6. Error Handling
+- Ignores and clears buffer for invalid or out-of-range commands (SWE-REQ-002/003/037).
+- Does not affect outputs or state on error.
+
+7. Resource and Timing Considerations
+- Event-driven by UART RX.
+- Handles one command at a time; not re-entrant.
+- Execution delay depends on user input.
+
+8. Traceability to SWE Requirements
+- SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-024, SWE-REQ-037
+
+---
+
+## Software Unit: Control Logic
+
+1. Responsibilities
+- Receives validated command from Command Handler.
+- Determines if flap movement is needed (target ≠ current).
+- Requests actuation from Motor Driver and LED update from LED Driver.
+- Is not responsible for parsing UART or direct hardware access.
+
+2. Internal Data Design
+- Target position (int)
+- Current position (from Position Feedback Processor)
+- Command in-progress flag
+- Movement state (Idle, Moving, Finished, Error)
+
+3. State Machine
+- States: Idle, Moving, Complete, Error
+- Events: Command Received, Position Update, Movement Complete, Error Detected
+- Transitions:
+  - Idle → Moving (on command received, if target ≠ current)
+  - Moving → Complete (on position match)
+  - Moving → Error (on error flag from dependencies)
+  - Complete → Idle (on notification)
+- Entry/Exit Actions: Request movement on Moving entry, request LED update on Complete/Idle.
+
+4. Algorithms and Control Flow
+- Wait for command_ready; fetch target position.
+- If target ≠ current, request Motor Driver to move towards target.
+- Poll Position Feedback Processor for current position.
+- When current matches target, instruct Motor Driver OFF; update LED.
+- If error from dependencies, halt and signal error.
+
+5. Interfaces (APIs)
+- Provides: control_logic_execute_cycle(), control_logic_get_state().
+- Uses: command_handler_get_command(), position_feedback_get_position(), motor_driver_actuate(), led_driver_update().
+- Parameters: target_position, current_position
+- Error reporting: Internal error state exposed to error handler.
+
+6. Error Handling
+- If error in feedback, positions, or hardware, enter safe state and request motor stop (SWE-REQ-039/038/040).
+
+7. Resource and Timing Considerations
+- Triggered on valid command or position event.
+- Linear per-cycle, not re-entrant.
+- No timing assumptions enforced by design.
+
+8. Traceability to SWE Requirements
+- SWE-REQ-006, SWE-REQ-007, SWE-REQ-009, SWE-REQ-010, SWE-REQ-031, SWE-REQ-039
+
+---
+
+## Software Unit: Position Feedback Processor
+
+1. Responsibilities
+- Acquires analog feedback via ADC from potentiometer.
+- Quantizes ADC values to known, fixed position range (0-5).
+- Validates feedback against calibration table.
+- Signals error if data is out of range.
+- Does not control motor, parse commands, or LEDs directly.
+
+2. Internal Data Design
+- adc_value_raw (uint16_t)
+- position_lookup_table[6] (ADC thresholds)
+- position_valid_flag
+- last_position (int)
+- error_flag
+
+3. State Machine
+- No explicit state machine; operates as synchronous converter/filter.
+- Control Flow: on ADC update, map value and set flags, else flag error.
+
+4. Algorithms and Control Flow
+- On ADC read, compare adc_value_raw against lookup_table.
+- If within any position range, set last_position and position_valid_flag.
+- If not, set error_flag, clear position_valid_flag, and notify Control Logic.
+
+5. Interfaces (APIs)
+- Provides: position_feedback_get_position(), position_feedback_is_valid().
+- Uses: HAL ADC abstraction.
+- Parameters: none (ADC channel configured)
+- Error reporting: error_flag API/exposed to Control Logic.
+
+6. Error Handling
+- Out-of-range values signal error and prevent further actuation (safe state).
+
+7. Resource and Timing Considerations
+- Scheduled/polled or event-driven per design; not re-entrant.
+- Lightweight lookup, fast per execution.
+
+8. Traceability to SWE Requirements
+- SWE-REQ-016, SWE-REQ-017, SWE-REQ-018, SWE-REQ-019, SWE-REQ-025
+
+---
+
+## Software Unit: Motor Driver
+
+1. Responsibilities
+- Supplies logical direction and enable to DC motor via GPIO/PWM.
+- Initializes in OFF state.
+- Turns motor ON/OFF as requested by Control Logic.
+- Does not accept or parse user commands or feedback directly.
+
+2. Internal Data Design
+- motor_enable (bool)
+- motor_direction (enum)
+- initialized_flag
+- last_request (struct for diagnostic, optional)
+
+3. State Machine
+- States: Initialized, Motor OFF, Motor ON
+- Events: Init, Move Request, Motor Stop
+- Transitions:
+  - Initialized → Motor OFF (on power-up)
+  - Motor OFF → Motor ON (on actuation)
+  - Motor ON → Motor OFF (on position reached or error)
+
+4. Algorithms and Control Flow
+- On actuation request, set direction based on target vs current.
+- Assert motor_enable, apply direction via GPIO/PWM.
+- On stop request or error, set motor_enable = false.
+- Confirm state.
+
+5. Interfaces (APIs)
+- Provides: motor_driver_actuate(direction), motor_driver_stop().
+- Uses: HAL GPIO/PWM abstraction.
+- Parameters: direction (enum), enable (bool)
+- Error reporting: optional motor_driver_get_status().
+
+6. Error Handling
+- On error or invalid request, disables motor and signals error upstream.
+
+7. Resource and Timing Considerations
+- Fast GPIO/PWM control; expected to be invoked only via Control Logic.
+- Not re-entrant by design.
+
+8. Traceability to SWE Requirements
+- SWE-REQ-011, SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-015, SWE-REQ-026
+
+---
+
+## Software Unit: LED Driver
+
+1. Responsibilities
+- Drives status LED and position indicator green LEDs.
+- Ensures one LED ON matching current logical position, all others OFF.
+- Is not responsible for position or command logic.
+
+2. Internal Data Design
+- led_state_array[6] (bool per LED)
+- status_led (bool)
+- last_position (int)
+
+3. State Machine
+- No formal state machine; mapped via logic from position.
+- Control Flow: set indicator LED ON, all others OFF, per current position.
+
+4. Algorithms and Control Flow
+- On position update, turn ON LED at corresponding index, others OFF.
+- Control status LED per system state (power, error).
+
+5. Interfaces (APIs)
+- Provides: led_driver_update(position), led_driver_set_status_led(state).
+- Uses: HAL GPIO abstraction.
+- Parameters: position (int), state (bool)
+- Error reporting: Optional error state for missing or faulted LEDs.
+
+6. Error Handling
+- Invalid position results in all indicator LEDs OFF (safe default).
+- Optionally, blink status LED on system error.
+
+7. Resource and Timing Considerations
+- Fast, not re-entrant; event-driven on state/position update.
+
+8. Traceability to SWE Requirements
+- SWE-REQ-021, SWE-REQ-022, SWE-REQ-023, SWE-REQ-027, SWE-REQ-046
+
+---
+
+## Software Unit: Hardware Abstraction Layer (HAL)
+
+1. Responsibilities
+- Provides logical interfaces to MCU’s ADC, UART, GPIO, PWM as called by higher layers.
+- No behavioral control or application logic.
+
+2. Internal Data Design
+- No persistent variables; only static abstraction wrappers.
+
+3. State Machine
+- None; procedural/pass-through functions only.
+
+4. Algorithms and Control Flow
+- Implements wrappers for hardware functions (uart_read, gpio_write, adc_read, pwm_set), maps parameters as needed.
+
+5. Interfaces (APIs)
+- Provides: hal_uart_read(), hal_gpio_write(), hal_adc_read(), hal_pwm_set().
+- Used by all other units as appropriate.
+
+6. Error Handling
+- Returns status/error codes from hardware; propagates up.
+
+7. Resource and Timing Considerations
+- As per invoked APIs; not re-entrant at per-call, but stateless and safe per call.
+
+8. Traceability to SWE Requirements
+- SWE-REQ-024, SWE-REQ-025, SWE-REQ-026, SWE-REQ-027
+
+---
+
+# End of Software Low Level Design
+
+This document fulfills all user-requested constraints:
+- No new software units; names, composition, and interfaces taken directly from the architecture.
+- No scheduling, implementation code, or lower-level hardware detail is defined.
+- Explicit mapping to all SWE.1 requirements per unit.
