@@ -1,0 +1,228 @@
+###### FILE: code/inc/command_interface.h ######
+// RAG_SOURCE: infineon-tle985xqx-usermanual-en.pdf Ports, 23.4 Register Definition, p.441+
+#ifndef COMMAND_INTERFACE_H
+#define COMMAND_INTERFACE_H
+#include <stdint.h>
+typedef enum { CMD_VALID, CMD_INVALID, CMD_OUT_OF_RANGE } DecodingStatus;
+DecodingStatus ICommandDecoder_getCommand(uint8_t* value);
+void ICommandDecoder_onRxEvent(uint8_t data_byte);
+#endif
+###### END FILE ######
+
+###### FILE: code/inc/state_machine.h ######
+#ifndef STATE_MACHINE_H
+#define STATE_MACHINE_H
+typedef enum { IDLE, MOVING, TARGET, FAULT, STOP } FlapState;
+void IStateMachine_run(void);
+#endif
+###### END FILE ######
+
+###### FILE: code/inc/motor_control.h ######
+// RAG_SOURCE: infineon-tle985xqx-usermanual-en.pdf Capture/Compare Unit 6 (CCU6), 18.10 Register Description, p.790+
+#ifndef MOTOR_CONTROL_H
+#define MOTOR_CONTROL_H
+typedef enum { MCW_STOPPED, MCW_RUNNING, MCW_BRAKE } MotorStatus;
+void IMotorControl_start(uint8_t direction, uint16_t pwm);
+void IMotorControl_stop(void);
+#endif
+###### END FILE ######
+
+###### FILE: code/inc/adc_feedback.h ######
+// RAG_SOURCE: infineon-tle985xqx-usermanual-en.pdf ADC10, 21.4 Register Description, p.387+
+#ifndef ADC_FEEDBACK_H
+#define ADC_FEEDBACK_H
+#include <stdint.h>
+typedef struct { uint16_t thresholds[6]; uint16_t sample_rate_hz; } ADCConfig;
+int IADCFeedback_getPosition(uint8_t* position);
+#endif
+###### END FILE ######
+
+###### FILE: code/inc/status_indication.h ######
+#ifndef STATUS_INDICATION_H
+#define STATUS_INDICATION_H
+typedef enum { STATUS_POSITION, STATUS_FAULT, STATUS_IDLE } StatusType;
+void IStatusUpdate_set(StatusType t);
+void IStatusUpdate_clear(void);
+void IStatusUpdate_send(void);
+#endif
+###### END FILE ######
+
+###### FILE: code/inc/config_manager.h ######
+#ifndef CONFIG_MANAGER_H
+#define CONFIG_MANAGER_H
+typedef struct {
+    uint16_t adc_thresholds[6];
+    uint16_t pwm_freq;
+    uint8_t  output_map;
+    uint8_t  protocol;
+} ConfigTable;
+int IFlashConfig_get(ConfigTable* ctable);
+#endif
+###### END FILE ######
+
+###### FILE: code/inc/error_handler.h ######
+#ifndef ERROR_HANDLER_H
+#define ERROR_HANDLER_H
+#include <stdint.h>
+typedef enum { NO_FAULT, HW_FAULT, COMM_FAULT, ADC_FAULT, CONFIG_FAULT } FaultStatus;
+void IErrorHandler_notify(uint8_t code, int source_unit);
+#endif
+###### END FILE ######
+
+###### FILE: code/src/command_interface.c ######
+// RAG_SOURCE: infineon-tle985xqx-usermanual-en.pdf UART/LIN 20.4 Register Description p.369+
+#include "command_interface.h"
+#include "error_handler.h"
+static volatile uint8_t ReceivedCommand = 0;
+static volatile DecodingStatus DecStatus = CMD_INVALID;
+DecodingStatus ICommandDecoder_getCommand(uint8_t* value) {
+    if (DecStatus == CMD_VALID) {
+        *value = ReceivedCommand;
+        return CMD_VALID;
+    }
+    return DecStatus;
+}
+void ICommandDecoder_onRxEvent(uint8_t data_byte) {
+    if (data_byte <= 5) {
+        ReceivedCommand = data_byte;
+        DecStatus = CMD_VALID;
+    } else {
+        DecStatus = CMD_OUT_OF_RANGE;
+        IErrorHandler_notify(1, 0); // code=1: invalid cmd, source=cmd interface
+    }
+}
+###### END FILE ######
+
+###### FILE: code/src/state_machine.c ######
+#include "state_machine.h"
+#include "command_interface.h"
+#include "motor_control.h"
+#include "adc_feedback.h"
+#include "status_indication.h"
+#include "error_handler.h"
+static FlapState curState = IDLE;
+static uint8_t TargetPosition = 0, CurrentPosition = 0;
+void IStateMachine_run(void) {
+    uint8_t cmd;
+    DecodingStatus ds = ICommandDecoder_getCommand(&cmd);
+    if (ds == CMD_VALID && curState != MOVING) {
+        TargetPosition = cmd;
+        curState = MOVING;
+        IMotorControl_start(1, 0); // [TBD: direction, pwm from config]
+    }
+    if (curState == MOVING) {
+        int posok = IADCFeedback_getPosition(&CurrentPosition);
+        if (posok >= 0 && CurrentPosition == TargetPosition) {
+            IMotorControl_stop();
+            IStatusUpdate_set(STATUS_POSITION);
+            curState = TARGET;
+        }
+    }
+    // Fault/Stop: invoked by error unit, not handled here
+}
+###### END FILE ######
+
+###### FILE: code/src/motor_control.c ######
+// RAG_SOURCE: infineon-tle985xqx-usermanual-en.pdf CCU6 (18.10), BDRV_CTRL1 (27.4)
+#include "motor_control.h"
+#include "error_handler.h"
+#define CCU6_T12PR (*(volatile unsigned int*)0x40010008)
+#define CCU6_T12 (*(volatile unsigned int*)0x40010000)
+#define CCU6_T12CH1 (*(volatile unsigned int*)0x4001000C)
+#define BDRV_CTRL1 (*(volatile unsigned int*)0x40016000)
+void IMotorControl_start(uint8_t direction, uint16_t pwm) {
+    // Enable H-Bridge via BDRV_CTRL1, set direction
+    if (direction == 0) {
+        BDRV_CTRL1 = (1<<16) | (1<<8); // enable HS1+LS2
+    } else {
+        BDRV_CTRL1 = (1<<0) | (1<<8); // enable LS1+LS2
+    }
+    // Configure PWM
+    CCU6_T12PR = pwm;  // period
+    CCU6_T12CH1 = pwm/2; // duty 50%
+}
+void IMotorControl_stop(void) {
+    // Brake: set both LS or both HS
+    BDRV_CTRL1 = (1<<16) | (1<<0); // brake mode
+    CCU6_T12PR = 0;
+    CCU6_T12CH1 = 0;
+}
+###### END FILE ######
+
+###### FILE: code/src/adc_feedback.c ######
+// RAG_SOURCE: infineon-tle985xqx-usermanual-en.pdf ADC10 (21.4)
+#include "adc_feedback.h"
+#include "config_manager.h"
+#include "error_handler.h"
+#define ADC1_CON (*(volatile unsigned int*)0x40012000)
+#define ADC1_CHSELR (*(volatile unsigned int*)0x40012004)
+#define ADC1_RES (*(volatile unsigned int*)0x40012014)
+static ADCConfig adc_cfg;
+int IADCFeedback_getPosition(uint8_t* position) {
+    ADC1_CON |= (1 << 0); // Start conversion
+    while ((ADC1_CON & (1 << 0)) != 0); // wait ready
+    uint16_t val = (uint16_t)ADC1_RES;
+    for (uint8_t i = 0; i < 6; ++i) {
+        if (val <= adc_cfg.thresholds[i]) {
+            *position = i;
+            return 0;
+        }
+    }
+    IErrorHandler_notify(2, 2); // ADC fault
+    return -1;
+}
+###### END FILE ######
+
+###### FILE: code/src/status_indication.c ######
+// RAG_SOURCE: infineon-tle985xqx-usermanual-en.pdf High-Side Switch, 26.4.1 p.1450+
+#include "status_indication.h"
+#include "error_handler.h"
+#define HS_CTRL (*(volatile unsigned int*)0x40015004)
+void IStatusUpdate_set(StatusType t) {
+    if (t == STATUS_POSITION)
+        HS_CTRL |= (1 << 0); // HS1_EN enable
+    else if (t == STATUS_FAULT)
+        HS_CTRL &= ~(1 << 0); // disable on fault
+}
+void IStatusUpdate_clear(void) { HS_CTRL &= ~(1 << 0); }
+void IStatusUpdate_send(void) { /* TODO: implement serial/LIN update */ }
+###### END FILE ######
+
+###### FILE: code/src/config_manager.c ######
+#include "config_manager.h"
+// Example fake default config table
+static ConfigTable flash_sim = {{300, 600, 900, 1200, 1500, 1800}, 20000, 0x01, 0x01};
+int IFlashConfig_get(ConfigTable* ctable) {
+    if (!ctable) return -1;
+    *ctable = flash_sim;
+    return 0;
+}
+###### END FILE ######
+
+###### FILE: code/src/error_handler.c ######
+#include "error_handler.h"
+#include "status_indication.h"
+#include "state_machine.h"
+void IErrorHandler_notify(uint8_t code, int src) {
+    IStatusUpdate_set(STATUS_FAULT);
+}
+###### END FILE ######
+
+###### FILE: code/src/main.c ######
+#include "state_machine.h"
+#include "command_interface.h"
+#include "adc_feedback.h"
+#include "motor_control.h"
+#include "status_indication.h"
+#include "error_handler.h"
+#include "config_manager.h"
+int main(void) {
+    // Startup: init config
+    ConfigTable cfg;
+    IFlashConfig_get(&cfg);
+    while (1) {
+        IStateMachine_run();
+    }
+    return 0;
+}
+###### END FILE ######
