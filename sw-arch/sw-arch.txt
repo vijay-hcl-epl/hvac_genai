@@ -1,0 +1,88 @@
+# 1.0 Architecture Style Selection
+
+## 1.1 Candidate Architecture Styles Considered
+
+The following software architecture styles were evaluated for the HVAC Flap Actuator System:
+
+| Candidate Style      | System Complexity | Hardware Integration | Testability        | Maintainability   | ASPICE Alignment        |
+|---------------------|-------------------|---------------------|--------------------|-------------------|-------------------------|
+| Monolithic          | Low               | Direct              | Simple to test     | Hard to extend    | Meets, but not optimal  |
+| Layered             | Moderate          | Clear separation    | Highly testable    | Modifiable        | Level-3 proven          |
+| Component-Based     | Moderate          | Loosely coupled     | Very testable      | Highly maintainable| Level-3 proven          |
+
+
+## 1.2 Evaluation and Rationale
+
+- **Monolithic** style, while simple, does not support traceability, modularity, or future testability as strongly as required by SWE.1/SWE.2 and ASPICE Level-3.
+- **Layered** architecture allows strong logical separation (input processing, control logic, hardware abstraction), ensures clear interfaces, is highly auditable, allows test hooks, and matches the modular, traceable requirement in SWE-REQs 044/050/051/033.
+- **Component-Based** would increase architectural complexity unnecessarily for a single-responsibility, prototype-focused system and is not explicitly required by any SWE.1 requirement.
+
+## 1.3 Architecture Style Selected and Justification
+
+**The Layered Architecture is selected**. This decision is justified because:
+- Requirements call for clear separation of command, control, and hardware abstraction.
+- Facilitates traceability (SWE-REQ-050/051) and testability (SWE-REQ-046/047).
+- Supports clear, auditable module interfaces, as suggested by implied requirements for simplicity and modularity.
+- Satisfies ASPICE Level-3 expectations for modular software design while remaining lightweight, as required by SWE-REQ-044/045/050/033.
+
+**No explicit OS, concurrency, or scheduling policies shall be defined, as none are required by the specification.**
+
+---
+
+# 2.0 Architecture Definition
+
+## 2.1 High-Level Architectural Diagram (Textual)
+
+    +---------------------------+
+    |    User Command Layer     |
+    |  (UART Command Handling)  |
+    +-----------+---------------+
+                |
+                v
+    +-----------+---------------+
+    |      Control Logic Layer  |
+    |   (Position, Motor,LED)   |
+    +-----------+---------------+
+                |
+                v
+    +-----------+---------------+
+    | Hardware Abstraction Layer|
+    | (HAL for ADC, GPIO, PWM)  |
+    +---------------------------+
+
+## 2.2 Software Units, Responsibilities, and Interfaces Table
+
+| Software Unit               | Responsibilities                                                            | Interfaces Provided                      | Interfaces Used                          |
+|---------------------------- |-----------------------------------------------------------------------------|------------------------------------------|------------------------------------------|
+| Command Handler             | Parse/validate UART commands, state mgmt for command sequence                | UART command parser                      | UART hardware abstraction                |
+| Control Logic               | Decides required movement, checks positions, triggers actuation/LED updates  | Position/motor control API               | Command Handler, Position Feedback,      |
+|                            |                                                                             |                                          | Motor Driver API, LED Driver API         |
+| Position Feedback Processor | Acquire/process ADC input, quantize, detect errors                          | Logical position API, feedback status     | HAL-ADC abstraction                      |
+| Motor Driver                | Provide direction/enable signals, servo ON/OFF                             | Motor control API                        | HAL-GPIO/HAL-PWM abstraction             |
+| LED Driver                  | Enable/disable status and position indicator LEDs                           | LED control API                          | HAL-GPIO abstraction                     |
+| HAL (Hardware Abstraction)  | Abstract hardware (ADC, UART, GPIO, PWM)                                   | UART, ADC, GPIO, PWM interfaces          | MCU Drivers                             |
+
+## 2.3 Unit Responsibilities (with tracing)
+
+- **Command Handler:** Supports SWE-REQ-001,002,003,004,024,037 (UART command handling, error ignore).
+- **Control Logic:** Central logic, traceable to SWE-REQ-006,007,009,010,031 (decision-making, action initiation).
+- **Position Feedback Processor:** Covers SWE-REQ-016,017,018,019,025 (ADC feedback/proc).
+- **Motor Driver:** Fulfills SWE-REQ-011-015,026 (motor actuation, direction, enable/disable, power-up state).
+- **LED Driver:** Covers SWE-REQ-021-023,027,046 (status/position indication).
+- **HAL:** Ensures implementation-neutral hardware access (all interfaces).
+
+## 2.4 Execution Model/Scheduling
+
+No explicit execution or scheduling model is specified or needed at this architecture stage per requirements (SWE-REQ-049: no RTOS, tasking, cyclic scheduling, or complicated sequencing).
+
+**Statement:**
+"No explicit execution model or scheduling policy is mandated by the requirements at this stage."
+
+## 2.5 Architectural Constraints
+
+- All units are traceable to SWE.1 requirements.
+- No new requirements, no change of system behavior.
+- No functional safety or security added, nor timing or concurrency, unless required by requirements.
+- All interfaces are logical and implementation-agnostic.
+
+# END OF FILE
