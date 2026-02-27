@@ -1,0 +1,110 @@
+# System Requirements Specification – HVAC Flap Actuator
+
+## 1.0 System Overview
+The system is a simple prototype HVAC air flap actuator, demonstrating control over vent airflow direction/mix in a vehicle. It electrically operates a single flap between discrete positions using a DC motor. The system features direct user control via UART, feedback through potentiometer and LEDs, is implemented on a microcontroller (STM32F407G-DISC1), and is intended for education and process demonstration—not automotive production.
+
+---
+## 2.0 Flap Position Control Requirements
+SYS-REQ-001: The system shall allow the user to command a target flap position using numeric UART input.
+SYS-REQ-002: The system shall compare the current flap position to the target position.
+SYS-REQ-003: The system shall move the flap to the commanded position.
+SYS-REQ-004: The system shall stop the flap motor once the requested position is reached.
+SYS-REQ-005: The system shall support at least six discrete flap positions (example: 0 to 5).
+SYS-REQ-006: The system shall ensure only valid positions can be targeted.
+SYS-REQ-007: [Implied] The system shall continuously monitor the current flap position while the flap is moving.
+SYS-REQ-008: [Implied] The system shall prevent movement beyond the minimum or maximum flap position.
+
+---
+## 3.0 Motor Control Requirements
+SYS-REQ-009: The system shall control motor direction (clockwise/counter-clockwise) via GPIO per position request.
+SYS-REQ-010: The system shall enable the motor to move only when a new valid command is received.
+SYS-REQ-011: The system shall disable and stop the motor immediately when the target position is reached.
+SYS-REQ-012: The motor shall be OFF by default on system startup.
+SYS-REQ-013: [Implied] The system shall prevent the motor from running indefinitely in case of persistent invalid feedback.
+SYS-REQ-014: [Implied] PWM-based speed control of the motor shall be adjustable in software, but speed value is not a requirement in this prototype.
+
+---
+## 4.0 Position Feedback Acquisition and Processing
+SYS-REQ-015: The system shall acquire analog feedback from a potentiometer mechanically linked to the flap.
+SYS-REQ-016: The potentiometer signal shall be connected to an ADC channel.
+SYS-REQ-017: The system shall map ADC values to discrete logical flap positions, as defined in software calibration data.
+SYS-REQ-018: The system shall define fixed ADC ranges for each logical flap position in software.
+SYS-REQ-019: [Implied] The system shall ignore transient noise/spikes in potentiometer readings that may occur during steady (idle) state.
+SYS-REQ-020: [Implied] If an ADC reading is out-of-range, the system shall immediately stop the motor and maintain last-known-safe position.
+
+---
+## 5.0 User Command Interface Requirements
+SYS-REQ-021: The system shall receive user commands as numeric UART input representing desired flap positions.
+SYS-REQ-022: The system shall validate user commands against the range of supported flap positions.
+SYS-REQ-023: The system shall ignore and not act on invalid UART commands.
+SYS-REQ-024: The system shall not send acknowledgment or error response for invalid commands.
+SYS-REQ-025: [Implied] The system shall accept only one command at a time and not queue multiple commands.
+
+---
+## 6.0 Status Indication Requirements
+SYS-REQ-026: The system shall indicate power status via a dedicated LED.
+SYS-REQ-027: The system shall indicate the current detected flap position via green LEDs, ensuring only one position LED is ON at a time.
+SYS-REQ-028: The LED indication shall be clear, unambiguous, and map 1:1 to the currently detected position.
+SYS-REQ-029: [Implied] LEDs shall update immediately after the flap changes position.
+SYS-REQ-030: [Implied] The system shall ensure no LEDs (except the power LED) are lit if position cannot be determined due to sensor fault.
+
+---
+## 7.0 System Behavioral Requirements
+SYS-REQ-031: The system shall initialize all peripherals (ADC, UART, GPIO, PWM) on startup.
+SYS-REQ-032: On power-up, the system shall read the current position using the potentiometer and update LEDs.
+SYS-REQ-033: By default after reset, the system shall not move the motor unless/until a valid command is received.
+SYS-REQ-034: The system shall transition to idle state and maintain current position after a target is reached.
+SYS-REQ-035: The system shall ignore invalid (out-of-range) UART commands during any state.
+SYS-REQ-036: [Implied] The system shall survive power cycling or reset and resume normal operation from the detected flap position.
+SYS-REQ-037: [Implied] The system shall not require a homing sequence for this prototype.
+
+---
+## 8.0 System Interface Requirements
+SYS-REQ-038: The system shall provide a UART interface for receiving user commands from a PC.
+SYS-REQ-039: The system shall interface with a DC motor through a motor driver (L298N or equivalent) using GPIO and PWM.
+SYS-REQ-040: The system shall receive analog input from a potentiometer via an ADC channel.
+SYS-REQ-041: The system shall provide digital outputs for driving position LEDs and a power LED.
+SYS-REQ-042: [Implied] The system shall not require or support any vehicle network (e.g., CAN, LIN) communication for this prototype.
+
+---
+## 9.0 Constraints and Assumptions
+SYS-REQ-043: Only a single flap shall be controlled.
+SYS-REQ-044: Only one DC motor shall be present and controlled.
+SYS-REQ-045: Only one user command shall be processed at a time; parallel commands are not supported.
+SYS-REQ-046: The microcontroller hardware is assumed to operate correctly; hardware diagnostics are not required.
+SYS-REQ-047: ADC position calibration is static—no dynamic calibration or self-learning is required.
+SYS-REQ-048: No real-time constraints or deadlines are defined—responsiveness is on a human time scale.
+SYS-REQ-049: [Implied] System software shall be simple and understandable for demonstration and educational use.
+
+---
+## 10.0 Non-Functional Requirements
+### 10.1 Responsiveness Expectations
+SYS-REQ-050: The system shall feel responsive for interactive human testing—UART commands shall be processed shortly after receipt.
+
+### 10.2 Error Handling and Edge Cases
+SYS-REQ-051: The system shall ignore invalid UART commands and not affect the current state or position.
+SYS-REQ-052: If ADC values are outside all valid ranges, the system shall halt the motor and not attempt to move the flap until readings return valid.
+SYS-REQ-053: The system shall not crash if the target position cannot be attained.
+SYS-REQ-054: No timeout or advanced diagnostics are required.
+
+### 10.3 Resource Constraints
+SYS-REQ-055: The system shall not use dynamic memory allocation.
+SYS-REQ-056: System software shall be lightweight, predictable, and bounded in resource usage.
+
+### 10.4 Maintainability and Modularity
+SYS-REQ-057: The system shall ensure separation of concerns in software organization (input handling, position control, feedback, motor drive, and status indication).
+SYS-REQ-058: The system shall be written for clarity and ease of understanding for learning/demo purposes.
+
+### 10.5 Testability
+SYS-REQ-059: The system shall allow observation of correct behavior through visible indicators (LEDs) and command responses (flap movement).
+SYS-REQ-060: The system shall support manual and script-based testing via UART.
+
+---
+
+# Architecture-Relevant Considerations Derived from System Requirements
+- The system’s responsibilities are simple and sequential; no concurrent tasks are involved or required.
+- All interfaces are direct and local (UART, GPIO, ADC, LEDs), with no external network protocols.
+- System control is simple, driven by a “command-react” paradigm: wait for command, act, indicate.
+- Functional expansion (e.g., more positions, diagnostics, flap types) could be added by updating calibration data or interface logic, but not required.
+- No execution timing or scheduling models are described or required by the system requirements.
+- The system is explicitly kept simple for education and maintainability, with no over-engineering or unnecessary complexity.
