@@ -1,0 +1,86 @@
+# 1. Architecture Style Selection and Evaluation
+
+## Candidate Styles Considered
+- **Monolithic**: All logic in one software block; minimal separation; lowest complexity but hard to maintain, change, or isolate.
+- **Layered**: Clear separation between user interface, control logic, and hardware drivers as distinct architectural layers/modules.
+- **Component-Based**: System decomposed by functional responsibilities (commands, control, indicator, feedback) into loosely coupled blocks.
+
+## Evaluation of Candidates
+- **System Complexity**: The system is straightforward (single actuator, limited I/O, no real concurrency).
+- **Hardware Interaction**: Extensive, but only basic peripherals (GPIO, UART, ADC, LEDs); decoupling user logic from hardware mapping increases maintainability.
+- **Testability**: Testable through I/O observation; layered/component decoupling aids isolated testing (e.g., mock UART, virtual hardware interface).
+- **Maintainability**: High if structure is modular and responsibilities are separated (prefer Layered or Component over Monolithic).
+- **ASPICE Level-3**: Requires clear separation, clear interfaces, traceability, and justifiable architectural decisions. Layered/component model enables this.
+
+## Architecture Style Selected
+**Layered Architecture**
+
+### Justification
+- Supported by explicit requirements: "system software shall exhibit clear separation between user interface, control logic, and hardware interface layers" ([SYS-REQ-059], [SWE-REQ-042]), and maintainability, modularity, testability ASPICE demands.
+- Simple enough to avoid overhead but modular for future adaptation or extension.
+- Traceable to the requirements, highly maintainable, and directly supports learning/demo use-cases.
+
+**Alternative styles (Monolithic, loosely coupled components):** Rejected due to risk of poor separation, confusion in interface management, and lack of direct traceability/future maintainability for ASPICE demonstration.
+
+## Explicit Execution Model/Scheduling Policy
+No explicit execution model or scheduling policy is mandated by the requirements at this stage (see SYS-REQ-047, SYS-REQ-048; SWE-REQ-041). All logic is event- or polling-driven within a single flow—requirements do not require threads, OS, or timed scheduling. Timing/RTOS is not introduced as a constraint.
+
+# 2. High-Level Software Architecture Definition
+
+## 2.1 Units and Responsibilities
+
+| Software Unit                    | Responsibilities                                                                                 | Interfaces Provided                                | Interfaces Used                                      |
+|----------------------------------|-----------------------------------------------------------------------------------------------|-----------------------------------------------------|------------------------------------------------------|
+| User Command Interface Layer     | Receive and validate UART commands; buffer/process for control logic.                          | UART command parser (API)                           | UART RX/validation                                   |
+| Flap Control Logic Layer         | Position control, debounce, safety, state sequencing, error detection, status logic            | Position/motor command API, fault/report API        | UART parser API, Feedback acquisition API             |
+| Position Feedback Processing     | Acquire and process ADC feedback; map to logical positions; detect range/validity issues       | Feedback data API                                   | ADC interface, calibration data                      |
+| Motor & Indicator Interface      | Output motor direction/enable signals; control LEDs for status and position                   | Motor/LED driver API                                | Control logic API                                    |
+
+## 2.2 Unit Descriptions
+- **User Command Interface Layer**
+  - Parses UART, validates/filters user commands (SWE-REQ-001, 002, 003, 004, 022).
+- **Flap Control Logic Layer**
+  - Compares positions, sequences movement, applies debounce/error/fault logic (SWE-REQ-005 to SWE-REQ-038).
+- **Position Feedback Processing**
+  - Reads ADC, maps/validates positions, triggers feedback errors (SWE-REQ-014 to 017, 023, 041).
+- **Motor & Indicator Interface**
+  - Drives outputs (GPIO, LED, PWM), presents status/faults (SWE-REQ-010 to 013, 018 to 021, 024 to 025, 035 to 037).
+
+## 2.3 Architectural Diagram (textual)
+
+```
++-------------------------------+
+| User Command Interface Layer  |
+|   (UART command parser)       |
++-------------------+-----------+
+                    |
+                    | UART command/API
+                    v
++-------------------+-----------+
+|  Flap Control Logic Layer     |
+| (Position, state, safety)     |
++-----+-----------------+-------+
+      |                 |
+      | Feedback data   | Motor/LED command
+      v                 v
++-----+-----------+ +---+-----------------+
+| Position       | | Motor/Indicator     |
+| Feedback Proc. | | Interface          |
++----------------+ +--------------------+
+```
+
+# 3. Traceability Table
+All units are traceable to SWE.1 requirements. Each unit's responsibilities reference the covered SWE-REQs/ SYS-REQs as above.
+
+# 4. Architectural Constraints
+- No new requirements introduced
+- No behavioral changes vs. SWE.1/SYS-REQs
+- No added safety, security, or execution logic
+- No implementation, code, or algorithm details
+
+# 5. Notes
+- Designed and justified strictly according to requirements in `sys-reqs/sys-reqs.txt` & `sw-reqs/sw-reqs.txt` on branch `new-b11`.
+- Maintains ASPICE-compliant separation, traceability, and documentation mandates.
+- No concurrency/threading or dynamic scheduling modeled, as not in requirements.
+
+# End of File
