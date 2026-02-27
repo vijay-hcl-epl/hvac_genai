@@ -1,60 +1,43 @@
 #include "control_logic.h"
-#include "state_manager.h"
+#include "command_handler.h"
 #include "position_sensing.h"
 #include "motor_driver.h"
+#include "state_manager.h"
 
-static uint8_t target_position = POSITION_INVALID;
-static bool moving = false;
+static uint8_t target_position = 0;
+static bool move_complete = true;
 
-void control_logic_init(void)
-{
-    target_position = POSITION_INVALID;
-    moving = false;
+void ControlLogic_Init(void) {
+    move_complete = true;
+    target_position = 0;
 }
 
-void control_logic_move_to_position(uint8_t pos)
-{
-    target_position = pos;
-    moving = true;
-    state_manager_set_state(STATE_MOVING);
-
-    uint8_t curr = position_sensing_get_current_position();
-    if(curr == POSITION_INVALID || pos == curr)
-    {
-        moving = false;
-        state_manager_set_state(STATE_HOLDING);
-        motor_driver_disable();
-        return;
+void ControlLogic_Process(void) {
+    if (CommandHandler_IsCommandAvailable() && move_complete) {
+        target_position = CommandHandler_GetLastCommand();
+        move_complete = false;
     }
-    else if (curr < pos)
-    {
-        motor_driver_set_direction(MOTOR_DIRECTION_CW);
-        motor_driver_enable();
-    }
-    else if (curr > pos)
-    {
-        motor_driver_set_direction(MOTOR_DIRECTION_CCW);
-        motor_driver_enable();
+    uint8_t curr_pos = PositionSensing_GetPosition();
+    bool valid = PositionSensing_IsValid();
+    if (!move_complete && valid) {
+        if (curr_pos != target_position) {
+            if (curr_pos < target_position) {
+                MotorDriver_Enable(MOTOR_DIRECTION_FWD);
+            } else {
+                MotorDriver_Enable(MOTOR_DIRECTION_REV);
+            }
+        } else {
+            MotorDriver_Disable();
+            move_complete = true;
+            StateManager_OnTargetReached();
+        }
+    } else if (!valid) {
+        MotorDriver_Disable();
+        move_complete = true;
+        StateManager_OnError();
     }
 }
 
-void control_logic_periodic(void)
-{
-    if(moving)
-    {
-        uint8_t curr = position_sensing_get_current_position();
-        if(curr == POSITION_INVALID)
-        {
-            motor_driver_disable();
-            moving = false;
-            state_manager_set_state(STATE_IDLE);
-            return;
-        }
-        if(curr == target_position)
-        {
-            motor_driver_disable();
-            state_manager_set_state(STATE_HOLDING);
-            moving = false;
-        }
-    }
+bool ControlLogic_IsMoveComplete(void) {
+    return move_complete;
 }

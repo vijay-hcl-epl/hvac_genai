@@ -3,8 +3,10 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "state_manager.h"
 
-void status_indication_init(void);
-void status_indication_update_leds(bool power_on, uint8_t pos_idx);
+void StatusIndication_Init(void);
+void StatusIndication_Update(bool power_on, uint8_t pos_idx);
+void StatusIndication_UpdateOnState(system_state_t state);
 
 #endif // STATUS_INDICATION_H

@@ -1,36 +1,67 @@
 #include "command_handler.h"
+#include "config.h"
 #include "state_manager.h"
+#include <string.h>
 
-static volatile uint8_t latest_cmd = CMD_INVALID;
-static volatile bool cmd_ready = false;
+static char cmd_buffer[CMD_BUFFER_SIZE];
+static uint8_t cmd_idx = 0;
+static cmd_state_t state = CMD_STATE_IDLE;
+static uint8_t last_command = 0;
+static bool command_available = false;
 
-void command_handler_init(void)
-{
-    latest_cmd = CMD_INVALID;
-    cmd_ready = false;
+static void parse_and_validate(void) {
+    int val = 0;
+    if (sscanf(cmd_buffer, "%d", &val) == 1) {
+        if (Config_IsValidPosition((uint8_t)val)) {
+            last_command = (uint8_t)val;
+            command_available = true;
+            state = CMD_STATE_COMPLETE;
+            StateManager_OnNewCommand();
+        }
+        // Ignore invalid positions silently
+    }
+    // Always reset buffer
+    cmd_idx = 0;
+    memset(cmd_buffer, 0, CMD_BUFFER_SIZE);
 }
 
-void command_handler_receive(uint8_t data)
-{
-    if(state_manager_get_state() != STATE_IDLE)
-    {
-        return;
-    }
-    if(data >= 0 && data <= 5)
-    {
-        latest_cmd = data;
-        cmd_ready = true;
-    }
-    // else: invalid, silently ignore
+void CommandHandler_Init(void) {
+    cmd_idx = 0;
+    state = CMD_STATE_IDLE;
+    command_available = false;
 }
 
-bool command_handler_get_new_command(uint8_t* position)
-{
-    if(cmd_ready && position != 0)
-    {
-        *position = latest_cmd;
-        cmd_ready = false;
-        return true;
+void CommandHandler_ReceiveChar(char c) {
+    if (state == CMD_STATE_IDLE || state == CMD_STATE_RECEIVING) {
+        if (cmd_idx < CMD_BUFFER_SIZE - 1) {
+            if (c == '\n' || c == '\r') {
+                cmd_buffer[cmd_idx] = 0;
+                parse_and_validate();
+                state = CMD_STATE_IDLE;
+            } else {
+                cmd_buffer[cmd_idx++] = c;
+                state = CMD_STATE_RECEIVING;
+            }
+        } else {
+            // Buffer overflow, reset
+            cmd_idx = 0;
+            state = CMD_STATE_ERROR;
+            memset(cmd_buffer, 0, CMD_BUFFER_SIZE);
+        }
     }
-    return false;
+}
+
+bool CommandHandler_IsCommandAvailable(void) {
+    return command_available;
+}
+
+uint8_t CommandHandler_GetLastCommand(void) {
+    command_available = false;
+    return last_command;
+}
+
+void CommandHandler_Clear(void) {
+    cmd_idx = 0;
+    command_available = false;
+    memset(cmd_buffer, 0, CMD_BUFFER_SIZE);
 }

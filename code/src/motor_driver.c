@@ -1,37 +1,25 @@
 #include "motor_driver.h"
 #include "hw_abstraction.h"
+#include "config.h"
 
-static motor_direction_t last_dir = MOTOR_DIRECTION_CW;
-static bool enabled = false;
+static bool motor_on = false;
+static motor_direction_t last_dir = MOTOR_DIRECTION_FWD;
 
-void motor_driver_init(void)
-{
-    last_dir = MOTOR_DIRECTION_CW;
-    enabled = false;
-    hw_pwm_disable();
+void MotorDriver_Init(void) {
+    HWAbstraction_SetMotorPWM(0);
+    motor_on = false;
 }
 
-void motor_driver_set_direction(motor_direction_t dir)
-{
-    last_dir = dir;
-    if(dir == MOTOR_DIRECTION_CW)
-    {
-        hw_gpio_set(MOTOR_DIR_PIN, 1);
+void MotorDriver_Enable(motor_direction_t dir) {
+    if (!motor_on || dir != last_dir) {
+        HWAbstraction_SetMotorDirection(dir);
+        last_dir = dir;
     }
-    else
-    {
-        hw_gpio_set(MOTOR_DIR_PIN, 0);
-    }
+    HWAbstraction_SetMotorPWM(Config_GetDefaultPWMDuty());
+    motor_on = true;
 }
 
-void motor_driver_enable(void)
-{
-    enabled = true;
-    hw_pwm_enable();
-}
-
-void motor_driver_disable(void)
-{
-    enabled = false;
-    hw_pwm_disable();
+void MotorDriver_Disable(void) {
+    HWAbstraction_SetMotorPWM(0);
+    motor_on = false;
 }

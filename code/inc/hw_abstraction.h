@@ -3,15 +3,12 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "motor_driver.h"
 
-void hal_uart_init(void);
-bool hal_uart_rx_ready(void);
-uint8_t hal_uart_read(void);
-void hal_uart_write(uint8_t val);
-void hal_gpio_set(uint8_t pin);
-void hal_gpio_clear(uint8_t pin);
-uint16_t hal_adc_get_value(uint8_t channel);
-void hal_pwm_enable(void);
-void hal_pwm_disable(void);
+uint16_t HWAbstraction_ReadADC(void);
+void HWAbstraction_SetMotorDirection(motor_direction_t dir);
+void HWAbstraction_SetMotorPWM(uint8_t duty);
+void HWAbstraction_SetPowerLED(bool on);
+void HWAbstraction_SetPositionLED(uint8_t idx, bool on);
 
 #endif // HW_ABSTRACTION_H

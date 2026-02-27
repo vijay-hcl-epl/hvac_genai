@@ -1,14 +1,20 @@
 #ifndef STATE_MANAGER_H
 #define STATE_MANAGER_H
 
-typedef enum {
-    STATE_IDLE = 0,
-    STATE_MOVING,
-    STATE_HOLDING
-} state_manager_state_t;
+#include <stdint.h>
 
-void state_manager_init(void);
-void state_manager_set_state(state_manager_state_t state);
-state_manager_state_t state_manager_get_state(void);
+typedef enum {
+    STATE_IDLE,
+    STATE_MOVING,
+    STATE_STEADY,
+    STATE_ERROR
+} system_state_t;
+
+void StateManager_Init(void);
+void StateManager_SetState(system_state_t s);
+system_state_t StateManager_GetState(void);
+void StateManager_OnNewCommand(void);
+void StateManager_OnTargetReached(void);
+void StateManager_OnError(void);
 
 #endif // STATE_MANAGER_H

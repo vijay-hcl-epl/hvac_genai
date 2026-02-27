@@ -2,9 +2,10 @@
 #define CONTROL_LOGIC_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
-void control_logic_init(void);
-void control_logic_move_to_position(uint8_t target_pos);
-void control_logic_periodic(void);
+void ControlLogic_Init(void);
+void ControlLogic_Process(void);
+bool ControlLogic_IsMoveComplete(void);
 
 #endif // CONTROL_LOGIC_H
