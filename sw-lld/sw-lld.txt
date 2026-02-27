@@ -1,300 +1,355 @@
 # Software Low-Level Design (SWE.3) – HVAC Flap Actuator System
 
-This LLD is derived strictly from the SWE.1 (sw-reqs/sw-reqs.txt) and the software architecture (sw-arch/sw-arch.txt) in branch new-b2. It contains no new software units, no architectural changes, and makes no implementation, scheduling, or concurrency decisions. All structures, responsibilities, and APIs are static, implementation-neutral, and written for MISRA-style C.
-
-## Table of Contents
-- Command Handler
-- State Manager
-- Position Sensing
-- Control Logic
-- Motor Driver
-- Status Indication
-- HW Abstraction
-- Config/Constants
+This document provides a detailed, atomic, implementation-neutral low-level design for each software unit defined in the Software Architecture (sw-arch/sw-arch.txt, branch: new-b2) and traceable to atomic Software Requirements (sw-reqs/sw-reqs.txt, branch: new-b2). No new units, scheduling definitions, or code are introduced per workflow constraints.
 
 ---
 
 ## Software Unit: Command Handler
+
 ### 1. Responsibilities
-- Receives, parses, and validates UART user commands for target flap position.
-- Ensures only valid and idle-safe commands are accepted.
-- Does NOT manage state transitions, movement, or hardware.
+- Receives and parses UART flap position commands from user.
+- Validates received command format, value, and range.
+- Ensures only one command is processed at a time.
+- Explicitly does NOT: handle physical UART driver setup/interrupts, initiate motor movement, manage system states directly.
 
 ### 2. Internal Data Design
-- Static buffer for UART command reception (fixed length, no dynamic allocation).
-- Enum/type for command status (e.g., CMD_VALID, CMD_INVALID, CMD_BUSY).
-- Last received command (target position, validity flag).
+- Buffer for received UART characters (fixed size, statically allocated char array)
+- Command-parsing state (idle/receiving/complete)
+- Last valid position command (uint8_t)
+- Input validation flags (bool)
 
 ### 3. State Machine (if applicable)
-- No internal state machine; processes each received command on arrival and signals outcome.
+- Simple command-receive state: IDLE → RECEIVING → COMPLETE/ERROR → IDLE
+- Transitions on UART receive events or parse/validation result.
+- No concurrency, no pre-emption.
 
 ### 4. Algorithms and Control Flow
-- Poll UART input; when data is available:
-  1. Parse into candidate command.
-  2. Validate command range against defined logical position limits.
-  3. If valid and system is IDLE, forward to State Manager; else ignore.
+- On new UART character: store in buffer
+- If buffer matches expected command format: parse numeric, validate range (against config)
+- If valid and only one command in process: set last_valid_command, clear buffer, signal to State Manager
+- If invalid: ignore, clear buffer, stay IDLE
+- Pseudocode:
+  1. On UART RX:
+     - If not currently processing, append char to buffer
+     - If end of command or buffer full, parse and validate
+     - If valid, set last_valid_command, raise new_cmd flag
+     - Else, clear buffer
 
 ### 5. Interfaces (APIs)
-- Public:
-  - `CMD_Status receive_command(int* tgt_position)`
-- Required:
-  - `StateManager_get_state()` (to gate accepting commands)
-  - UART read
-- Error Reporting: Returns explicit command status.
+- Public: receive_command(void), get_last_command(void), is_command_available(void)
+- Uses: UART_Rx(), Config::get_pos_thresholds(), StateManager::set_state()
+- Parameters: UART char; none for getters
+- Returns: command value, status flag
 
 ### 6. Error Handling
-- Invalid commands: ignored, flagged as CMD_INVALID.
-- Commands when not IDLE: flagged as CMD_BUSY.
+- Invalid format: ignore, clear buffer
+- Out-of-range: ignore, clear buffer
+- Concurrent command: ignore new until complete
+- Hardware UART error: no mitigation, handled by HW Abstraction
 
 ### 7. Resource and Timing Considerations
-- Called on UART RX event or periodically.
-- Small, bounded time. Not re-entrant.
+- Event-driven: invoked on UART RX event
+- Short/constant buffer parse and validation time
+- Non-blocking, non-reentrant
 
-### 8. Traceability
-Addresses: SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-035
+### 8. Traceability to SWE Requirements
+- SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-005, SWE-REQ-006, SWE-REQ-042, SWE-REQ-044
+- Maps to architecture unit: Command Handler
 
 ---
 
 ## Software Unit: State Manager
+
 ### 1. Responsibilities
-- Manages logical system states: IDLE, MOVING, HOLD.
-- Guards mutually exclusive movement/commanding.
-- Does NOT directly handle command input or movement logic.
+- Maintains and transitions global device states: IDLE, MOVING, STEADY
+- Guards against illegal transitions or parallel activities
+- Explicitly does NOT: perform position readings, control the motor, directly parse UART data
 
 ### 2. Internal Data Design
-- Enum for state (`IDLE`, `MOVING`, `HOLD`).
-- Last state change timestamp (for debounce/log; static var).
+- Enum: system_state_t (IDLE, MOVING, STEADY, ERROR)
+- Previous state variable
+- State change flag
 
-### 3. State Machine
-| State  | Event                  | Next State | Action                      |
-|--------|------------------------|------------|-----------------------------|
-| IDLE   | Valid Command Recvd    | MOVING     | Begin movement              |
-| MOVING | Target Position Reached| HOLD       | Stop motor; update position |
-| HOLD   | No movement pending    | IDLE       | Ready for new commands      |
-
-- Entry/exit actions: Set/clear movement, callbacks to Control Logic.
+### 3. State Machine (if applicable)
+- Explicit State Machine: See enum above
+- Events: new command, position reached, error detected
+- Transitions: IDLE→MOVING (on new command), MOVING→STEADY (on target reached), STEADY→MOVING (on new command), any→ERROR (on detect error)
+- Entry/exit actions: clear flags, signal Control Logic, update LEDs
 
 ### 4. Algorithms and Control Flow
-- Exported functions to get/set state, invoked by Command Handler and Control Logic.
-- No timer-based or queued transition.
+- On new valid command: set state MOVING, signal Control Logic
+- On target reached: set state STEADY, signal Indication
+- On error: set state ERROR, signal all units
+- Pseudocode: State transition table based on events
 
 ### 5. Interfaces (APIs)
-- Public: `void set_state(StateType state)`, `StateType get_state(void)`
-- Required: None except API users.
+- Public: set_state(state), get_state(void)
+- Uses: CommandHandler::is_command_available(), ControlLogic::move_to_position(), StatusIndication::update_leds()
+- Params: enum state; Returns: current state
 
 ### 6. Error Handling
-- Illegal transitions rejected; logs/flags as appropriate.
+- If illegal transition requested: ignore, log (if possible)
+- Error detected: set ERROR state
+- System reset required to recover from ERROR state
 
 ### 7. Resource and Timing Considerations
-- Only called when events occur; bounded, non-blocking.
+- Called by other units when their key event occurs
+- Enum transitions only; trivial execution
+- Not reentrant
 
-### 8. Traceability
-Addresses: SWE-REQ-005, SWE-REQ-025, SWE-REQ-026
+### 8. Traceability to SWE Requirements
+- SWE-REQ-005, SWE-REQ-025, SWE-REQ-026, SWE-REQ-046, SWE-REQ-047
+- Maps to architecture unit: State Manager
 
 ---
 
 ## Software Unit: Position Sensing
+
 ### 1. Responsibilities
-- Acquires ADC value from flap potentiometer.
-- Maps ADC value to logical position (using calibration constants).
-- Detects out-of-range/invalid sensor data.
-- Does NOT actuate or set position targets.
+- Reads ADC value(s) from potentiometer (through HW Abstraction)
+- Maps ADC value to logical flap positions using static thresholds
+- Validates position within range; filters noise
+- Explicitly does NOT: directly control ADC hardware, move the motor, handle user commands
 
 ### 2. Internal Data Design
-- Static struct: { raw_adc, logical_pos, valid_flag }
-- Table/array of ADC-to-position thresholds (fixed config, read-only)
-- Filter state for debouncing changes
+- adc_raw_value (uint16_t)
+- position_index (uint8_t)
+- valid_position (bool)
+- Static: adc_thresholds[]
+- Filter window (optional, for noise)
 
-### 3. State Machine
-- No explicit machine; processes invoked at each ADC read.
+### 3. State Machine (if applicable)
+- No explicit state machine
+- Control flow: sample → map → validate → store
 
 ### 4. Algorithms and Control Flow
-1. Read ADC.
-2. If raw ADC within threshold: map to logical position.
-3. If not: flag as invalid.
-4. Debounce logic to filter transient changes.
+- Periodically sample ADC
+- Map to discrete position: foreach threshold, find bin
+- If in-range: set valid flag, update position_index
+- If out-of-range/noise: set invalid flag, do not update
+- Pseudocode:
+  1. adc_raw_value = HWAbstraction::read_adc()
+  2. For each threshold in adc_thresholds: if within, set position_index
+  3. If within range, valid_position = true; else false
 
 ### 5. Interfaces (APIs)
-- Public: `bool get_current_position(int* pos)`, `bool is_valid_position(void)`
-- Required: ADC read, config access
+- Public: get_current_position(void), is_valid_position(void)
+- Uses: HWAbstraction::read_adc(), Config::get_pos_thresholds()
+- Params: none
+- Returns: position index, validity flag
 
 ### 6. Error Handling
-- Bad ADC data: returns invalid, notifies Control Logic.
+- Out-of-range: set invalid, ignore
+- ADC HW error: set invalid
+- On noise: last known valid unless in error
 
 ### 7. Resource and Timing Considerations
-- Periodic or event-driven per main loop.
+- Called periodically (timer or loop)
+- Execution: quick thresholding
+- Not reentrant
 
-### 8. Traceability
-Addresses: SWE-REQ-013, SWE-REQ-014, SWE-REQ-015, SWE-REQ-030, SWE-REQ-031
+### 8. Traceability to SWE Requirements
+- SWE-REQ-006, SWE-REQ-009, SWE-REQ-010, SWE-REQ-016, SWE-REQ-017, SWE-REQ-018, SWE-REQ-024, SWE-REQ-031
+- Maps to: Position Sensing
 
 ---
 
 ## Software Unit: Control Logic
+
 ### 1. Responsibilities
-- Compares requested and current flap positions.
-- Determines need for movement and direction.
-- Initiates/stops motor actuation.
-- Does NOT interface directly with UART or position sensor hardware.
+- Decides if/when motor should move based on difference between current and target position
+- Signals Motor Driver with direction and enable/disable commands
+- Monitors position feedback; halts on position reached
+- Explicitly does NOT: parse user commands, manage global state, directly interact with ADC/gpio
 
 ### 2. Internal Data Design
-- Static struct: { target_pos, last_known_pos, movement_in_progress }
-- Direction enum
+- target_position (uint8_t)
+- current_position (uint8_t)
+- movement_state (enum MOVING/COMPLETE)
+- move_complete flag (bool)
 
-### 3. State Machine
-| State    | Event                          | Next State        | Action   |
-|----------|--------------------------------|-------------------|----------|
-| WAIT     | Valid command/pos difference   | MOVING_TO_TARGET  | Start    |
-| MOVING_TO_TARGET | Target reached/err     | WAIT              | Stop     |
-
-- Mapped to State Manager events.
+### 3. State Machine (if applicable)
+- Implicit: MOVING or COMPLETE
+- Transitions: On command, on feedback match, on error
 
 ### 4. Algorithms and Control Flow
-1. When invoked, check difference between target and current positions.
-2. If movement needed, compute direction.
-3. Call Motor Driver.
-4. Stop when target matched or error/timeout.
+- If target ≠ current → determine direction, call Motor Driver set_direction(), enable()
+- If position matches → Motor Driver::disable(), movement_state = COMPLETE
+- If error/invalid feedback: disable motor, signal StateManager
 
 ### 5. Interfaces (APIs)
-- Public: `void move_to_position(int target)`
-- Required: Position Sensing, Motor Driver, State Manager APIs
+- Public: move_to_position(target), is_move_complete(void)
+- Uses: PositionSensing::get_current_position(), MotorDriver::{enable,disable,set_direction}, StateManager::{get,set}_state
+- Params: target pos; Returns: success/completion flag
 
 ### 6. Error Handling
-- Motor timeouts/unreachable position: stop, signal error to State Manager.
+- Out-of-range/feedback invalid: halt, return incomplete
+- New command during movement: wait until move complete
 
 ### 7. Resource and Timing Considerations
-- Per main loop/trigger; bounded time.
+- Invoked on command or loop iteration
+- Fast threshold and simple comparison logic
+- Not reentrant
 
-### 8. Traceability
-Addresses: SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-008, SWE-REQ-027, SWE-REQ-034
+### 8. Traceability to SWE Requirements
+- SWE-REQ-007, SWE-REQ-008, SWE-REQ-011, SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-015, SWE-REQ-027, SWE-REQ-036
+- Maps to: Control Logic
 
 ---
 
 ## Software Unit: Motor Driver
+
 ### 1. Responsibilities
-- Drives GPIO and PWM for motor direction and enable/disable.
-- Ensures motor is safely off at startup, error, or after movement.
-- Does NOT compute/control application logic.
+- Set/clear GPIO for motor direction
+- Enable/disable PWM for motor
+- Ensure safe (OFF) on boot/init
+- Explicitly does NOT: decide when to move, interpret commands, process position feedback
 
 ### 2. Internal Data Design
-- Static var for current enable/disable state.
-- Direction enum (CW/CCW).
-- Outputs: mapped to micro pin macros/defines from config.
+- motor_enabled (bool)
+- motor_direction (enum FWD/REV)
 
-### 3. State Machine
-- No complex state; direction and enable flags as atomic variables.
+### 3. State Machine (if applicable)
+- Simple state (ENABLED, DISABLED)
+- Transitions: control calls
 
 ### 4. Algorithms and Control Flow
-- On enable: set direction and PWM ON.
-- On disable/error: PWM OFF; ensure outputs are safe.
+- On enable(direction): set dir pins, start PWM
+- On disable: clear PWM, safe pins
+- On error: disable
 
 ### 5. Interfaces (APIs)
-- Public: `void set_direction(Direction dir)`, `void enable(void)`, `void disable(void)`
-- Required: HAL GPIO, PWM drivers
+- Public: enable(direction), disable(void), set_direction(direction)
+- Uses: HWAbstraction::set_gpio(), HWAbstraction::set_pwm()
+- Params: direction; Returns: status
 
 ### 6. Error Handling
-- ADC/feedback errors: disables motor (safe fallback).
+- Invalid direction: ignore/halt
+- HW error: disable motor
 
 ### 7. Resource and Timing Considerations
-- Only on demand (event from Control Logic).
-- Fast, not re-entrant.
+- Very fast (single output)
+- Called on position change or system transitions
+- Not reentrant
 
-### 8. Traceability
-Addresses: SWE-REQ-009, SWE-REQ-010, SWE-REQ-011, SWE-REQ-012, SWE-REQ-033
+### 8. Traceability to SWE Requirements
+- SWE-REQ-011, SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-015, SWE-REQ-041
+- Maps to: Motor Driver
 
 ---
 
 ## Software Unit: Status Indication
+
 ### 1. Responsibilities
-- Controls power and flap position indicator LEDs.
-- Only one position LED illuminated at any time.
-- Does NOT compute logical position.
+- Power LED on init
+- One position LED indicated per logical position
+- No more than one LED on at once
+- Explicitly does NOT: read position/commands, set hardware without state confirmation
 
 ### 2. Internal Data Design
-- Bit-field/array for LED pin mapping and on/off states.
+- power_led_state (bool)
+- pos_leds_state[] (bool[N])
 
-### 3. State Machine
-- None needed; LED control invoked per event/change.
+### 3. State Machine (if applicable)
+- No explicit state machine
+- Flow: on power/state/pos change, update outputs
 
 ### 4. Algorithms and Control Flow
-- On status/event: set/copy outputs based on state/position.
+- On state/event: set power_led iff initialized
+- On pos change: set pos_led[idx]=ON, all others OFF
+- Pseudocode:
+  1. If power_on: set power_led HIGH
+  2. On pos update: for i=0..N-1, if i==pos_idx, LED=ON else OFF
 
 ### 5. Interfaces (APIs)
-- Public: `void update_leds(bool power_on, int pos_idx)`
-- Required: HAL GPIO output
+- Public: update_leds(power_on, pos_idx)
+- Uses: HWAbstraction::set_gpio()
+- Params: bool, uint8_t; Returns: none
 
 ### 6. Error Handling
-- Invalid idx: disables all except power LED.
+- Event ignored if indices out of range
+- On error: set all LEDs to safe states (e.g., power only)
 
 ### 7. Resource and Timing Considerations
-- On demand. No timing/race.
+- Minimal, called on state/pos update
+- Not reentrant
 
-### 8. Traceability
-Addresses: SWE-REQ-016, SWE-REQ-017, SWE-REQ-018, SWE-REQ-041
+### 8. Traceability to SWE Requirements
+- SWE-REQ-019, SWE-REQ-020, SWE-REQ-043
+- Maps to: Status Indication
 
 ---
 
 ## Software Unit: HW Abstraction
+
 ### 1. Responsibilities
-- Provides clean interface to low-level MCU peripherals: UART, ADC, GPIO, PWM.
-- No logic, only direct driver wrappers.
-- Does NOT process application rule.
+- Provide simple stateless functions to set/read physical MCU peripherals (UART/ADC/GPIO/PWM)
+- Explicitly does NOT: apply any logic, process feedback, manage high schedule or device state
 
 ### 2. Internal Data Design
-- Function pointer tables or static inline wrappers.
-- No buffers/queues; only direct calls.
+- None (strictly stateless, no large buffers)
 
-### 3. State Machine
-- None.
+### 3. State Machine (if applicable)
+- None
 
 ### 4. Algorithms and Control Flow
-- Each call: forwards to MCU driver as-is.
+- Direct pass-through from logic to hardware call
+- All configs are static
 
 ### 5. Interfaces (APIs)
-- UART: rx, tx
-- GPIO: set, clear
-- ADC: get_value
-- PWM: on/off
+- Public: read_adc(), set_gpio(pin, value), set_pwm(chan, duty), uart_rx()
+- Params: as above; Returns: raw value or IO status
 
 ### 6. Error Handling
-- Returns driver error/status.
+- On HW error: return default (safe) status/value
 
 ### 7. Resource and Timing Considerations
-- Fast, on demand.
+- Asynchronous HW dependent, very fast
+- Not reentrant
 
-### 8. Traceability
-Addresses: SWE-REQ-019, SWE-REQ-020, SWE-REQ-021, SWE-REQ-022
+### 8. Traceability to SWE Requirements
+- SWE-REQ-021, SWE-REQ-022, SWE-REQ-023, SWE-REQ-024
+- Maps to: HW Abstraction
 
 ---
 
 ## Software Unit: Config/Constants
+
 ### 1. Responsibilities
-- Stores application constants: ADC-position map, thresholds, pin mappings.
-- No business logic.
+- Provide static, readonly calibration/configuration data for position mapping and pin numbers
+- Explicitly does NOT: change at run-time/session, process any logic
 
 ### 2. Internal Data Design
-- Const arrays/tables for calibration.
-- Pin/port # defines.
-- Never written at runtime.
+- adc_thresholds[N] (const uint16_t)
+- pin_config[] (const struct)
+- No variables, no runtime state
 
-### 3. State Machine
-- None.
+### 3. State Machine (if applicable)
+- None
 
 ### 4. Algorithms and Control Flow
-- Loads values during init.
+- Only getter access, no processing
 
 ### 5. Interfaces (APIs)
-- `const int* get_pos_thresholds(void)`
-- `void init_config(void)`
+- Public: get_pos_thresholds(void), get_pin_config(void)
+- Params: none; Returns: pointers to const data
 
 ### 6. Error Handling
-- No run-time error handling.
+- Not applicable (static data only)
 
 ### 7. Resource and Timing Considerations
-- Read-only.
+- No runtime execution, only referenced
 
-### 8. Traceability
-Addresses: SWE-REQ-030, SWE-REQ-031, SWE-REQ-038, SWE-REQ-039
+### 8. Traceability to SWE Requirements
+- SWE-REQ-009, SWE-REQ-017, SWE-REQ-031, SWE-REQ-033
+- Maps to: Config/Constants
 
 ---
 
-**End of Software LLD – Fully compliant with ASPICE L3, C/MISRA philosophy, and workflow constraints.**
+# Document Notes
+- No tasks, OS, RTOS, threads, dynamic allocation, or new units introduced
+- All elements strictly reference requirements and architecture
+- Data types are C-compatible and MISRA-compliant by convention -- implementation assumes static allocation/const where needed
+- No hardware setup/board support code, test cases, or schematics are present
+
+# END OF FILE
