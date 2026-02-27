@@ -1,0 +1,204 @@
+# Software Low Level Design – HVAC Flap Actuator
+
+## Introduction
+This Software Low Level Design (LLD) document delivers the design for all software units of the HVAC flap actuator software per ASPICE SWE.3. LLD is strictly traceable to the SWE.1 and SWE.2 requirements and does not introduce new software units, does not change the software architecture, and refrains from specifying execution/scheduling logic (see architectural and requirements documents for rationale and units).
+
+All software logic is assumed to be implemented in C (MISRA-compliant; no dynamic allocation). No code, no register-level, hardware, test case, or schematic content is provided.
+
+## Software Units
+
+---
+
+## Software Unit: Input Handler
+### 1. Responsibilities
+- Responsible for receiving UART user commands, parsing numeric input, validating allowable range (0..5), and enforcing one-command-at-a-time.
+- Explicitly does NOT: interpret positions, control motor/LEDs/feedback directly, or process queued/multiple commands.
+
+### 2. Internal Data Design
+- command_buffer[CMD_BUF_SIZE]: circular/static buffer for UART bytes
+- parsed_cmd: integer, latest parsed user command
+- cmd_pending: boolean, true if new valid command is ready
+- uart_rx_status: error/valid state code
+
+### 3. State Machine
+- No explicit state machine; control flow is linear event-driven: wait for byte, accumulate, parse, flag pending command.
+
+### 4. Algorithms and Control Flow
+- On UART RX event: accumulate byte(s) in buffer. On end-of-command, parse as integer.
+- If parsed value in 0..5: set parsed_cmd, set cmd_pending.
+- Else: ignore, clear buffer and do not flag command.
+- Never queue more than one command.
+
+### 5. Interfaces
+- Provides: Command Input API (get_pending_command, clear_pending)
+- Uses: UART hardware receive
+- Parameters: None (besides passed buffer refs)
+- Error reporting: Returns status code (OK/NO_CMD/ERR_RANGE)
+
+### 6. Error Handling
+- Invalid commands are detected, ignored, and buffer cleared. No UART response; status is not reported to user.
+- Buffer overflows are prevented via static size, excess incoming bytes before termination char are dropped.
+
+### 7. Resource and Timing Considerations
+- Event-driven: called from UART RX or polled in main.
+- Very short, bounded execution time. Non-reentrant; single context.
+
+### 8. Traceability to SWE Requirements
+- SWE-REQ-001, 002, 003, 004, 005, 026, 040
+- Software Unit: Input Handler
+
+---
+
+## Software Unit: Control Logic Unit
+### 1. Responsibilities
+- Responsible for interpreting user commands, tracking target/current position, validating position, delegating actuation/LED/output, and holding state.
+- Does NOT: directly parse UART, drive hardware, or fetch ADC data.
+
+### 2. Internal Data Design
+- current_position: uint8, 0..5
+- target_position: int8, -1 if idle/none
+- command_active: boolean
+- movement_in_progress: boolean
+
+### 3. State Machine
+- States: IDLE, MOVING
+- Events: New valid command, feedback position == target, feedback error.
+- Transitions:
+    - IDLE -> MOVING on valid (current != target) command
+    - MOVING -> IDLE on arrival at target
+    - MOVING -> IDLE on error/invalid feedback
+
+### 4. Algorithms and Control Flow
+- On get_pending_command(): If cmd valid, set target, activate command.
+- If target != current: request motor move, set MOVING.
+- When feedback == target: deactivate command, set IDLE.
+- On out-of-range feedback: abort movement, remain in IDLE.
+
+### 5. Interfaces
+- Provides: PositionCtrl API (set_target_position, cancel_movement), State API (get_current_status)
+- Uses: Command Input API, MotorCtrl API, Feedback API, LEDCtl API
+- Parameters: position integers
+- Error reporting: status enum returned (e.g. MOVEMENT_DONE, ERROR)
+
+### 6. Error Handling
+- Invalid feedback positions result in movement cancel and holding safe state.
+- If target unattainable, transitions to IDLE, no further movement attempted until new valid command.
+
+### 7. Resource and Timing Considerations
+- Runs on external trigger or command event; not periodic.
+- Fast, bounded by hardware interactions. Not reentrant.
+
+### 8. Traceability to SWE Requirements
+- SWE-REQ-006, 007, 008, 009, 010, 011, 032, 033, 034, 041, 042, 043
+- Software Unit: Control Logic Unit
+
+---
+
+## Software Unit: Motor Driver
+### 1. Responsibilities
+- Responsible for actuating motor HW (via GPIO/PWM), direction control, enable/disable.
+- Does NOT: decide when to start/stop, evaluate positions, handle user commands.
+
+### 2. Internal Data Design
+- motor_enable: boolean
+- motor_direction: enum (FORWARD/REVERSE)
+- Optional: pwm_duty_cycle (uint8) if used
+
+### 3. State Machine
+- No explicit multi-state; simply on/off + direction. Motor is always off except during valid actuation.
+
+### 4. Algorithms and Control Flow
+- On activate: set GPIOs for direction, enable output; if PWM, set duty.
+- On stop: disable output, reset GPIOs.
+
+### 5. Interfaces
+- Provides: MotorCtrl API (start, stop, set_dir, set_pwm)
+- Uses: Output GPIO/PWM driver
+- Parameters: direction, enable
+- Error reporting: simple return if command not valid due to unsafe mode
+
+### 6. Error Handling
+- On error (from Control Logic): disables HW output, safe state.
+
+### 7. Resource and Timing Considerations
+- Short, atomic calls. Never reentrant. HW driver ops are bounded.
+
+### 8. Traceability to SWE Requirements
+- SWE-REQ-012, 013, 014, 015, 016, 017, 028, 041, 047, 048
+- Software Unit: Motor Driver
+
+---
+
+## Software Unit: Position Feedback
+### 1. Responsibilities
+- Acquires ADC readings, maps to discrete positions, detects out-of-range, removes noise.
+- Does NOT: command/move actuators or determine target.
+
+### 2. Internal Data Design
+- adc_raw_value: uint16
+- logical_position: uint8 (0..5, or INVALID)
+- calibration_constants: struct (min, max, thresholds)
+- last_valid_position: uint8
+
+### 3. State Machine
+- No explicit; on each sample, computes position and flags errors if out of bounds.
+
+### 4. Algorithms and Control Flow
+- On ADC event: apply calibration and thresholds. If within valid range, update logical_position.
+- If out-of-range, set INVALID, notify via Feedback API.
+
+### 5. Interfaces
+- Provides: Feedback API (get_current_position, is_valid)
+- Uses: ADC driver
+- Parameters: ADC value(s)
+- Error reporting: VALID/INVALID enum
+
+### 6. Error Handling
+- Out-of-range disables further actuation (by notifying control logic), holds last safe position.
+- No filtering needed beyond thresholding for noise.
+
+### 7. Resource and Timing Considerations
+- Regularly called on ADC conversion or polling. Not reentrant.
+
+### 8. Traceability to SWE Requirements
+- SWE-REQ-018, 019, 020, 021, 037, 038, 039, 041, 042
+- Software Unit: Position Feedback
+
+---
+
+## Software Unit: LED Status
+### 1. Responsibilities
+- Controls power and position indication LEDs. Reflects status for testability and user visible status.
+- Does NOT: process commands, interpret feedback, or drive actuators.
+
+### 2. Internal Data Design
+- led_states: struct (power: bool, position_leds[6]: bool)
+
+### 3. State Machine
+- No explicit; updates reflect instant state reported by control/feedback.
+
+### 4. Algorithms and Control Flow
+- On notification, sets power LED on/off; updates one-hot encoding for position LEDs per positioned feedback, blanks on error/undefined.
+
+### 5. Interfaces
+- Provides: LEDCtl API (set_power, set_position, clear_all)
+- Uses: GPIO driver
+- Parameters: LED selection/state
+- Error reporting: none (called on valid state only)
+
+### 6. Error Handling
+- If position INVALID, blanks all LEDs except power.
+
+### 7. Resource and Timing Considerations
+- Short GPIO write cycles, atomic, non-reentrant.
+
+### 8. Traceability to SWE Requirements
+- SWE-REQ-022, 023, 024, 025, 029, 050
+- Software Unit: LED Status
+
+---
+
+## General Notes
+- No new units added; strictly aligned with architecture.
+- No code, scheduler, hardware register, or test content present.
+- All elements strictly map to architectural and SWE.1 requirements.
