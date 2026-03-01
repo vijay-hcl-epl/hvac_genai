@@ -1,0 +1,222 @@
+###### FILE: code/inc/uart_handler.h ######
+#ifndef UART_HANDLER_H
+#define UART_HANDLER_H
+#include <stdint.h>
+#include <stdbool.h>
+void uart_handler_init(void);
+void uart_rx_callback(uint8_t data);
+bool uart_get_valid_command(uint8_t *command_out);
+void uart_clear_error(void);
+bool uart_has_error(void);
+#endif // UART_HANDLER_H
+###### END FILE ######
+###### FILE: code/src/uart_handler.c ######
+#include "uart_handler.h"
+static volatile uint8_t command_buffer = 0;
+static volatile bool rx_valid = false;
+static volatile bool uart_error = false;
+void uart_handler_init(void) { rx_valid = false; uart_error = false; }
+void uart_rx_callback(uint8_t data) {
+    if (data <= 5) {
+        command_buffer = data;
+        rx_valid = true;
+    } else {
+        uart_error = true;
+        rx_valid = false;
+    }
+}
+bool uart_get_valid_command(uint8_t *command_out) {
+    if (rx_valid) {
+        *command_out = command_buffer;
+        rx_valid = false;
+        return true;
+    }
+    return false;
+}
+void uart_clear_error(void) { uart_error = false; }
+bool uart_has_error(void) { return uart_error; }
+###### END FILE ######
+###### FILE: code/inc/flap_control_logic.h ######
+#ifndef FLAP_CONTROL_LOGIC_H
+#define FLAP_CONTROL_LOGIC_H
+#include <stdint.h>
+#include <stdbool.h>
+void flap_control_init(void);
+void flap_control_event(void);
+bool flap_control_is_busy(void);
+uint8_t flap_control_get_target(void);
+#endif // FLAP_CONTROL_LOGIC_H
+###### END FILE ######
+###### FILE: code/src/flap_control_logic.c ######
+#include "flap_control_logic.h"
+#include "uart_handler.h"
+#include "feedback_processing.h"
+#include "motor_driver.h"
+static uint8_t target_position = 0;
+static uint8_t current_position = 0;
+static bool busy_flag = false;
+void flap_control_init(void) {
+    target_position = 0;
+    busy_flag = false;
+}
+void flap_control_event(void) {
+    uint8_t cmd;
+    if (!busy_flag && uart_get_valid_command(&cmd)) {
+        current_position = feedback_get_position();
+        if (cmd <= 5 && cmd != current_position) {
+            target_position = cmd;
+            busy_flag = true;
+            int dir = (cmd > current_position) ? 1 : -1;
+            motor_move(dir);
+        }
+    }
+    if (busy_flag && !motor_is_active()) {
+        current_position = feedback_get_position();
+        if (current_position == target_position) {
+            busy_flag = false;
+        }
+    }
+}
+bool flap_control_is_busy(void) { return busy_flag; }
+uint8_t flap_control_get_target(void) { return target_position; }
+###### END FILE ######
+###### FILE: code/inc/motor_driver.h ######
+#ifndef MOTOR_DRIVER_H
+#define MOTOR_DRIVER_H
+void motor_driver_init(void);
+void motor_move(int direction);
+bool motor_is_active(void);
+void motor_stop(void);
+#endif // MOTOR_DRIVER_H
+###### END FILE ######
+###### FILE: code/src/motor_driver.c ######
+#include "motor_driver.h"
+#include <stdbool.h>
+static bool active_signal_flag = false;
+static int last_dir = 0;
+void motor_driver_init(void) { active_signal_flag = false; }
+void motor_move(int direction) {
+    // HW GPIO/PWM: direction > 0 = CW, < 0 = CCW
+    active_signal_flag = true;
+    last_dir = direction;
+    // (Stub: actual HW signaling omitted)
+}
+bool motor_is_active(void) { return active_signal_flag; }
+void motor_stop(void) { active_signal_flag = false; }
+###### END FILE ######
+###### FILE: code/inc/feedback_processing.h ######
+#ifndef FEEDBACK_PROCESSING_H
+#define FEEDBACK_PROCESSING_H
+#include <stdint.h>
+#include <stdbool.h>
+void feedback_processing_init(void);
+void feedback_process_adc(uint16_t adc_raw);
+uint8_t feedback_get_position(void);
+bool feedback_adc_invalid(void);
+#endif // FEEDBACK_PROCESSING_H
+###### END FILE ######
+###### FILE: code/src/feedback_processing.c ######
+#include "feedback_processing.h"
+#include "sw_config_table.h"
+static uint16_t adc_raw = 0;
+static uint8_t logical_position = 0;
+static bool adc_invalid_flag = false;
+void feedback_processing_init(void) { adc_invalid_flag = false; }
+void feedback_process_adc(uint16_t adc) {
+    adc_raw = adc;
+    if (adc < calibration_table[0] || adc > calibration_table[position_count-1]) {
+        adc_invalid_flag = true;
+    } else {
+        for (uint8_t i = 0; i < position_count-1; ++i) {
+            if (adc >= calibration_table[i] && adc < calibration_table[i+1]) {
+                logical_position = i;
+                adc_invalid_flag = false;
+                return;
+            }
+        }
+    }
+}
+uint8_t feedback_get_position(void) { return logical_position; }
+bool feedback_adc_invalid(void) { return adc_invalid_flag; }
+###### END FILE ######
+###### FILE: code/inc/status_indication.h ######
+#ifndef STATUS_INDICATION_H
+#define STATUS_INDICATION_H
+void status_indication_init(void);
+void status_update_leds(uint8_t position);
+#endif // STATUS_INDICATION_H
+###### END FILE ######
+###### FILE: code/src/status_indication.c ######
+#include "status_indication.h"
+#include <stdbool.h>
+static bool led_states[6] = {false};
+void status_indication_init(void) {
+    for(int i=0;i<6;i++) led_states[i]=false;
+    led_states[0]=true; // Power-on LED
+}
+void status_update_leds(uint8_t position) {
+    for(int i=0;i<6;i++) led_states[i]=false;
+    if(position<6) led_states[position]=true;
+}
+###### END FILE ######
+###### FILE: code/inc/sw_config_table.h ######
+#ifndef SW_CONFIG_TABLE_H
+#define SW_CONFIG_TABLE_H
+#include <stdint.h>
+extern const uint16_t calibration_table[6];
+extern const uint8_t position_count;
+extern const uint8_t gpio_motor_dir_pin;
+extern const uint8_t gpio_motor_en_pin;
+extern const uint8_t gpio_led_pins[6];
+#endif // SW_CONFIG_TABLE_H
+###### END FILE ######
+###### FILE: code/src/sw_config_table.c ######
+#include "sw_config_table.h"
+const uint16_t calibration_table[6] = {100, 500, 1000, 1500, 2000, 2500};
+const uint8_t position_count = 6;
+const uint8_t gpio_motor_dir_pin = 1;
+const uint8_t gpio_motor_en_pin = 2;
+const uint8_t gpio_led_pins[6] = {3,4,5,6,7,8};
+###### END FILE ######
+###### FILE: code/inc/error_handling.h ######
+#ifndef ERROR_HANDLING_H
+#define ERROR_HANDLING_H
+#include <stdbool.h>
+void error_handling_init(void);
+void error_on_uart(void);
+void error_on_adc(void);
+bool error_is_safe(void);
+void error_clear(void);
+#endif // ERROR_HANDLING_H
+###### END FILE ######
+###### FILE: code/src/error_handling.c ######
+#include "error_handling.h"
+static bool error_state_flag = false;
+void error_handling_init(void) { error_state_flag = false; }
+void error_on_uart(void) { error_state_flag = true; }
+void error_on_adc(void) { error_state_flag = true; }
+bool error_is_safe(void) { return error_state_flag; }
+void error_clear(void) { error_state_flag = false; }
+###### END FILE ######
+###### FILE: code/src/main.c ######
+#include "uart_handler.h"
+#include "feedback_processing.h"
+#include "motor_driver.h"
+#include "status_indication.h"
+#include "error_handling.h"
+#include "flap_control_logic.h"
+int main(void) {
+    uart_handler_init();
+    feedback_processing_init();
+    motor_driver_init();
+    status_indication_init();
+    error_handling_init();
+    flap_control_init();
+    // Main loop
+    while(1) {
+        flap_control_event();
+        // Other unit polling, error check, stub
+    }
+    return 0;
+}
+###### END FILE ######
