@@ -1,0 +1,118 @@
+==============================
+SOFTWARE ARCHITECTURE for HVAC Flap Actuator System (SWE.2)
+==============================
+
+Branch: marsecnd-13b
+System Requirements ref: sys-reqs/sys-reqs.txt  [SHA: 0fe26e810d036bd01c69bd7fbd99ef8ac01046aa]
+Software Requirements ref: sw-reqs/sw-reqs.txt  [SHA: 0fe26e810d036bd01c69bd7fbd99ef8ac01046aa]
+
+All facts and design are directly and strictly derived from SWE.1 requirements and their traced system requirements. No additional behavior, timing, or SW-/HW- architecture features have been introduced beyond what is mandated.
+
+==============================
+ARCHITECTURE STYLE SELECTION
+==============================
+
+Candidate Styles Considered:
+1. Layered architecture
+2. Component-based/modular architecture
+3. Monolithic/main-loop architecture
+
+Style Evaluation:
+- System complexity is low: Only a few logical functions (UART command handling, actuator control, LED indication, ADC feedback) with simple, well-bounded interactions. [Trace: SWE-REQ-014, SWE-REQ-019]
+- HW interaction is direct and dedicated; all interfaces (UART/ADC/GPIO) are statically configured. [SWE-REQ-015–SWE-REQ-019]
+- Testability requires modular separation (UART/motor/feedback/LED logic). [SWE-REQ-018, SWE-REQ-037, SWE-REQ-038]
+- Maintainability and ASPICE L3 expectations (SYS-REQ-046, SWE-REQ-014) require logical modularity.
+
+Decision:
+Component-based/modular architecture selected.
+- Justification: Explicitly required modular separation (SWE-REQ-014, SYS-REQ-046). Main-loop or monolithic style is not chosen since modularity and explicit separation of command, actuator, feedback, and indicator logic is required for testability and maintainability.
+- Other styles (layered, monolithic) are rejected because: No clear OS abstraction or stack of layers (layered); lack of required separation and encapsulation (monolithic).
+
+==============================
+ARCHITECTURE DEFINITION
+==============================
+
+Software Units Defined:
+
+1. Command Handler Unit
+   - Responsibilities: Receives, validates, and dispatches user commands from UART. [SWE-REQ-001, SWE-REQ-002, SWE-REQ-015, SWE-REQ-020]
+   - Interfaces: UART interface (receive); exposes validated commands to Flap Control; uses static tables/config for command mapping. [SWE-REQ-027]
+
+2. Flap Control Unit
+   - Responsibilities: State machine for moving flap upon valid command, targets requested position, requests motor action, monitors completion. [SWE-REQ-003, SWE-REQ-004, SWE-REQ-020–SWE-REQ-024]
+   - Interfaces: Receives commands from Command Handler, requests motor action from Motor Control, reads flap position from Feedback Unit, and updates Indication Unit on state. [SWE-REQ-023]
+
+3. Motor Control Unit
+   - Responsibilities: Sets motor direction, enables/disables motor via GPIO and PWM. Ensures motor OFF at startup/error. [SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-017, SWE-REQ-025, SWE-REQ-029, SWE-REQ-031]
+   - Interfaces: Receives direction/enable requests from Flap Control, manages GPIO/PWM, status output for feedback/ID.
+
+4. Feedback (ADC Acquisition & Mapping) Unit
+   - Responsibilities: Periodically acquires ADC, maps to position using static config, detects out-of-range. [SWE-REQ-008, SWE-REQ-009, SWE-REQ-010, SWE-REQ-016, SWE-REQ-026]
+   - Interfaces: Acquires from ADC HW, provides flap position/status/error indication to Flap Control, provides raw/mapped values as needed.
+
+5. Indication (LED Management) Unit
+   - Responsibilities: Controls all position/power LEDs; updates indicators upon state change, startup; single LED ON for position, power LED per system state. [SWE-REQ-011, SWE-REQ-012, SWE-REQ-013, SWE-REQ-018, SWE-REQ-021, SWE-REQ-037, SWE-REQ-038]
+   - Interfaces: UART for optional startup/config, receives state updates from Flap Control, controls GPIO for LEDs.
+
+6. Static Configuration Unit
+   - Responsibilities: Houses all compile-time config (calibration for ADC thresholds, command-to-position mapping). [SWE-REQ-026, SWE-REQ-027, SWE-REQ-028]
+   - Interfaces: Provides config/tables to Command Handler and Feedback Unit.
+
+Error handling is local to each unit per SWE.1 error handling requirements and is realized by stopping actions, resetting outputs, or reporting state (e.g., invalid command – Command Handler ignores; ADC out of range – Feedback triggers stop on Motor Control).
+
+Execution Model:
+No explicit execution model or scheduling policy is mandated by the requirements at this stage. All operation (acquisition, dispatch, actuation, indication) is demand-driven or periodic, with no concurrency, ISR, or timing policy imposed by SWE.1. [Explicit per instruction]
+
+==============================
+A) TEXT-BASED ARCHITECTURE DIAGRAM
+==============================
+
++-------------------------+
+| Static Configuration    |
+|  (tables, thresholds)   |
++-------------------------+
+           ^         ^
+           |         |
+           v         v
++----------------+  +------------------------+
+| Command Handler|  | Feedback Unit (ADC)    |
++----------------+  +------------------------+
+           |                      |
+           v                      v
+      +--------------------------------+
+      |        Flap Control Unit       |
+      +--------------------------------+
+           /           |            \
+          v            v             v
++-------------+  +-------------+ +-----------------+
+| Motor Ctrl. |  | Indication  | | Feedback/Status |
+|  Unit       |  |  (LEDs)     | |(for Flap Pos.)  |
++-------------+  +-------------+ +-----------------+
+
+  [Physical interfaces: UART (to Command Handler), ADC (to Feedback Unit), GPIO/PWM (to Motor Ctrl, Indication)]
+
+==============================
+B) ARCHITECTURE TABLE
+==============================
+
+Software Unit             | Responsibilities                                                        | Interfaces Provided                          | Interfaces Used
+--------------------------|------------------------------------------------------------------------|----------------------------------------------|------------------------
+Command Handler           | Receives/processes UART user commands, validates, dispatches            | Validated command dispatch                   | UART driver, Static Config
+Flap Control Unit         | Orchestrates flap movement/state transitions                            | Flap state control, error event, LED update  | Command Handler, Feedback, Motor Ctrl., Indication
+Motor Control Unit        | Sets motor direction/enable, ensures OFF at idle/error/startup          | Motor actuation status                       | Flap Control, GPIO, PWM
+Feedback (ADC) Unit      | Acquires ADC, maps to position, alerts on error                         | Flap position feedback/status                | ADC driver, Static Config
+Indication (LED) Unit    | Controls all user-visible LED status                                    | LED control/status                           | Flap Control, GPIO
+Static Configuration Unit| Holds ADC thresholds, position map, static config                       | Config/tables for mapping/limits             | N/A
+
+==============================
+CONSTRAINTS (Per Template)
+==============================
+
+- Every interface, unit, and rule strictly traces to at least one SWE.1 requirement (see textual trace above and [SWE-REQ-xxx] refs).
+- No new behavior or features are added.
+- No code, ISR/signals, or implementation-specific details are included.
+- Scheduling, timing, or concurrency is not defined or implied.
+- No unit-level algorithms are present (see SWE.3 for future flow/pseudocode).
+
+Commit: Initial software architecture per SWE.2, fully traceable to SWE.1, no added behavior, conforms to branch and doc controls.
+[ASPICE L3 compliant; all rules enforced]
