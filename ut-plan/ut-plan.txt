@@ -1,0 +1,186 @@
+==============================
+SWE.4 UNIT TEST PLAN (HVAC FLAP ACTUATOR)
+==============================
+Branch: marsecnd-13b
+
+INPUTS:
+- Software Requirements: sw-reqs/sw-reqs.txt
+- Software Low-Level Design: sw-lld/sw-lld.txt
+- Unit Code Bundle: codegen/code_bundle.txt
+
+==============================
+LIST OF SOFTWARE UNITS
+==============================
+1. Command Handler Unit
+2. Flap Control Unit
+3. Motor Control Unit
+4. Feedback (ADC Acquisition & Mapping) Unit
+5. Indication (LED Management) Unit
+6. Static Configuration Unit
+
+==============================
+DETAILED UNIT TEST CASES
+==============================
+
+-------------------------------------
+Unit: Command Handler Unit
+Responsibilities: UART receive/command validation, command decode, interface to position-command map
+Allocated SW-REQs: SWE-REQ-001, SWE-REQ-002, SWE-REQ-015, SWE-REQ-027, SWE-REQ-030
+APIs: CommandHandler_UartRxHandler, CommandHandler_GetValidCommand
+Isolation: Mock UART
+
+Test Case Table:
+| TestCase ID       | SW-REQ        | Objective                                              | Precondition                | Input         | Expected Result               | Pass/Fail          |
+|-------------------|---------------|--------------------------------------------------------|-----------------------------|---------------|------------------------------|--------------------|
+| CMDHND-TC-01      | SWE-REQ-001   | Valid command (0-5) sets flag & correct idx            | Handler inited              | '0'...'5'     | flag=1, idx set, return pos   | Functional         |
+| CMDHND-TC-02      | SWE-REQ-002   | Invalid command ('a', 99, etc) clears flag             | Handler inited              | inv value     | flag=0, idx unchanged        | Boundary/Error     |
+| CMDHND-TC-03      | SWE-REQ-030   | Invalid commands do not alter state                    | Handler inited, idx = N     | inv value     | idx = N, no action           | Defensive/Invalid  |
+| CMDHND-TC-04      | SWE-REQ-027   | Position index derived from map, static config ptr     | StaticConfig mocked         | valid input   | returns correct map idx       | Data Mapping       |
+
+(Example C stub: see end)
+
+-------------------------------------
+Unit: Flap Control Unit
+Responsibilities: movement state logic, target management, input/output sequencing
+Allocated SW-REQs: SWE-REQ-003, SWE-REQ-004, SWE-REQ-020, SWE-REQ-021, SWE-REQ-022, SWE-REQ-023, SWE-REQ-024, SWE-REQ-029, SWE-REQ-031
+APIs: FlapControl_StartMovement, FlapControl_StopMovement, FlapControl_GetState, FlapControl_PeriodicTask
+Isolation: Mock Feedback, MotorControl, IndicationLed
+
+Test Case Table:
+| TestCase ID | SW-REQ        | Objective                                   | Precondition           | Input                    | Expected Result                | Pass/Fail          |
+|-------------|--------------|---------------------------------------------|------------------------|--------------------------|-------------------------------|--------------------|
+| FLAP-TC-01  | SWE-REQ-003  | Start movement on valid command             | State=IDLE/ERROR       | valid target             | MOVING, MotorControl started  | Functional         |
+| FLAP-TC-02  | SWE-REQ-004  | Only one position active at a time          | --                     | movement execution       | On arrival, state=IDLE        | Position           |
+| FLAP-TC-03  | SWE-REQ-029  | On ADC out-of-range, sets ERROR, stops motor| Movement started       | Feedback invalid         | Motor stopped, state=ERROR    | Defensive/Error    |
+| FLAP-TC-04  | SWE-REQ-022  | Ignores commands while moving               | State=MOVING           | valid command            | No new move started           | Defensive          |
+| FLAP-TC-05  | SWE-REQ-031  | Error in movement, stops motor, enters ERROR| MOVING                 | Feedback error event     | MotorControl_Stop called      | Error              |
+
+-------------------------------------
+Unit: Motor Control Unit
+Responsibilities: GPIO/PWM set/reset, ensure safe state
+Allocated SW-REQs: SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-017, SWE-REQ-025, SWE-REQ-029, SWE-REQ-031
+APIs: MotorControl_Start, MotorControl_Stop, MotorControl_IsActive
+Isolation: Mock GPIO, PWM
+
+Test Case Table:
+| TestCase ID | SW-REQ        | Objective                              | Precondition         | Input           | Expected Result          | Pass/Fail          |
+|-------------|--------------|----------------------------------------|----------------------|-----------------|-------------------------|--------------------|
+| MOTOR-TC-01 | SWE-REQ-005  | Start sets direction, enable           | Initialized          | CW/CCW arg      | GPIO/PWM set correctly  | Functional         |
+| MOTOR-TC-02 | SWE-REQ-006  | Stop disables, resets direction        | Running              | Stop called     | enable=0, dir=OFF       | Defensive          |
+| MOTOR-TC-03 | SWE-REQ-007  | Motor disabled on init                 | --                   | Init sequence   | enable=0                | Startup            |
+| MOTOR-TC-04 | SWE-REQ-029  | Stops on error                         | Running              | Error event     | enable=0, dir=OFF       | Defensive          |
+
+-------------------------------------
+Unit: Feedback (ADC Acquisition & Mapping) Unit
+Responsibilities: ADC acquisition, mapping, error flag, valid range
+Allocated SW-REQs: SWE-REQ-008, SWE-REQ-009, SWE-REQ-010, SWE-REQ-016, SWE-REQ-026, SWE-REQ-031
+APIs: Feedback_PeriodicTask, Feedback_GetPosition, Feedback_IsValid
+Isolation: Mock ADC, StaticConfig
+
+Test Case Table:
+| TestCase ID | SW-REQ        | Objective                                  | Precondition         | Input           | Expected Result        | Pass/Fail          |
+|-------------|--------------|--------------------------------------------|----------------------|-----------------|-----------------------|--------------------|
+| FEED-TC-01  | SWE-REQ-008  | Reads ADC and updates raw and position     | Initialized          | in-range value  | Correct pos mapped    | Functional         |
+| FEED-TC-02  | SWE-REQ-009  | ADC threshold mapping checked each range   | --                   | all boundaries  | Mapped to right index | Boundary           |
+| FEED-TC-03  | SWE-REQ-010  | Out-of-range sets error flag               | --                   | OOR ADC value   | Error flag = 1        | Defensive/Error    |
+| FEED-TC-04  | SWE-REQ-026  | Uses static thresholds                     | StaticConfig mocked  | ADC scan        | Reads/static config   | Data Mapping       |
+
+-------------------------------------
+Unit: Indication (LED Management) Unit
+Responsibilities: Reflect power and position using LEDs, update on events
+Allocated SW-REQs: SWE-REQ-011, SWE-REQ-012, SWE-REQ-013, SWE-REQ-018, SWE-REQ-021, SWE-REQ-037, SWE-REQ-038
+APIs: IndicationLed_Update
+Isolation: Mock GPIO
+
+Test Case Table:
+| TestCase ID | SW-REQ        | Objective                                   | Precondition         | Input              | Expected Result                  | Pass/Fail      |
+|-------------|--------------|---------------------------------------------|----------------------|--------------------|----------------------------------|----------------|
+| IND-TC-01   | SWE-REQ-011  | Power LED ON/OFF by flag                    | --                   | sys_power 0/1      | power_led reflects input         | Functional     |
+| IND-TC-02   | SWE-REQ-012  | Only one position LED ON at a time          | --                   | pos_idx (0-5)      | Only one LED ON, others OFF      | Boundary       |
+| IND-TC-03   | SWE-REQ-038  | Error state and all LEDs OFF                | Error event          | pos_idx = invalid  | All LEDs OFF/indicate error      | Defensive      |
+
+-------------------------------------
+Unit: Static Configuration Unit
+Responsibilities: Provide static config data to other modules, tables only
+Allocated SW-REQs: SWE-REQ-026, SWE-REQ-027, SWE-REQ-028
+APIs: StaticConfig_GetThresholdMin, StaticConfig_GetThresholdMax, StaticConfig_GetPositionMap
+Isolation: No hardware needed
+
+Test Case Table:
+| TestCase ID | SW-REQ        | Objective                              | Precondition           | Input   | Expected Result             | Pass/Fail      |
+|-------------|--------------|----------------------------------------|------------------------|---------|----------------------------|----------------|
+| SCFG-TC-01  | SWE-REQ-026  | Thresholds/table correct values         | None                   | idx 0-5 | Returns correct static val | Table/Boundary |
+| SCFG-TC-02  | SWE-REQ-028  | Table is read-only at runtime          | Running                | --      | Data unchanged             | Defensive      |
+
+==============================
+TRACEABILITY TABLES
+==============================
+
+SW-REQ to Test Case Mapping
+| SW-REQ        | Unit                   | TestCase IDs                       |
+|---------------|-----------------------|------------------------------------|
+| SWE-REQ-001   | Command Handler       | CMDHND-TC-01                       |
+| SWE-REQ-002   | Command Handler       | CMDHND-TC-02, CMDHND-TC-03         |
+| SWE-REQ-003   | Flap Control          | FLAP-TC-01                         |
+| SWE-REQ-004   | Flap Control          | FLAP-TC-02                         |
+| SWE-REQ-005   | Motor Control         | MOTOR-TC-01                        |
+| SWE-REQ-006   | Motor Control         | MOTOR-TC-02                        |
+| SWE-REQ-007   | Motor Control         | MOTOR-TC-03                        |
+| SWE-REQ-008   | Feedback              | FEED-TC-01                         |
+| SWE-REQ-009   | Feedback              | FEED-TC-02                         |
+| SWE-REQ-010   | Feedback              | FEED-TC-03                         |
+| SWE-REQ-011   | Indication            | IND-TC-01                          |
+| SWE-REQ-012   | Indication            | IND-TC-02                          |
+| SWE-REQ-013   | Indication            | IND-TC-02                          |
+| SWE-REQ-015   | Command Handler       | CMDHND-TC-01                       |
+| SWE-REQ-016   | Feedback              | FEED-TC-01, FEED-TC-04             |
+| SWE-REQ-017   | Motor Control         | MOTOR-TC-01                        |
+| SWE-REQ-018   | Indication            | IND-TC-01, IND-TC-02               |
+| SWE-REQ-020   | Flap Control          | FLAP-TC-01                         |
+| SWE-REQ-021   | Indication            | IND-TC-02                          |
+| SWE-REQ-022   | Flap Control          | FLAP-TC-04                         |
+| SWE-REQ-023   | Flap Control          | FLAP-TC-01                         |
+| SWE-REQ-024   | Flap Control          | FLAP-TC-04                         |
+| SWE-REQ-025   | Motor Control         | MOTOR-TC-03                        |
+| SWE-REQ-026   | Static Config         | SCFG-TC-01                         |
+| SWE-REQ-027   | Command Handler       | CMDHND-TC-04                       |
+| SWE-REQ-028   | Static Config         | SCFG-TC-02                         |
+| SWE-REQ-029   | Flap Control, Motor   | FLAP-TC-03, MOTOR-TC-04            |
+| SWE-REQ-030   | Command Handler       | CMDHND-TC-03                       |
+| SWE-REQ-031   | Flap Control, Feedback| FLAP-TC-05, FEED-TC-03             |
+| SWE-REQ-037   | Indication            | IND-TC-01, IND-TC-02               |
+| SWE-REQ-038   | Indication            | IND-TC-03                          |
+
+Unit to Test Case Mapping
+| Unit                  | TestCase IDs                                        |
+|-----------------------|----------------------------------------------------|
+| Command Handler       | CMDHND-TC-01, CMDHND-TC-02, CMDHND-TC-03, CMDHND-TC-04 |
+| Flap Control          | FLAP-TC-01, FLAP-TC-02, FLAP-TC-03, FLAP-TC-04, FLAP-TC-05 |
+| Motor Control         | MOTOR-TC-01, MOTOR-TC-02, MOTOR-TC-03, MOTOR-TC-04        |
+| Feedback              | FEED-TC-01, FEED-TC-02, FEED-TC-03, FEED-TC-04           |
+| Indication            | IND-TC-01, IND-TC-02, IND-TC-03                          |
+| Static Config         | SCFG-TC-01, SCFG-TC-02                                   |
+
+==============================
+EXAMPLE UNIT TEST CODE STUB (C, using mocks)
+==============================
+// Example stub for Command Handler Unit
+#include "unity.h"
+#include "command_handler.h"
+void test_CommandHandler_ValidCommand(void) {
+    CommandHandler_Init();
+    CommandHandler_UartRxHandler('4');
+    int cmd = CommandHandler_GetValidCommand();
+    TEST_ASSERT_EQUAL(4, cmd);
+}
+void test_CommandHandler_InvalidCommand(void) {
+    CommandHandler_Init();
+    CommandHandler_UartRxHandler('x');
+    int cmd = CommandHandler_GetValidCommand();
+    TEST_ASSERT_EQUAL(CMD_INVALID, cmd);
+}
+// Add more tests using mock framework per table above
+
+==============================
+END OF UNIT TEST PLAN
+==============================
