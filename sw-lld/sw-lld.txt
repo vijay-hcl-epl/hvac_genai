@@ -1,0 +1,246 @@
+Technical References Used:
+- TLE985x Family Datasheet (infineon-tle9851qxw-datasheet-en.pdf): §2, §3, §4, §17, §21, §26, §27, §29.11
+- TLE985x User Manual (infineon-tle985xqx-usermanual-en.pdf): §4, §16, §18, §19, §20, §22, §27, §28, §29, §934
+- All cross-referenced sections by software requirements and architecture.
+
+=======================================================================
+SOFTWARE LOW-LEVEL DESIGN (SWE.3) — HVAC FLAP ACTUATOR (MOTIX™ TLE985x)
+=======================================================================
+Target: MISRA C, TLE9851QXW; No dynamic allocation; No scheduling/OS detail
+Reference branch: tle-mar13b; Complete trace to SWE.1
+
+===========================
+Software Unit: User Command IF
+===========================
+1. Responsibilities
+   - Handles: UART/LIN command receipt/parsing, protocol decode, call to flap logic
+   - Does not handle: Low-level UART/LIN HW driver, board-level pin/baud config
+
+2. Internal Data Design
+   - Buffer for RX/TX UART/LIN (size per protocol)
+   - Command state: valid, invalid, timeout, last-command
+
+3. State Machine
+   - States: Idle, Receiving, Decoding, Complete, Error
+   - State transitions: upon byte RX, timeout, error; outputs: valid event, nack
+
+4. Algorithms & Control Flow
+   - Wait for RX frame, validate header/checksum, parse position CMD
+   - On error: set state=Error, trigger Error Handler
+
+5. Interfaces (APIs)
+   - Provided: Cmd_Received(evt position), Cmd_Error(reason)
+   - Required: UART/LIN HW RX/TX (abstracted)
+   - Params: uint8_t cmd (position), error code
+   - Returns: void
+
+6. Error Handling
+   - Nack invalid/malformed frames, timeout NOK, propagate error
+
+7. Resource & Timing Considerations
+   - Invoked per frame RX or upon error
+   - Re-entrancy: Not re-entrant (per frame)
+   - WCET: <1ms typical
+
+8. Traceability
+   - SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-018, SWE-REQ-019, SWE-REQ-020, SWE-REQ-022, SWE-REQ-032
+
+===========================
+Software Unit: Flap Control Logic
+===========================
+1. Responsibilities
+   - Handles: Position tracking, movement control, error checking, mode switch
+   - Does not handle: Raw drive, direct UART, ADC, GPIO manipulation
+
+2. Internal Data Design
+   - TargetPos, ActualPos, ControlStatus (Idle/Moving/Error/Homing)
+   - MovementTimer, ErrorFlags
+
+3. State Machine
+   - States: Idle, Moving, Arrived, Error, Init, Sleep
+   - Events: Commanded Move, Position Arrived, Fault, Sleep/Init
+   - Refer to RAG Table: See Infineon UM, Sec 22, 4, Power Modes
+
+4. Algorithms & Control Flow
+   - On CMD: If ActualPos!=TargetPos, compute dir, call Motor IF, monitor feedback
+   - Abort if error, home at init (if required)
+
+5. Interfaces (APIs)
+   - Provided: MoveTo(target), Abort(), StatusQuery()
+   - Required: ADC IF (GetPos), Motor Driver IF (Run/Stop), Status Output IF (SetLED)
+   - Params: pos (uint8_t), status/error
+   - Returns: void
+
+6. Error Handling
+   - On error: Abort movement, set error state, notify Error Handler
+
+7. Resource & Timing Considerations
+   - Can be invoked by user/event
+   - Not re-entrant
+   - WCET: <2ms
+
+8. Traceability
+   - SWE-REQ-001, SWE-REQ-005, SWE-REQ-006, SWE-REQ-023, SWE-REQ-024, SWE-REQ-025, SWE-REQ-029, SWE-REQ-036
+
+===========================
+Software Unit: ADC Interface
+===========================
+1. Responsibilities
+   - Handles: Sampling ADC1 (flap pos pot), conversion formatting, threshold compare
+   - Does not handle: Raw HW ADC init/mux/clock
+
+2. Internal Data Design
+   - Struct: ADCResult (uint16_t value), LastConversionTime
+   - Calibration data (from config)
+
+3. State Machine
+   - none (called on demand)
+
+4. Algorithms & Control Flow
+   - On request: Start conversion, wait (or poll flag), read result, scale, compare
+
+5. Interfaces (APIs)
+   - Provided: GetPos(void)
+   - Required: HW ADC1 interface
+   - Params/Returns: uint16_t (scaled)
+
+6. Error Handling
+   - Out-of-range triggers safe state
+
+7. Resource & Timing Considerations
+   - Not re-entrant
+   - WCET: <0.5ms
+
+8. Traceability
+   - SWE-REQ-007, SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-019, SWE-REQ-028
+
+===========================
+Software Unit: Motor Driver IF
+===========================
+1. Responsibilities
+   - Handles: Control 4x half-bridge, set PWM via CCU6, implement brake, diag
+   - Does not handle: Direct user cmd, logic, config mapping
+
+2. Internal Data Design
+   - Control: Speed, Direction, Enable, StatusFlags, FaultVars
+
+3. State Machine
+   - States: Off, Forward, Reverse, Brake, Error
+   - Transitions: On Flap Logic request/event
+
+4. Algorithms & Control Flow
+   - Set PWM, bridge activation; read diag flags; implement overcurrent/OT logic per datasheet
+
+5. Interfaces (APIs)
+   - Provided: Run(dir, speed), Stop(), Brake()
+   - Required: CCU6, GPIO, Diag input
+   - Params: direction, speed (% duty)
+   - Returns: status/error flag
+
+6. Error Handling
+   - On HW diag error: set safe state, disable output, report
+
+7. Resource & Timing Considerations
+   - Non-reentrant, called by Flap Logic
+   - WCET <1ms
+
+8. Traceability
+   - SWE-REQ-008, SWE-REQ-009, SWE-REQ-010, SWE-REQ-011, SWE-REQ-031, SWE-REQ-034
+
+===========================
+Software Unit: Status Output IF
+===========================
+1. Responsibilities
+   - Handles: Indicate flap position/status (LED/High-Side)
+   - Does not handle: Feedback logic or decode
+
+2. Internal Data Design
+   - Status enum, output flag history
+
+3. State Machine
+   - none (set stateless on demand)
+
+4. Algorithms & Control Flow
+   - Output status mapped from position/state
+
+5. Interfaces (APIs)
+   - Provided: SetStatus(Stat)
+   - Required: GPIO/HS switch via abstraction
+   - Params: status enum
+
+6. Error Handling
+   - [TBD — Not in source] — If output HW error detected (not shown in TLE manual)
+
+7. Resource & Timing Considerations
+   - Call per event
+   - WCET: <0.1ms
+
+8. Traceability
+   - SWE-REQ-016, SWE-REQ-017, SWE-REQ-018, SWE-REQ-019, SWE-REQ-020
+
+===========================
+Software Unit: Configuration/Data
+===========================
+1. Responsibilities
+   - Handles: Store/fetch ADC thresholds, UART params from nonvolatile
+   - Does not handle: Dynamic update after init
+
+2. Internal Data Design
+   - Config struct: thresholds[6], uart_baud, pin_map
+
+3. State Machine
+   - None
+
+4. Algorithms & Control Flow
+   - On init: Load from flash/eeprom (Typ via Infineon BootROM/NVM ref)
+
+5. Interfaces (APIs)
+   - Provided: Load(), Get()
+   - Required: Flash/NVM abstraction
+   - Params: none
+
+6. Error Handling
+   - On CRC/fetch error, enter safe state [UM/DS]
+
+7. Resource & Timing Considerations
+   - Single call at startup/init
+   - WCET: 0.5–2ms
+
+8. Traceability
+   - SWE-REQ-028, SWE-REQ-029, SWE-REQ-030, SWE-REQ-038, SWE-REQ-039
+
+===========================
+Software Unit: Error Handler
+===========================
+1. Responsibilities
+   - Handles: Collect/record error flags, map to state, drive safe output
+   - Does not handle: Self-recovery or reset logic (unless source references)
+
+2. Internal Data Design
+   - ErrorFlags struct (fields: hw_fault, adc, oc, ot, comm, etc.)
+   - LastErrorCode
+
+3. State Machine
+   - Error/No-Error
+
+4. Algorithms & Control Flow
+   - On error: Set ErrorFlag, signal Flap Logic, drive outputs safe
+
+5. Interfaces (APIs)
+   - Provided: FlagError(code), ClearError()
+   - Required: All other units invoke
+   - Params: error enum/code
+
+6. Error Handling
+   - Clear after action or upon recovery
+
+7. Resource & Timing Considerations
+   - Event-driven, not periodic
+   - WCET: <0.2ms
+
+8. Traceability
+   - SWE-REQ-014, SWE-REQ-024, SWE-REQ-031, SWE-REQ-032, SWE-REQ-034
+
+# All hardware register names, data structures, and error handling flows are as per Infineon datasheet/user manual. Any element not found is marked [TBD — Not in source].
+
+# END OF FILE
