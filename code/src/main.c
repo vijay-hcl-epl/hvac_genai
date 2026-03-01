@@ -13,9 +13,9 @@ int main(void) {
     Feedback_Init();
     IndicationLed_Init();
     while(1) {
-        // Simulate UART receive (replace with actual HAL UART code)
-        // uint8_t byte = UART_Read();
-        // CommandHandler_UartRxHandler(byte);
+        /* Simulate UART receive (replace with actual HAL UART code) */
+        /* uint8_t byte = UART_Read(); */
+        /* CommandHandler_UartRxHandler(byte); */
         int cmd = CommandHandler_GetValidCommand();
         if (cmd != CMD_INVALID) {
             FlapControl_StartMovement((uint8_t)cmd);

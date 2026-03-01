@@ -6,7 +6,7 @@ void CommandHandler_Init(void) { valid_command_flag = 0; command_position_idx = 
 void CommandHandler_UartRxHandler(uint8_t data) {
     if((data >= '0') && (data <= '5')) {
         valid_command_flag = 1;
-        command_position_idx = data - '0';
+        command_position_idx = (int)(data - (uint8_t)'0'); /* MISRA: Added explicit casts to avoid type mismatch */
     } else {
         valid_command_flag = 0;
     }

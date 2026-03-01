@@ -20,10 +20,10 @@ void FlapControl_PeriodicTask(void) {
     if (!Feedback_IsValid()) {
         MotorControl_Stop();
         state = FLAP_ERROR;
-        IndicationLed_Update(1, 0xFF);
+        IndicationLed_Update(1U, 0xFFU); /* MISRA: Use of '1U' and '0xFFU' for unsigned literals */
     } else if ((state == FLAP_MOVING) && (current_position == target_position)) {
         MotorControl_Stop();
         state = FLAP_IDLE;
-        IndicationLed_Update(1, current_position);
+        IndicationLed_Update(1U, current_position);
     }
 }
