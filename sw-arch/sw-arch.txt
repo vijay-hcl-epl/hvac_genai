@@ -1,0 +1,87 @@
+# HVAC Flap Actuator System – Software Architecture (SWE.2)
+
+## 1. Introduction
+This document defines the software architecture for the HVAC Flap Actuator system. The architecture is strictly derived from the system and software requirements located at `sys-reqs/sys-reqs.txt` and `sw-reqs/sw-reqs.txt` on branch `new-t2` of the repository `vijay-hcl-epl/hvac_genai`. All decisions are justified and traceable to SWE.1 requirements. No assumptions are introduced beyond what is stated in the requirements.
+
+## 2. Candidate Architectures
+
+### 2.1 Layered Architecture
+**Pros:** Clear separation of concerns; facilitates testability and maintainability; aligns well with ASPICE Level 3; simple mapping to requirements and interfaces.
+**Cons:** May add overhead for extremely simple systems.
+
+### 2.2 Monolithic Architecture
+**Pros:** Simple; minimal abstraction; direct mapping to microcontroller functions.
+**Cons:** Reduces modularity and maintainability; hinders testability and traceability demanded by ASPICE Level 3.
+
+### 2.3 Component-based Architecture
+**Pros:** High modularity; explicit interfaces; supports upgradability and maintainability.
+**Cons:** Can be unnecessarily complex for single-purpose, tightly-integrated demo systems.
+
+## 3. Architecture Selection and Justification
+
+**Selected Style:** Layered/Component-based hybrid (modular units, logical layering)
+
+**Justification:**
+- Requirements specify separation of concerns (SWE-REQ-047, SWE-REQ-054, SWE-REQ-055)
+- Testability and maintainability are ASPICE Level 3 expectations
+- All interfaces are local, simple, and support modular realization
+- Single actuator, user interface, and indicators mapped to distinct responsibilities
+- No concurrency, scheduling, or RTOS layer required; flow is event-driven, single-threaded
+- Direct mapping from component responsibilities to requirements and interfaces
+
+## 4. Architecture Overview
+
+### 4.1 High-Level Diagram (Textual)
+
+```
++----------------+        +---------------------+        +--------------------+
+|  User Command  |<-----> |    Flap Actuator    |<-----> |   Motor Driver/    |
+|    Handling    |        |    Control Logic    |        |  Position Feedback |
++----------------+        +---------------------+        +--------------------+
+         |                        |                               |
+         v                        v                               v
++-----------------+      +---------------------+         +-------------------+
+| Status Indicate |      | Calibration Data    |         | Error Handling /  |
+| (LEDs)         |      | & Static Config     |         | Safety Monitor    |
++-----------------+      +---------------------+         +-------------------+
+```
+
+
+### 4.2 Software Units, Responsibilities & Interfaces
+
+| Unit Name             | Responsibilities                                                     | Interfaces Provided                 | Interfaces Used          |
+|----------------------|---------------------------------------------------------------------|-------------------------------------|-------------------------|
+| User Command Handler | Receive+parse UART commands; validate/queue/manage single command    | UART Command API                    | UART, Control Logic     |
+| Flap Control Logic   | Command processing, position target logic, invoking motor ops        | Flap Positioning API                | User Cmd, Motor Control, Feedback, LEDs, Calibration, Safety |
+| Motor Control Driver | Motor direction & enable/disable (GPIO/PWM)                         | Motor Driver API                    | Control Logic           |
+| Feedback Processing  | Acquire & process ADC feedback; map ADC to position                 | Position Feedback API                | ADC, Calibration, Control Logic |
+| Status Indication    | Manage LED output for power/position                                | Status Indicator API                 | Control Logic           |
+| Calibration/Config   | Hold ADC thresholds, flap positions, static settings                | Read-only Configuration API          | All units (read only)   |
+| Error/Safety Monitor | Detect out-of-range feedback/input, trigger motor-off, enforce safe | Error Handling API                   | Control Logic, Feedback |
+
+## 5. Interface and Unit Mapping Table
+
+| Software Unit        | Responsibilities                                | Interfaces Provided     | Interfaces Used                |
+|---------------------|-------------------------------------------------|------------------------|-------------------------------|
+| User Command Handler| UART command acquisition & parsing, validation  | Command API            | UART, Control Logic           |
+| Flap Ctrl Logic     | Command interpretation, target mgmt, invoke act | Flap API               | Command API, Feedback API, Motor API, Status API, Config API, Error API |
+| Motor Ctrl Driver   | GPIO/PWM for direction and enable, state mgmt   | Motor Driver API       | Ctrl Logic                    |
+| Feedback Proc.      | Read ADC, convert to logical position           | Position Feedback API  | ADC, Config API, Ctrl Logic   |
+| Status Indication   | Control LEDs for power and position             | Status Indicator API   | Ctrl Logic                    |
+| Calibration/Config  | Static data: thresholds, n positions            | Static Data API        | Read-only by all units        |
+| Error/Safety Mon.   | Out-of-range checks, safe state enforcement     | Error Handling API     | Feedback, Ctrl Logic          |
+
+## 6. Execution/Scheduling Model
+
+No explicit execution model or scheduling policy is mandated by the requirements at this stage. No concurrency or RTOS features are justified. The architecture is suitable for single-threaded main-loop/event-driven realization on a microcontroller.
+
+## 7. Architecture Constraints and Traceability
+
+- Strict traceability: All units and interface definitions are mapped to explicitly stated SWE.1 requirements (see table/unit descriptions).
+- No change to system behavior introduced.
+- No safety, security, or functional mechanisms added unless present in requirements.
+- No code-level, algorithm, or microcontroller implementation details defined here.
+
+## 8. Conclusion
+
+This architecture, derived entirely from SWE.1 and System requirements, emphasizes modularity, testability, and maintainability suited to ASPICE Level 3 and project educational aims, with minimum complexity and no introduced assumptions.
