@@ -1,0 +1,68 @@
+# Software Architecture – HVAC Flap Actuator Demo
+
+## 1. Introduction / Purpose
+This architectural document describes the logical structure and major software units for the HVAC Flap Actuator demonstration project (see requirements SW-REQ-001 to SWE-REQ-040). Its purpose is to:
+- Ensure responsibility separation in code.
+- Provide traceability for ASPICE SWE.2 standards.
+- Serve as a baseline for design, implementation, and review.
+
+No architectural choices or patterns are implied that have not been mandated by requirements. This does not prescribe execution models, scheduling, or real-time OS usage.
+
+## 2. Candidate Architecture Styles Considered
+- Monolithic C main-loop (single-file demo)
+- Layered: decoupled User Cmd Handler, Position Ctrl Logic, Motor Ctrl, Feedback Acq, Status/LEDs, Config/Data
+- Modular/Componentized: Each function as a unit with clear interfaces
+
+## 3. Style Evaluation & Chosen Structure
+Layered/componentized was selected, justified by:
+- Clear traceability to requirements-allocated responsibilities
+- Testability, maintainability, and simplicity for a learning context
+- Easiest path for reviewing separation of concerns, and for demonstration
+- No explicit need for RTOS/ISR/Multi-tasking — all duties can be performed in a cyclic or cooperative main loop, per reqs.
+
+## 4. System Units and Responsibilities
+| Unit                  | Responsibilities                        | Interfaces Provided        | Interfaces Used                 | Allocated SWE-REQs |
+|-----------------------|-----------------------------------------|---------------------------|----------------------------------|--------------------|
+| User Cmd Handler      | UART rx parsing, cmd validation, routing | CMD_IF (UART)             | DATA_IF, CTRL_IF                 | 016-019,029,037    |
+| Position Ctrl Logic   | Target/actual cmp, set direction, ctrl  | CTRL_IF                   | DATA_IF, MOTOR_IF, ERR_IF        | 001-006,025-028    |
+| Motor Ctrl            | Drive enable/disable, dir GPIO/PWM      | MOTOR_IF                  | CTRL_IF, GPIO/PWM_IF             | 007-012,034        |
+| Feedback Acq Proc    | ADC read, map, filter, status valid      | DATA_IF                   | ADC_IF, CONF_IF, ERR_IF          | 012-015,032        |
+| Status/LED Indicator  | LED logic, state display                | LED_IF                    | DATA_IF, GPIO_IF                 | 020-022,038        |
+| System Config/Data    | Static cal, ranges, assignment tables    | CONF_IF                   | N/A                              | 006,032,037        |
+
+## 5. High-Level Architecture Diagram (text/ASCII)
+
+[PC]
+ |   (UART:CMD_IF)
+[UserCmdHandler]---->
+                     | CTRL_IF:
+                [PositionCtrlLogic]
+                     | MOTOR_IF:
+                [MotorCtrl]---(GPIO/PWM)-->[MotorDriver/DC Motor]
+                     | DATA_IF:
+                [FeedbackAcqProc]---(ADC_IF)-->[Potentiometer/ADC]
+                     | LED_IF:
+                [StatusLEDIndicator]----(GPIO_IF)---->[LEDs]
+                  | CONF_IF
+                [SystemConfigData]
+
+## 6. Unit Interface Matrix
+- CMD_IF: API for RX UART commands
+- CTRL_IF: API for position ctrl requests and status
+- MOTOR_IF: Motor drive instructions
+- DATA_IF: Potentiometer value(s), logical position
+- LED_IF: Current position/state to indicator logic
+- CONF_IF: Static config lookups
+- ERR_IF: Simple error code(s), status
+
+## 7. Architectural Mapping to SW Requirements
+- All main modules mapped to unique sets of SWE-REQs above; see table in section 4 for allocation.
+
+## 8. Non-Selections
+- No RTOS, timer interrupts, state machine patterns mandated by requirements.
+- No hardware test hooks, logging, HIL, SIL, diagnostics, or networking.
+
+## 9. Extensibility Notes (Descriptive Only)
+- More positions, calibration, alternate indicator patterns, or other future learning features can be easily added by expanding table in SystemConfigData and updating logic in handlers.
+
+# END
