@@ -1,0 +1,81 @@
+# 1.0 System Overview
+
+The HVAC Flap Actuator System regulates airflow within a Heating, Ventilation, and Air Conditioning unit by controlling the position of an air inlet/outlet flap. This system reacts to user commands, acquires real-time flap position via a potentiometric feedback system, controls a DC motor for positioning, and provides user feedback via LEDs and UART, enabling learning and demonstration of automotive system engineering processes.
+
+# 2.0 Flap Position Control Requirements
+
+SYS-REQ-001: The system shall allow selection of a target flap position based on discrete user commands via the command interface.
+SYS-REQ-002: The system shall compare actual flap position with the target position at a rate sufficient for visible responsiveness. [Implied]
+SYS-REQ-003: The system shall drive the flap via the motor such that the actual position approaches the target within the physical and electrical limits of the actuator.
+SYS-REQ-004: The system shall hold the flap at the most recently commanded position unless a new user command is received.
+
+# 3.0 Motor Control Requirements
+
+SYS-REQ-005: The system shall provide control signals for forward and reverse motion of the DC motor based on the required direction for flap positioning.
+SYS-REQ-006: The system shall enable the motor only during active repositioning, disabling it when the target position is achieved or at rest.
+SYS-REQ-007: The system shall stop the motor if a mechanical end-stop or positional limit is detected.
+
+# 4.0 Position Feedback Acquisition and Processing
+
+SYS-REQ-008: The system shall acquire analog feedback from a potentiometer connected to the flap shaft to determine its actual position.
+SYS-REQ-009: The system shall use an ADC to convert the potentiometer voltage to a digital value.
+SYS-REQ-010: The system shall map ADC values to logical flap positions as defined in system configuration.
+SYS-REQ-011: The position acquisition and mapping shall be accurate enough to visibly reflect each position change on indicator LEDs. [Implied]
+
+# 5.0 User Command Interface Requirements
+
+SYS-REQ-012: The system shall receive user commands via UART.
+SYS-REQ-013: The system shall validate user commands as per defined protocol.
+SYS-REQ-014: The system shall reject and safely ignore invalid or out-of-sequence user commands, preserving the previous target position.
+
+# 6.0 Status Indication Requirements
+
+SYS-REQ-015: The system shall indicate power or status using a dedicated LED indicator.
+SYS-REQ-016: The system shall use one or more LEDs to indicate the current flap position.
+
+# 7.0 System Behavioral Requirements
+
+SYS-REQ-017: The system shall perform initial position determination and all necessary initializations on power-up.
+SYS-REQ-018: During idle state, the system shall minimize energy usage and avoid unnecessary actuator movement. [Implied]
+SYS-REQ-019: The system shall accurately drive the flap to requested positions in normal operation.
+SYS-REQ-020: The system shall confirm and hold the target position; any deviation shall trigger repositioning attempts or diagnostics. [Implied]
+SYS-REQ-021: The system shall safely handle invalid/unrecognized inputs or failures by halting movement and providing a status indication.
+
+# 8.0 System Interface Requirements
+
+SYS-REQ-022: The system shall interact with a UART transceiver for command exchange with the user/test interface.
+SYS-REQ-023: The system shall provide output signals suitable for the connected DC motor driver circuit.
+SYS-REQ-024: The system shall receive potentiometer signals and interface with the ADC for position feedback.
+SYS-REQ-025: The system shall provide drive signals for status and position indicator LEDs.
+
+# 9.0 Constraints and Assumptions
+
+SYS-REQ-026: The system shall operate within the input voltage, environment, and load constraints specified by the demonstration setup.
+SYS-REQ-027: No external safety, cyber, or placeholder/mechanical device is assumed unless specified in the demonstration platform description. [Implied]
+
+# 10.0 Non-Functional Requirements
+
+## 10.1 Responsiveness Expectations
+SYS-REQ-028: The system shall provide visible feedback or observable position changes to user commands within a reasonable demonstration interval, typically under 2 seconds. [Implied] (No fixed minimum or maximum timing requirements are specified unless provided by the demonstrator.)
+
+## 10.2 Error Handling and Edge Cases
+SYS-REQ-029: The system shall ignore and indicate any command or feedback outside the defined range as an error condition.
+SYS-REQ-030: The system shall ensure the actuator never drives the motor past its mechanical end stops. [Implied]
+SYS-REQ-031: The system shall maintain predictable, bounded behavior in the presence of unexpected conditions (e.g., power loss, miswiring). [Implied]
+
+## 10.3 Resource Constraints
+SYS-REQ-032: The implementation shall be lightweight in resource usage, reflecting an embedded learning/demonstration system. [Implied]
+
+## 10.4 Maintainability and Modularity
+SYS-REQ-033: The system shall separate the functions of position control, user interface, feedback processing, and indication to promote ease of understanding. [Implied]
+
+## 10.5 Testability
+SYS-REQ-034: The system shall provide observable behaviors (position, status indication, command interface) supporting both manual and automated testing approaches. [Implied]
+
+# 11.0 Architecture-Relevant Considerations Derived from System Requirements
+
+- All system responsibilities can be logically separated into position control, motor control, feedback acquisition/processing, user command handling, and user feedback/indication.
+- No explicit requirement for concurrent or multi-threaded operation; responsibilities can be handled sequentially or otherwise based entirely on implementation choice.
+- Control loop frequency, execution order, or background/foreground distinction is not mandated; only responsiveness and correctness of reaction must be met.
+- There are no complex, real-time, or safety-critical behaviors; primary system expansion involves adding commands or feedback types, not changing the underlying control/data structure.
+- All decisions regarding architecture (layering, modularity, separation of concerns) may be guided to maximize maintainability, clarity, and reuse for a learning or demo scenario, not for production safety or scalability.
