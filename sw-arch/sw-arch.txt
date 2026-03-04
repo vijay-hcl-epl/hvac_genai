@@ -1,92 +1,88 @@
-# Software Architecture for HVAC Flap Actuator System
+# Software Architecture: HVAC Flap Actuator System (Branch: demo-43b)
 
-## 1. Introduction
-This document presents the high-level software architecture for the HVAC Flap Actuator, derived from the system and software requirements (sys-reqs.txt, sw-reqs.txt). The design enables maintainability, traceability, and independent verification.
+## 1. Architecture Derivation and Style Evaluation
 
-## 2. Architecture Style and Rationale
-- The architecture uses a layered/component-based model to maximize modularity, testability, and mapping to ASPICE.
-- Core system responsibilities (command parsing, position acquisition, actuation, feedback, and indication) are isolated in independent software units.
-- Scheduler/execution model is not prescribed; event-driven or polling may be used.
+### Candidate Styles Considered
+- **Monolithic**: All logic in a single control loop or function block/lightweight superloop.
+- **Layered**: Separates interface, control logic, hardware abstraction, and low-level drivers.
+- **Component-Based**: Segments by major domain function, with well-defined interfaces between components (e.g., Command Handler, Motor Control, Feedback Processor, Indication Controller).
 
-## 3. High-Level Diagram (Textual)
+### Evaluation Criteria
+- **System Complexity**: Simple, single-actuator scope; no multitasking or dynamic allocation.
+- **Hardware Interaction**: Requires explicit demarcation – UART, GPIO/PWM, ADC; isolated hardware domains.
+- **Testability**: Must observe all functions via UART/LED; clear-state separation needed.
+- **Maintainability**: System should be easy to extend to new feedback/indication strategies or alternate commands.
+- **ASPICE Level-3**: Traceable, modular, transparent interfaces; separation of responsibilities without unneeded complexity.
+
+### Selected Style & Justification
+A **component-based, layered architecture** is chosen, combining clear logical separation (by domain responsibility) with a simple control and interface flow. This offers modularity (tracing to SWE.1), testability, and engineering clarity, avoiding the downsides of a flat monolith (poor traceability, hard to maintain) or a full deep-layered approach (overkill for scope).
+
+## 2. Architecture Overview
+Textual diagram (see legend below):
+
 ```
-+-----------------------------+
-|       User Command Parser   |
-+-------------+---+-----------+
-              | UART RX
-              v
-+-------------+--------------+
-|      Position Control      |
-+------+------+-------------+
-       |      | ADC Read
-       v      v
-  Feedback  Motor Control
- Acquisition    |
-   |           |
-   +----+------+------+
-        |             |
-        v             v
-   Status Indication  |
-        |         System Data/Config
++-------------------+
+| User Command Hdlr |
++-------------------+
+         |
+   [Target Position]
+         v
++-------------------------+
+| Position Control Logic  |
++-------------------------+
+    |              |
+ [To Motor]     [To Feedback]
+    v              v
++-------------+  +-------------------+
+| Motor Ctrl  |  | Feedback Acq/Proc |
++-------------+  +-------------------+
+         |                |
+      [GPIO/PWM]       [ADC]
+         v                v
+    [Motor Driver]   [Potentiometer]
+
++----------------+
+| Status/LED Ind |
++----------------+
+         ^
+   [Position, Pwr]
+         |
++-------------------+
+| System Data/Conf. |
++-------------------+
 ```
 
-## 4. Software Units and Responsibilities
+### Legend
+- Rectangles: Software Units
+- Arrows: Information/control flow
+- Text in brackets: Key interface data
 
-### 4.1 User Command Parser
-- Receives and parses UART data
-- Validates command values (0–5)
-- Forwards valid position requests
+## 3. Software Units, Responsibilities, and Interfaces
 
-### 4.2 Position Control Logic
-- Compares commanded target position with actual
-- Initiates movement via Motor Control
-- Holds state when at target
-- Invokes Feedback Acquisition
+| Software Unit            | Responsibilities                                                                                                                   | Interfaces Provided                        | Interfaces Used                      |
+|-------------------------|-------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------|--------------------------------------|
+| User Command Handler    | Receive/validate UART commands; check allowed values                                                                               | Target position (to Position Ctrl Logic)    | UART RX                              |
+| Position Control Logic  | Compare target/current; coordinate motor actuation; manage actuation states                                                        | Motor commands (to Motor Ctrl), LED update | Target/Current position from Feedback |
+| Motor Control           | Drive motor via GPIO/PWM; enforce exclusive direction; safe-stop on error/target reached                                           | Hardware motor signals                     | Motor commands from Control Logic     |
+| Feedback Acquisition & Processing | Acquire/sanitize ADC; map to position indices; filter signals; check validity                                      | Current position (to Control Logic/Ind)     | ADC input                            |
+| Status/LED Indication   | Power/status and position LED control; update on changes                                                                           | Visual state                               | Position info from Ctrl/Feedback      |
+| System Config/Data      | Store config (ADC ranges, state vars); provide shared access to position/command data                                              | Internal state                             | All                                  |
 
-### 4.3 Motor Control
-- Enables/disables motor (PWM/GPIO)
-- Sets direction
-- Stops on target match or error
+## 4. Interface and Execution Model Considerations
+- Interfaces are function calls or logical message-passing within microcontroller code.
+- Hardware-layer access (ADC, UART, GPIO) is strictly isolated within each hardware-facing unit.
+- All state flows through System Config/Data.
+- **No explicit execution model or scheduling policy is mandated by the requirements at this stage.** (Polling or event-driven dispatch is an implementation detail, not architecturally required or justified by SWE.1/requirements.)
 
-### 4.4 Feedback Acquisition
-- Reads ADC value from potentiometer
-- Maps ADC to logical positions (0–5)
-- Filters out-of-range readings
+## 5. Architecture Constraints & Traceability
+- All defined units are directly traceable to one or more SWE.1 requirements (see user command, control, feedback, motor, LED, state/data units).
+- No new requirements, behaviors, or side-effects are introduced.
+- No safety/cybersecurity/diagnostics logic is present.
+- No code, implementation algorithms, or detailed data shapes are included.
 
-### 4.5 Status Indication
-- Drives power LED
-- Indicates current position using green LEDs
-- Only one position LED active at a time
+## 6. Change/Extension Implications
+- Adding further positions/actuators: extend Feedback/Motor, update mapping/config unit.
+- Changing user interface: replace/augment User Command Handler; rest unchanged.
+- Introducing RTOS/concurrency: revisit only if justified by new requirements.
 
-### 4.6 System Config/Data
-- Stores calibration ranges, pin configs
-- No dynamic calibration; all values are static
-
-## 5. Data Flow and Interfaces
-- UART RX → User Command Parser
-- User Command Parser → Position Control
-- Position Control ↔ Feedback Acquisition (invoked/read)
-- Position Control → Motor Control (move/stop)
-- Position Control → Status Indication (LED update)
-- All modules access System Config/Data as needed
-
-## 6. Rationale, Exclusions, and Non-Functional Coverage
-- No requirement for multi-actuator support (single instance)
-- No CAN/LIN/UDS or network external interface
-- No RTOS, watchdog, or advanced error handling mandated
-- Each block can be unit tested in isolation or via integration
-
-## 7. Mapping and Traceability
-- User Command Parser (SWE-REQ-001, SWE-REQ-002, SWE-REQ-011)
-- Position Control (SWE-REQ-003, SWE-REQ-004, SWE-REQ-005, SWE-REQ-008)
-- Motor Control (SWE-REQ-006, SWE-REQ-007, SWE-REQ-014)
-- Feedback Acquisition (SWE-REQ-004, SWE-REQ-005, SWE-REQ-008)
-- Status Indication (SWE-REQ-009, SWE-REQ-010, SWE-REQ-012)
-- System Config/Data (SWE-REQ-015, SWE-REQ-017, SWE-REQ-020)
-- All modules respect SWE-REQ-018, SWE-REQ-019, SWE-REQ-021, SWE-REQ-022
-
-## 8. No Architectural or Scheduling Mandates
-- The architecture does not introduce OS, foreground/background, or interrupt-driven logic unless stated in requirements
-- Polling or event-driven dispatch is implementation detail
-
-# End of Software Architecture
+# END OF SOFTWARE ARCHITECTURE DOCUMENT
