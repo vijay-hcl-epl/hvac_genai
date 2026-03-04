@@ -1,0 +1,110 @@
+# 1.0 Low-Level Design (LLD) for HVAC Flap Actuator Software
+
+## 1.1 Purpose and Scope
+This document details the SWE.3 low-level design for each software unit in the HVAC Flap Actuator, as identified in SWE.2. The design meets all atomic responsibilities, interface boundaries, and non-functional requirements of the SWE.1 and SWE.2 artifacts.
+
+# 2.0 LLD by Software Unit
+
+## 2.1 CommandHandler
+- **Responsibilities:** Process UART commands, validate position, update the target position, suppress invalid/out-of-range commands.
+- **Internal Data:** UART receive buffer, parsed command variable, validated target position.
+- **Functions:**
+    - `UART_RX_Handler()`: Interrupt/callback for UART bytes
+    - `ParseCommand(buffer)`: Converts input to target
+    - `SetTargetPosition(pos)`: Passes validated target to FlapControlLogic
+- **Error Handling:** Ignore or discard invalid and out-of-range input.
+- **State:** Stateless except for last parsed valid command.
+- **Trace:** SWE-REQ-001,002,003,004,005,026
+
+## 2.2 FlapControlLogic
+- **Responsibilities:** Compare requested vs. actual position, decide direction/movement, implement overshoot protection, call MotorDriver routines.
+- **Internal Data:** Current position, target position, movement state (idle/moving/at_target).
+- **Functions:**
+    - `UpdatePosition()`: Receives current position
+    - `DriveFlap()`: Determines direction, invokes MotorDriver
+- **Error Handling:** Calls ErrorHandler on illegal transitions or invalid states.
+- **State:** Holds current and target position; manages simple state machine (idle/moving/at_target).
+- **Trace:** SWE-REQ-006,007,008,009,039,042
+
+## 2.3 MotorDriver
+- **Responsibilities:** Enable/disable H-bridge, set GPIO for direction/enable, safety stops.
+- **Internal Data:** Output GPIO state, enable flag.
+- **Functions:**
+    - `EnableMotor(direction)`: Drives GPIO/PWM
+    - `DisableMotor()`: Turns off all motor drives
+- **Error Handling:** Shuts motor on invalid feedback or error.
+- **State:** Controls no persistent state outside hardware outputs.
+- **Trace:** SWE-REQ-011,012,013,014,015,028
+
+## 2.4 PositionFeedback
+- **Responsibilities:** Acquire ADC reading, convert to position by configured ranges, detect invalid readings.
+- **Internal Data:** Latest ADC value, configured ADC-to-position map.
+- **Functions:**
+    - `SampleADC()`: Grabs current value
+    - `GetCurrentPosition()`: Computes logical position
+- **Error Handling:** Notifies ErrorHandler if ADC out-of-bound.
+- **State:** Holds most recent sample and last-computed logical position.
+- **Trace:** SWE-REQ-016,017,018,019,020,027
+
+## 2.5 StatusIndicator
+- **Responsibilities:** Control status/power/position LEDs from current state.
+- **Internal Data:** GPIO LED map, current LED state.
+- **Functions:**
+    - `UpdateLEDs(logical_position, power_state)`: Sets LED outputs
+- **Error Handling:** Turns OFF all LEDs on error/invalid positions.
+- **State:** Holds latest output indicator map.
+- **Trace:** SWE-REQ-021,022,023,024,025,029
+
+## 2.6 ErrorHandler
+- **Responsibilities:** Enter/leave software safe state, restore normal operation on valid command.
+- **Internal Data:** Error state flag.
+- **Functions:**
+    - `EnterSafeState(reason)`: Disables all movement, shuts motor
+    - `ResetError()`: Clears safe state upon valid system state
+- **Error Handling:** Processes errors from ADC/command/motor, ensures bounded and recoverable error behavior.
+- **State:** Maintains error flags until reset.
+- **Trace:** SWE-REQ-044,045,046,047
+
+# 3.0 Data Design and State Machines
+- All persistent data is statically allocated.
+- Position/state update logic is minimal, strictly mapped to status/indicator changes and explicit user action.
+- No dynamic memory/allocation; no queues/threads/events.
+- State machines: FlapControlLogic—(Idle, Moving, AtTarget), resettable by valid command or on error recovery.
+
+# 4.0 Interfaces and API Summary
+- Only C function APIs exposed between software units as per section 2.0 above.
+- All inter-unit interaction is via direct calls and statically held data or pointers.
+- No OS abstraction or ISR/RTOS dependencies specified; will be wired in integration.
+
+# 5.0 Error Handling Policy
+- Each module suppresses, discards, or safely halts on invalid or ambiguous input.
+- ErrorHandler enters/clears safe state as triggered and notifies other units as needed.
+- System always remains receptive to further user commands after error recovery.
+
+# 6.0 Resource Use, Timing, and Constraints
+- No dynamic or heap memory used.
+- All execution is expected to complete in bounded time per atomic operation.
+- All ADC, UART, and GPIO accesses are direct and minimally abstracted.
+
+# 7.0 Observability and Testability
+- All states and transitions trigger corresponding status/LED/GPIO observables at each significant event.
+- UART command and response cycle is preserved for test validation.
+
+# 8.0 Glossary/Definitions
+- H-Bridge: Motor driver power output circuit.
+- Logical Position: Mapped state from ADC for 0-5 position values.
+
+# 9.0 Traceability Matrices
+## 9.1 SWE.1 to LLD Section Traceability
+| SWE-REQ | Unit                |
+|---------|---------------------|
+| 001-005,026 | CommandHandler    |
+| 006-009,039,042 | FlapControlLogic |
+| 011-015,028 | MotorDriver      |
+| 016-020,027 | PositionFeedback |
+| 021-025,029 | StatusIndicator  |
+| 044-047     | ErrorHandler     |
+
+# 10.0 Exclusions
+- No RTOS, super-loop, cyclic behavior, tasks, threads, OS, queues, dynamic scheduling, or multi-core schemes are in scope.
+- No safety integrity, diagnostics, cybersecurity, or automotive networking logic is present in LLD.
