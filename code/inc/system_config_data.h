@@ -1,10 +1,13 @@
 #ifndef SYSTEM_CONFIG_DATA_H
 #define SYSTEM_CONFIG_DATA_H
 #include <stdint.h>
+#define SYSTEM_POSITION_COUNT 5
 
-#define FLAP_POSITIONS 6
-
-extern const uint16_t adc_thresholds[FLAP_POSITIONS+1];
-extern const uint8_t led_pin_map[FLAP_POSITIONS];
+// Position ADC thresholds for mapping
+struct {
+    const uint8_t position_adc_thresholds[SYSTEM_POSITION_COUNT];
+} SystemConfigData = {
+    {52, 104, 156, 208, 255}
+};
 
 #endif // SYSTEM_CONFIG_DATA_H

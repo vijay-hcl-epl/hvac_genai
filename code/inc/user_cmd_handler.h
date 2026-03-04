@@ -5,6 +5,6 @@
 
 void UserCmdHandler_Process(uint8_t rx_byte);
 uint8_t UserCmdHandler_GetTarget(void);
-bool UserCmdHandler_HasNewTarget(void);
+bool UserCmdHandler_CommandInProgress(void);
 
 #endif // USER_CMD_HANDLER_H

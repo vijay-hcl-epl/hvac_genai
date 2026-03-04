@@ -1,11 +1,9 @@
 #include "status_led_indication.h"
-#include "system_config_data.h"
-#include <stdint.h>
-
+#include <stdio.h> // demo stub
 void StatusLED_Set(uint8_t pos) {
-    // Pseudo-code: set LEDs using led_pin_map
+    // Set corresponding LED out of N positions
+    // printf("Set LED for position: %d\n", pos);
 }
-
 void StatusLED_ShowPower(bool on) {
-    // Pseudo-code: control power LED
+    // printf("Show Power LED: %d\n", on);
 }
