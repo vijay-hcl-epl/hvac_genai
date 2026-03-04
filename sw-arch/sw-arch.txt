@@ -1,0 +1,92 @@
+# Software Architecture for HVAC Flap Actuator System
+
+## 1. Introduction
+This document presents the high-level software architecture for the HVAC Flap Actuator, derived from the system and software requirements (sys-reqs.txt, sw-reqs.txt). The design enables maintainability, traceability, and independent verification.
+
+## 2. Architecture Style and Rationale
+- The architecture uses a layered/component-based model to maximize modularity, testability, and mapping to ASPICE.
+- Core system responsibilities (command parsing, position acquisition, actuation, feedback, and indication) are isolated in independent software units.
+- Scheduler/execution model is not prescribed; event-driven or polling may be used.
+
+## 3. High-Level Diagram (Textual)
+```
++-----------------------------+
+|       User Command Parser   |
++-------------+---+-----------+
+              | UART RX
+              v
++-------------+--------------+
+|      Position Control      |
++------+------+-------------+
+       |      | ADC Read
+       v      v
+  Feedback  Motor Control
+ Acquisition    |
+   |           |
+   +----+------+------+
+        |             |
+        v             v
+   Status Indication  |
+        |         System Data/Config
+```
+
+## 4. Software Units and Responsibilities
+
+### 4.1 User Command Parser
+- Receives and parses UART data
+- Validates command values (0–5)
+- Forwards valid position requests
+
+### 4.2 Position Control Logic
+- Compares commanded target position with actual
+- Initiates movement via Motor Control
+- Holds state when at target
+- Invokes Feedback Acquisition
+
+### 4.3 Motor Control
+- Enables/disables motor (PWM/GPIO)
+- Sets direction
+- Stops on target match or error
+
+### 4.4 Feedback Acquisition
+- Reads ADC value from potentiometer
+- Maps ADC to logical positions (0–5)
+- Filters out-of-range readings
+
+### 4.5 Status Indication
+- Drives power LED
+- Indicates current position using green LEDs
+- Only one position LED active at a time
+
+### 4.6 System Config/Data
+- Stores calibration ranges, pin configs
+- No dynamic calibration; all values are static
+
+## 5. Data Flow and Interfaces
+- UART RX → User Command Parser
+- User Command Parser → Position Control
+- Position Control ↔ Feedback Acquisition (invoked/read)
+- Position Control → Motor Control (move/stop)
+- Position Control → Status Indication (LED update)
+- All modules access System Config/Data as needed
+
+## 6. Rationale, Exclusions, and Non-Functional Coverage
+- No requirement for multi-actuator support (single instance)
+- No CAN/LIN/UDS or network external interface
+- No RTOS, watchdog, or advanced error handling mandated
+- Each block can be unit tested in isolation or via integration
+
+## 7. Mapping and Traceability
+- User Command Parser (SWE-REQ-001, SWE-REQ-002, SWE-REQ-011)
+- Position Control (SWE-REQ-003, SWE-REQ-004, SWE-REQ-005, SWE-REQ-008)
+- Motor Control (SWE-REQ-006, SWE-REQ-007, SWE-REQ-014)
+- Feedback Acquisition (SWE-REQ-004, SWE-REQ-005, SWE-REQ-008)
+- Status Indication (SWE-REQ-009, SWE-REQ-010, SWE-REQ-012)
+- System Config/Data (SWE-REQ-015, SWE-REQ-017, SWE-REQ-020)
+- All modules respect SWE-REQ-018, SWE-REQ-019, SWE-REQ-021, SWE-REQ-022
+
+## 8. No Architectural or Scheduling Mandates
+- The architecture does not introduce OS, foreground/background, or interrupt-driven logic unless stated in requirements
+- Polling or event-driven dispatch is implementation detail
+
+# End of Software Architecture
