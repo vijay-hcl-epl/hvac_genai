@@ -1,0 +1,227 @@
+# HVAC Flap Actuator Software Low-Level Design (SWE.3)
+
+## SWE.3 Context
+- Architecture and requirements from: sw-reqs/sw-reqs.txt, sw-arch/sw-arch.txt
+- Language/constraints: MISRA C; static allocation; resource, interface, and function boundaries match SWE.2
+
+================================================================
+
+## Software Unit: Command Interpreter
+
+1. Responsibilities
+   - Handles reception and validation of UART user commands. (SWE-REQ-001, SWE-REQ-002)
+   - Forwards valid requests to Flap Control. (SWE-REQ-003, SWE-REQ-005)
+   - Does not forward invalid/repeated or out-of-range commands. (SWE-REQ-003, SWE-REQ-039)
+
+2. Internal Data Design
+   - Received command buffer: statically allocated array for UART frame.
+   - Command validity flag, previous command value.
+   - No dynamic allocation.
+
+3. State Machine
+   - States: IDLE, WAIT_FOR_COMMAND, VALIDATE, FORWARD, IGNORE
+   - Transitions on UART event or validation result; direct linear flow.
+
+4. Algorithms & Control Flow
+   - On UART RX event, store received byte.
+   - Parse frame; if complete, compare to valid command list (range & format).
+   - If valid and new: set flag, forward command; else clear flag, IGNORE.
+
+5. Interfaces (APIs)
+   - Provided: accept_command(cmd: uint8_t)
+   - Required: UART driver (HW iface)
+   - Params validated by range and protocol spec.
+   - Returns: status code (OK/INVALID/REPEATED)
+
+6. Error Handling
+   - Malformed or repeated commands ignored.
+   - Out-of-range or protocol errors do not propagate upstream.
+   - No assertion or reset on error.
+
+7. Resource & Timing Considerations
+   - Only invoked on UART event; re-entrancy not required.
+   - WCET: <10ms (single message parse/check/forward).
+   - Fixed memory for buffer/flag/last_cmd.
+
+8. Traceability
+   - SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-005, SWE-REQ-039
+
+================================================================
+
+## Software Unit: Flap Control
+
+1. Responsibilities
+   - Handles new target position from Command Interpreter.
+   - Ignores repeated/already satisfied requests. (SWE-REQ-009, SWE-REQ-031)
+   - Requests actuation from Motor Control, maps position logic. (SWE-REQ-007, SWE-REQ-008)
+   - Prevents commands on invalid input. (SWE-REQ-013)
+
+2. Internal Data Design
+   - Statically configured array of legal positions/thresholds.
+   - Current, previous, target position variables.
+   - Valid command state.
+
+3. State Machine
+   - States: WAIT_FOR_COMMAND, CHECK_POSITION, ISSUE_MOTOR_REQ, WAIT_FOR_FEEDBACK, COMPLETE
+   - Transition on new command/full-feedback cycle.
+
+4. Algorithms & Control Flow
+   - On new command: check target != current.
+   - If true: call Motor Control with direction.
+   - Wait for feedback; if achieved, update LEDs, stop motor.
+
+5. Interfaces (APIs)
+   - Provided: set_target_position(pos: uint8_t)
+   - Required: Command Interpreter, Motor Control, Feedback Acquisition, Status Indication
+   - Returns: status code (BUSY/DONE)
+
+6. Error Handling
+   - Invalid or unreachable positions force request abort.
+   - Bad feedback disables actuation, triggers error LED via Status Indication.
+
+7. Resource & Timing Considerations
+   - Called in sequential workflow; no async.
+   - WCET: dominated by diagnostic/feedback loop (<50ms typical per iteration).
+
+8. Traceability
+   - SWE-REQ-007, SWE-REQ-008, SWE-REQ-009, SWE-REQ-013, SWE-REQ-031
+
+================================================================
+
+## Software Unit: Motor Control
+
+1. Responsibilities
+   - Activates/deactivates/on/off/dir signals to motor driver GPIOs under Flap Control command. (SWE-REQ-011)
+   - Stops motor on position match or error. (SWE-REQ-012, SWE-REQ-034)
+   - Enforces safe non-simultaneous GPIO actuation (SWE-REQ-014)
+
+2. Internal Data Design
+   - No persistent state beyond static GPIO definitions.
+   - Commanded direction, activation flags.
+
+3. State Machine
+   - States: STOPPED, RUN_CW, RUN_CCW
+   - Transitions based on Flap Control input; simple direct flow.
+
+4. Algorithms & Control Flow
+   - Set GPIO pin for direction.
+   - Start/stop based on feedback; guard against dual activation.
+
+5. Interfaces (APIs)
+   - Required by Flap Control: motor_run(dir: enum), motor_stop()
+   - Required: HW iface (GPIO), Flap Control
+
+6. Error Handling
+   - All errors (feedback/adverse event) cause motor_stop().
+   - Hardware driver errors not diagnosed; no retry or escalation.
+
+7. Resource & Timing Considerations
+   - Invoked on new flap request or feedback event.
+   - WCET: <5ms per actuation operation.
+
+8. Traceability
+   - SWE-REQ-011, SWE-REQ-012, SWE-REQ-014, SWE-REQ-034
+
+================================================================
+
+## Software Unit: Feedback Acquisition
+
+1. Responsibilities
+   - Initiates ADC read, maps analog value to logical position. (SWE-REQ-015, SWE-REQ-016)
+   - Supplies stable position to Flap Control/Status Indication. (SWE-REQ-017)
+   - Uses statically configured map/range. (SWE-REQ-035)
+
+2. Internal Data Design
+   - Array of threshold values; last read ADC value; last mapped position.
+   - Calibration/config data static, no run-time learning.
+
+3. State Machine
+   - "None"; Event-driven call, no persistent logic beyond last-values update.
+
+4. Algorithms & Control Flow
+   - On invocation, trigger ADC, scan value, map against config.
+   - Provide bounded position (range/check); ignore values outside valid window.
+
+5. Interfaces (APIs)
+   - Provided: get_position() -> pos: uint8_t
+   - Required: HW iface (ADC)
+
+6. Error Handling
+   - ADC out-of-range error forces position INVALID; disables further actuation through Flap Control.
+
+7. Resource & Timing Considerations
+   - Invoked synchronously after flap request or at init.
+   - WCET: <5ms per invocation.
+
+8. Traceability
+   - SWE-REQ-015, SWE-REQ-016, SWE-REQ-017, SWE-REQ-035
+
+================================================================
+
+## Software Unit: Status Indication
+
+1. Responsibilities
+   - Updates power and position indicator LEDs (SWE-REQ-019, SWE-REQ-020)
+   - Only one position LED active at a time (SWE-REQ-021)
+   - Indicates error state/feedback
+
+2. Internal Data Design
+   - Static mapping: logical position to GPIO.
+   - Last state written, LED enable flags.
+
+3. State Machine
+   - "None"; synchronous update calls only.
+
+4. Algorithms & Control Flow
+   - On call: update necessary LEDs based on state, disable all non-selected LEDs.
+   - Error state triggers dedicated LED or flash pattern (per config).
+
+5. Interfaces (APIs)
+   - Provided: set_led_state(pos: uint8_t, error: bool)
+   - Required: HW iface (GPIO); input from Flap Control/Feedback Acquisition
+
+6. Error Handling
+   - Always reflects last known state; does not propagate failures upward.
+
+7. Resource & Timing Considerations
+   - Invoked synchronously during/after position or error event.
+   - WCET: <2ms per update (one frame GPIO write).
+
+8. Traceability
+   - SWE-REQ-019, SWE-REQ-020, SWE-REQ-021
+
+================================================================
+
+## Software Unit: Hardware Interface Layer
+
+1. Responsibilities
+   - Statically initializes and provides APIs for UART, GPIO, ADC interaction (SWE-REQ-022, SWE-REQ-023, SWE-REQ-024, SWE-REQ-025)
+   - No scheduling, buffering, or dynamic configuration.
+
+2. Internal Data Design
+   - Static memory for driver handles/config.
+   - No driver state except error status.
+
+3. State Machine
+   - "None"; stateless functional calls only.
+
+4. Algorithms & Control Flow
+   - Read/write function wrappers for UART/ADC/GPIO.
+   - No interrupt or DMA control logic here.
+
+5. Interfaces (APIs)
+   - Provided: uart_read(), adc_read(), gpio_set(), gpio_clear(), etc.
+   - Required: Used by all above units; no unique upper-level dependency.
+
+6. Error Handling
+   - Hardware errors are status codes; no error propagation, logging, or recovery at this level.
+
+7. Resource & Timing Considerations
+   - All calls synchronous/blocking, <0.5ms/common API call.
+
+8. Traceability
+   - SWE-REQ-022, SWE-REQ-023, SWE-REQ-024, SWE-REQ-025
+
+================================================================
+
+All software unit definitions are strictly in line with SWE.1/SWE.2; no code, hardware, scheduling or extra units added.
