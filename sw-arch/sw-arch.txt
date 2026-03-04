@@ -1,0 +1,83 @@
+# Software Architecture for HVAC Flap Actuator Control Software (SWE.2)
+
+## 1.0 Architectural Rationale and Style Selection
+
+The architecture adopts a modular, component-based structure, justifiable as follows:
+- All main software responsibilities (command handling, position control, motor control, feedback, indication, error handling) are naturally separable for demonstration, validation, and maintainability.
+- No scheduling, OS, or execution model (e.g., RTOS, loops, tasks) is defined by requirements.
+- Interfaces are clean, static, and direct between software units. All units interact through function calls.
+- Chosen over layered/monolithic alternatives due to traceability, independent development, and clarity for education and ASPICE process demonstration.
+
+**Key architectural alternatives considered:**
+- Monolithic: Simpler, but reduces transparency, traceability, and maintainability.
+- Layered: Suitable for larger systems with hardware abstraction and services, but adds unnecessary complexity here.
+- Modular/Component-Based (adopted): Provides clear logical separation and direct traceability to requirements. Enables focused local design/test of each unit.
+- Event/message-based: Unnecessary, as requirements are fully synchronous and peripheral-driven.
+
+## 2.0 Software Units and Their Responsibilities
+
+| Unit Identifier      | Responsibility Summary                                                                | Main Interfaces                                         | Linked SWE-REQs          |
+|---------------------|---------------------------------------------------------------------------------------|---------------------------------------------------------|--------------------------|
+| CommandHandler      | Parses, validates, and manages user commands via UART                                  | UART interface; passes target to FlapControlLogic       | SWE-REQ-001..004,018,041 |
+| FlapControlLogic    | Compares, stores, and updates flap target/current position; triggers control/movement  | Calls MotorDriver, reads feedback, notifies StatusInd.  | SWE-REQ-005..009,026,027,037 |
+| MotorDriver         | Enables/disables and directs DC motor via GPIO/PWM output                             | Controls GPIO/PWM; receives state from FlapControlLogic | SWE-REQ-010,011,019      |
+| PositionFeedback    | Performs ADC acquisition and maps value to logical position                            | Reads ADC; provides position to FlapControlLogic        | SWE-REQ-012..014,020,030,031,034,039 |
+| StatusIndicator     | Controls all status and position LEDs                                                  | Sets GPIO; takes current position/status                | SWE-REQ-015..017,021,025,042 |
+| ErrorHandler        | Handles all error feedback (invalid cmd, ADC out-of-range, etc.)                       | Invoked by CommandHandler, FlapControlLogic, Feedback   | SWE-REQ-003,004,014,028,033..035,040 |
+
+Peripheral driver (ADC, UART, GPIO header) usage is kept at the interface level. There is no register-level or direct hardware code here—drivers are outside the scope of the architecture.
+
+## 3.0 Architectural Diagram (Textual Form)
+
+```
++-----------------+      UART RX        +--------------------+      Motor/LED GPIO
+|  CommandHandler |<------------------->|   FlapControlLogic |<-----------+----------------------+ 
++-----------------+           ^         +--------------------+           |                      |
+       |                      |                    |                     v                      v
+       v              Status Notify           Target/Current      +-------------------+   +---------------+
++-------------------+---------------------+  Position/Feedback  |   MotorDriver     |   | StatusIndicator|
+| PositionFeedback |-------------------->|                    +-------------------+   +---------------+
++------------------+        ADC           +----+-----------------------+
+                                              v                     ^
+                                     +-------------------+           |
+                                     |    ErrorHandler   |<-----------+
+                                     +-------------------+
+```
+Note: Data/control flow only. No execution, scheduling, or threading is depicted.
+
+## 4.0 High-Level Interfaces Between Units
+
+| From             | To                  | Purpose/Information                                   |
+|------------------|---------------------|------------------------------------------------------|
+| CommandHandler   | FlapControlLogic    | Target position (parsed, validated user command)     |
+| FlapControlLogic | MotorDriver         | Movement command (direction, enable/disable)         |
+| FlapControlLogic | StatusIndicator     | Status/event (idle, moving, reached, error)          |
+| PositionFeedback | FlapControlLogic    | Current measured position                            |
+| FlapControlLogic | ErrorHandler        | Movement errors, positioning faults                  |
+| PositionFeedback | ErrorHandler        | ADC/feedback errors                                 |
+| ErrorHandler     | StatusIndicator     | Error reporting/status                               |
+
+## 5.0 Architecture-to-Requirement Trace Table
+
+| Software Unit        | SWE-REQ IDs         |
+|---------------------|---------------------|
+| CommandHandler      | 001,002,003,004,018,041 |
+| FlapControlLogic    | 005,006,007,008,009,026,027,037 |
+| MotorDriver         | 010,011,019           |
+| PositionFeedback    | 012,013,014,020,030,031,034,039 |
+| StatusIndicator     | 015,016,017,021,025,042 |
+| ErrorHandler        | 003,004,014,028,033,034,035,040 |
+
+## 6.0 Execution Model and Scheduling Statement
+
+No architectural, execution model, or scheduling decisions are defined or implied. Each software unit is specified as a functional, stateless module—with data/control flow defined by explicit function invocation or callback at the integration layer during application design/implementation.
+
+## 7.0 Assumptions, Constraints, and Notes
+- All external interfaces to the microcontroller (UART, ADC, GPIO) are handled via standard drivers.
+- Units are stateless except for FlapControlLogic, which tracks position state.
+- No threads, tasks, or interrupts are defined; event, periodic, or procedural invocation is deferred until software integration/implementation.
+- Units may be developed and tested independently.
+
+## 8.0 Architectural Compliance
+- This structure meets ASPICE SWE.2/3 separation, traceability, and maintainability.
+- No functional safety, cybersecurity, diagnostics, or network handling is defined, per system scope/requirements.
