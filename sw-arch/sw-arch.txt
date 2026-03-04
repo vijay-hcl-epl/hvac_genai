@@ -1,0 +1,112 @@
+# HVAC Flap Actuator Software Architecture (SWE.2)
+
+## 1. Architecture Style Selection
+
+### 1.1 Candidate Styles Considered
+- Layered
+- Component-based
+- Monolithic
+
+### 1.2 Evaluation
+- **System Complexity:** Low to moderate (simple control, discrete commands, limited peripherals).
+- **HW Interaction Needs:** High; direct interaction with UART, ADC, GPIOs.
+- **Testability:** System must support unit and integration testing (SWE-REQ-048, SWE-REQ-049).
+- **Maintainability:** Modularity needed for position mapping/UI/interface changes (SWE-REQ-038).
+- **ASPICE L3 Expectations:** Shall trace requirements to concrete, transparent design structure, with modifiability and testability.
+
+#### Layered Style
+- + Clear separation of concerns.
+- + Decouples interfaces from HW drivers and logic.
+- - Unnecessary communication overhead for a simple control system.
+
+#### Component-based Style
+- + Explicit unit boundaries promote changeability/testability.
+- + Matches modular design intent (SWE-REQ-038).
+- + Well-matched to mapping between responsibilities and code units.
+
+#### Monolithic Style
+- + Simplicity, but lacks testability and maintainability.
+- - Not suitable for ASPICE or modular/testable codebase.
+
+### 1.3 Selected Style & Justification
+- **Component-based** architecture is selected.
+- It cleanly separates key concerns (command, control, feedback, indication), meets modularity/testability expectations, and aligns with ASPICE traceability and project maintainability needs.
+
+
+## 2. Architecture Definition
+
+### 2.1 Software Units & Responsibilities
+
+A. **Command Interpreter**
+   - Receive and validate UART commands (SWE-REQ-001, SWE-REQ-002, SWE-REQ-003).
+   - Forward valid requests to Flap Control unit (SWE-REQ-005).
+
+B. **Flap Control**
+   - Command the Motor Control unit to reposition flap (SWE-REQ-007).
+   - Ignore repeated/already achieved requests (SWE-REQ-009).
+   - Block actions on invalid data (SWE-REQ-013).
+
+C. **Motor Control**
+   - Activate GPIOs to run motor in correct direction (SWE-REQ-011).
+   - Stop when feedback position matches command (SWE-REQ-012, SWE-REQ-034).
+   - Prevent invalid or unsafe actuation (SWE-REQ-013, SWE-REQ-014).
+
+D. **Feedback Acquisition**
+   - Read analog position from ADC (SWE-REQ-015).
+   - Map ADC values to logical positions (SWE-REQ-016), per config (SWE-REQ-035).
+   - Update detected state for Control & LED units (SWE-REQ-017).
+
+E. **Status Indication**
+   - Control power and position LEDs (SWE-REQ-019, SWE-REQ-020).
+   - Reflect changes in state promptly (SWE-REQ-043).
+
+F. **Hardware Interface Layer**
+   - Abstract GPIO, ADC, UART driver access (SWE-REQ-022, SWE-REQ-023, SWE-REQ-024, SWE-REQ-025).
+
+### 2.2 Software Unit Interfaces
+
+- **Command Interpreter** exposes: [accept_command(cmd)] to Flap Control.
+- **Flap Control** exposes: [set_target_position(pos)] to Motor Control.
+- **Feedback Acquisition** exposes: [get_position()] to Flap Control and Status Indication.
+- **Motor Control** exposes: None (actions internal, invoked by Flap Control).
+- **Status Indication** exposes: [set_led_state(pos)] to Flap Control/Feedback.
+- **Hardware Interface Layer** exposes: low-level drivers to above units.
+
+### 2.3 Execution Model Statement
+No explicit execution model or scheduling policy is mandated by the requirements at this stage.
+
+
+## 3. Architecture Representation
+
+### 3.1 Text-based Diagram
+
+User UART -> [Command Interpreter] --> [Flap Control] <--> [Motor Control]
+                                                      |
+                                               [Feedback Acquisition]  --> [Status Indication] --> LEDs
+                                                      |
+                                        [Hardware Interface Layer: UART/ADC/GPIO]
+
+### 3.2 Software Unit Table
+
+| Software Unit           | Responsibilities                                                              | Interfaces Provided         | Interfaces Used              |
+|------------------------|-------------------------------------------------------------------------------|-----------------------------|------------------------------|
+| Command Interpreter    | Validate/forward user commands (UART)                                         | accept_command(cmd)         | UART driver (HW iface), Flap Control  |
+| Flap Control           | Translate commands to motor ops, manage state                                 | set_target_position(pos)    | Command Interpreter, Motor Control, Feedback Acquisition, Status Indication |
+| Motor Control          | Drive GPIO for direction/stop, safety                                         | (internal)                  | Flap Control, HW iface (GPIO)         |
+| Feedback Acquisition   | ADC read, position calculation, update state                                  | get_position()              | ADC driver (HW iface), Flap Control, Status Indication |
+| Status Indication      | LED/pwr indicator drive per state changes                                     | set_led_state(pos)          | Flap Control, Feedback Acquisition, HW iface (GPIO) |
+| Hardware Interface Layer| Abstracts MCU drivers for UART, ADC, GPIO (static setup per SWE-REQ-027/046) | uart_read(), adc_read(), gpio_set() | Used by all above units |
+
+
+## 4. Constraints & Justifications
+- All software units, data, and responsibilities are strictly derived from SWE.1/SYS-REQs. No new behavior or architectural features introduced.
+- No safety/diagnostic/cybersecurity elements.
+- No fixed scheduling, execution model, or concurrency is introduced, as per SWE-1/SYS-REQs (SWE-REQ-044).
+- Strict separation of controller, interface, and indication logic for clarity, testability, and maintainability (SWE-REQ-038, SWE-REQ-048).
+
+## 5. Traceability
+- Each unit/responsibility is explicitly traced to SWE-REQs in brackets.
+- No features present without requirement trace.
+
+---
+[End of SWE.2 Architecture]
