@@ -1,0 +1,64 @@
+# 1.0 Introduction
+The software architecture for the HVAC Flap Actuator system employs a modular, component-based style designed for traceability, separability, and clarity in educational demonstration contexts. The architecture enables explicit mapping to every functional, interface, behavioral, configuration, error handling, and testability requirement defined in the SWE.1 requirements document.
+
+## 1.1 Style Decision and Alternatives
+- Chosen Style: Modular/Component-based (strong separation by responsibility)
+- Alternatives Considered: Monolithic (rejected – poor traceability/maintainability), Layered (rejected – unneeded additional abstraction)
+- Rationale: Maximizes ASPICE traceability, supports single responsibility per unit, and ensures maintainability for demos.
+- No architecture-level decision for scheduling, tasks, concurrency, or real-time partitioning is made (explicitly deferred).
+
+# 2.0 Software Unit (Component) Definition
+| Unit Name           | Responsibilities                                                        | Interfaces Provided   | Interfaces Used     | Related SWE.1 Reqs           |
+|---------------------|------------------------------------------------------------------------|----------------------|---------------------|------------------------------|
+| CommandHandler      | Receives/parses UART user commands, validates range, updates target pos | UART_RX_Handler(),   | none                | SWE-REQ-001,002,003,004,005,026 |
+|                     |                                                                        | SetTargetPosition()  |                     | 
+| FlapControlLogic    | Orchestrates comparison of current/target position, determines motion   | UpdatePosition(),    | GetCurrentPosition(),| SWE-REQ-006,007,008,009,039,042 |
+|                     | direction, prevents overshoot, holds position at target                | DriveFlap()         | CommandHandler      | 
+| MotorDriver         | Drives DC motor via GPIO, applies direction/enable signals, safety stop| EnableMotor(),       | FlapControlLogic    | SWE-REQ-011,012,013,014,015,028 |
+|                     | logic, disables on invalid state                                       | DisableMotor()       | GPIO                | 
+| PositionFeedback    | Reads ADC, interprets logical flap pos, detects invalid values         | GetCurrentPosition() | ADC                 | SWE-REQ-016,017,018,019,020,027 |
+| StatusIndicator     | Controls LEDs for power/status/position                                | UpdateLEDs()        | GPIO                | SWE-REQ-021,022,023,024,025,029 |
+| ErrorHandler        | Handles safe state transitions, recovery, bounded errors               | EnterSafeState(),    | All units           | SWE-REQ-044,045,046,047        |
+|                     |                                                                        | ResetError()         |                     | 
+
+- All unit interfaces are C functions or data structures. No messaging, queues, events, or implicit RTOS features are present.
+- All interface calls are direct/static. No scheduling, polling, or concurrency model is introduced.
+
+# 3.0 Architecture Diagram (Textual)
+```
+[UART RX] -> [CommandHandler] -----> [FlapControlLogic] <----- [PositionFeedback: ADC]
+                                              |
+                                             \/
+                                      [MotorDriver]
+                                              |
+                                             \/
+                                   [StatusIndicator] <----+ 
+                                                         |
+                                                     [ErrorHandler]
+```
+
+# 4.0 Unit Responsibilities Table
+| Unit Name           | SWE.1 Reqs |
+|---------------------|------------|
+| CommandHandler      | 001,002,003,004,005,026 |
+| FlapControlLogic    | 006,007,008,009,039,042 |
+| MotorDriver         | 011,012,013,014,015,028 |
+| PositionFeedback    | 016,017,018,019,020,027 |
+| StatusIndicator     | 021,022,023,024,025,029 |
+| ErrorHandler        | 044,045,046,047         |
+
+# 5.0 Architecture Constraints & Notes
+- No RTOS/tasks/threads assumed or defined.
+- All scheduling/execution policy is deferred to later phases.
+- All units are stateless except where holding current or target position is mandatory.
+- Designed for static, pedagogical demonstration and easy modification.
+
+# 6.0 Requirements Tracing
+Each unit interface/function provides direct traceability to at least one SWE.1 requirement.
+No requirements are omitted, and all SWE.1 exclusions/restrictions are obeyed.
+
+# 7.0 Glossary
+- Unit: Coherent software module with one main responsibility
+- ADC: Analog-to-Digital Converter (potentiometer interfacing)
+- UART: Universal Asynchronous Receiver-Transmitter (PC user interface)
+- GPIO: General Purpose I/O pin (motor and LED control)
