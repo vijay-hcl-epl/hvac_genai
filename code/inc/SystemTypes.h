@@ -1,0 +1,18 @@
+#ifndef SYSTEM_TYPES_H
+#define SYSTEM_TYPES_H
+typedef enum {
+    STATUS_IDLE,
+    STATUS_MOVING,
+    STATUS_REACHED,
+    STATUS_ERROR,
+} StatusType;
+
+typedef enum {
+    ERROR_NONE,
+    ERROR_INVALID_COMMAND,
+    ERROR_ADC_OUT_OF_RANGE,
+    ERROR_MOVEMENT_FAILED,
+    ERROR_UNKNOWN
+} ErrorCode;
+
+#endif // SYSTEM_TYPES_H
