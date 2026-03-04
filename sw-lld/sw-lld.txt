@@ -1,0 +1,115 @@
+# Software Low Level Design (LLD) for HVAC Flap Actuator System (SWE.3)
+
+## 1. Overview
+This Low Level Design (LLD) specifies the detailed structure, interfaces, algorithms, state, data flow, and error handling for each software unit defined in the software architecture for the HVAC Flap Actuator. This design follows all stated requirements for neutrality (no execution, scheduling, or interrupt assumptions) and is fully traceable to software requirements (SWE.1) and architecture (SWE.2).
+
+---
+## 2. Design by Software Unit
+
+### 2.1 CommandHandler
+- **Responsibilities:** Receive UART data; parse commands; validate against allowed positions; ignore invalid input; pass valid position to FlapControlLogic.
+- **Major Internal Data:** Local RX buffer (fixed size, no dynamic allocation), simple command decode state, latest valid received value.
+- **APIs:**
+    - `CommandHandler_Init()`
+    - `CommandHandler_ProcessRx(uint8_t byte)`
+    - `CommandHandler_GetLatestCommand(void) -> (bool valid, uint8_t pos)`
+- **Data Flow:** Receives byte stream via UART driver call-in; accumulates buffer; upon command complete, validates and forwards.
+- **Error Handling:** Malformed commands or out-of-range values are ignored; reports error to ErrorHandler.
+- **Traceability:** SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-018, SWE-REQ-041
+
+### 2.2 FlapControlLogic
+- **Responsibilities:** Track current vs. target position; decide and request actuator movement; detect position arrival; notify status/LED unit.
+- **Major Internal Data:** CurrentPosition, TargetPosition (uint8_t); MovementActive (bool).
+- **APIs:**
+    - `FlapControlLogic_Init()`
+    - `FlapControlLogic_SetTargetPosition(uint8_t)`
+    - `FlapControlLogic_OnPositionFeedback(uint8_t newPos, bool valid)`
+    - `FlapControlLogic_Update(void)`
+- **Data Flow:** Receives valid command from CommandHandler; on feedback event, compares/decides next action; requests MotorDriver and StatusIndicator updates.
+- **Error Handling:** Reports failed movement or logic error to ErrorHandler.
+- **Traceability:** SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-008, SWE-REQ-009, SWE-REQ-026, SWE-REQ-027, SWE-REQ-037
+
+### 2.3 MotorDriver
+- **Responsibilities:** Set GPIO/PWM to drive DC motor per direction and enable; ensure outputs are mutually exclusive; stop on request.
+- **Major Internal Data:** None (stateless, uses parameters only).
+- **APIs:**
+    - `MotorDriver_Init()`
+    - `MotorDriver_SetOutput(bool enable, bool forward)`
+    - `MotorDriver_Stop()`
+- **Data Flow:** Receives command from FlapControlLogic.
+- **Error Handling:** Notifies ErrorHandler if unable to actuate.
+- **Traceability:** SWE-REQ-010, SWE-REQ-011, SWE-REQ-019
+
+### 2.4 PositionFeedback
+- **Responsibilities:** Trigger ADC acquisition; map ADC value to logical position; validate range; report to FlapControlLogic.
+- **Major Internal Data:** Calibration constants (fixed, global or static); latest ADC value; last mapped position.
+- **APIs:**
+    - `PositionFeedback_Init()`
+    - `PositionFeedback_TriggerSample()`
+    - `PositionFeedback_GetPosition(void) -> (bool valid, uint8_t pos)`
+- **Data Flow:** Invokes ADC driver; on ADC complete, maps value to 0-5; validates range.
+- **Error Handling:** On out-of-range or hardware ADC error, invokes ErrorHandler and flags as invalid.
+- **Traceability:** SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-020, SWE-REQ-030, SWE-REQ-031, SWE-REQ-034, SWE-REQ-039
+
+### 2.5 StatusIndicator
+- **Responsibilities:** Drive LEDs for power/status, single-position indication; ensure mutual exclusivity.
+- **Major Internal Data:** None (stateless, uses current position/status parameters only).
+- **APIs:**
+    - `StatusIndicator_Init()`
+    - `StatusIndicator_SetStatus(StatusType type)`
+    - `StatusIndicator_SetPosition(uint8_t pos)`
+- **Data Flow:** Receives state changes from FlapControlLogic or ErrorHandler.
+- **Error Handling:** Out-of-range or conflicting requests are ignored.
+- **Traceability:** SWE-REQ-015, SWE-REQ-016, SWE-REQ-017, SWE-REQ-021, SWE-REQ-025, SWE-REQ-042
+
+### 2.6 ErrorHandler
+- **Responsibilities:** Log and communicate software-detected fault conditions such as command, feedback, or actuator failures; ensure system remains recoverable.
+- **Major Internal Data:** Last error code/status (for reporting or diagnostics).
+- **APIs:**
+    - `ErrorHandler_Init()`
+    - `ErrorHandler_Report(ErrorCode code)`
+- **Data Flow:** Receives fault notifications from any unit; may trigger status LED or log/report as appropriate.
+- **Error Handling:** No reset or fault-state initiated; silent logging or status reporting only per requirement.
+- **Traceability:** SWE-REQ-003, SWE-REQ-004, SWE-REQ-014, SWE-REQ-028, SWE-REQ-033, SWE-REQ-034, SWE-REQ-035, SWE-REQ-040
+
+---
+## 3. Design Considerations
+- No interrupts, threads, or cycles are defined. APIs and logic are suitable for single-thread, event-driven, or super-loop integration in main application (deferred).
+- All stateful data is encapsulated;
+- Hardware interface is via external driver APIs only; registers/configuration out of scope here.
+- All calibration/configuration constants shall be static or global, never dynamically allocated.
+- Assertions or static checks may be used during development for mutual exclusion of outputs and input validity.
+
+---
+## 4. Traceability Matrices
+### 4.1 SWE.1 to LLD API/Design Reference
+| SWE-REQ | LLD Section(s) / API(s)           |
+|---------|------------------------------------|
+| 001–004 | 2.1 CommandHandler                 |
+| 005–009,026,027,037 | 2.2 FlapControlLogic            |
+| 010,011,019 | 2.3 MotorDriver                    |
+| 012–014,020,030,031,034,039 | 2.4 PositionFeedback           |
+| 015–017,021,025,042 | 2.5 StatusIndicator              |
+| 003,004,014,028,033–035,040 | 2.6 ErrorHandler                |
+
+### 4.2 SWE.2 Architecture to LLD Reference
+| Unit Identifier    | LLD Section |
+|-------------------|-------------|
+| CommandHandler    | 2.1         |
+| FlapControlLogic  | 2.2         |
+| MotorDriver       | 2.3         |
+| PositionFeedback  | 2.4         |
+| StatusIndicator   | 2.5         |
+| ErrorHandler      | 2.6         |
+
+---
+## 5. Assumptions and Exclusions
+- LLD does not specify scheduling, OS, threading, or direct interrupt vectors.
+- No safety, diagnostic, or non-functional security behavior is implemented beyond discussed error handling.
+- Test hooks, debug features and asserts allowed for development but do not impact target behavior or performance.
+- All memory used is static or global; dynamic allocation forbidden.
+
+---
+## 6. Glossary of API/Design Terms
+- All types use `stdint.h` (e.g., uint8_t, bool)
+- System status type, error codes, etc. enumerated in shared header files for system-wide use
