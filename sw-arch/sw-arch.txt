@@ -1,0 +1,97 @@
+# Software Architecture Document – HVAC Flap Actuator
+
+## 1. Purpose and Scope
+This document details the software architectural structure enabling the system and software requirements for the HVAC flap actuator system.
+
+## 2. Architecture Overview
+Selected style: Layered, componentized with explicit functional separation per requirements.
+All responsibilities are implemented as separate, loosely coupled software units:
+
+- User Command Handler
+- Position Control Logic
+- Motor Control Unit
+- Feedback Acquisition & Processing
+- Status/LED Indication
+- Configuration & Data Services
+
+No scheduling or execution model is specified – all control is driven by user commands and continuous feedback acquisition as required per requirements.
+
+
+## 3. Structure
+
+#### 3.1. Top-Level Block View (Layered)
+
+- Application Layer
+  - User Command Handler (receives & validates UART input, initiates position updates)
+  - Status/LED Indication (reports current position, power, error states)
+- Control Layer
+  - Position Control Logic (derives movement signals from actual vs. target comparison, exposes idle/active/safe states)
+- Service Layer
+  - Motor Control Unit (provides forward/reverse/enable outputs; ensures limits)
+  - Feedback Acquisition & Processing (periodically reads ADC, converts voltage to logical position)
+  - Configuration & Data (holds all calibration, mapping, and configuration data as single accesspoint)
+
+#### 3.2. Interfaces
+
+| Unit                         | Interfaces Provided                       | Interfaces Used                 |
+|------------------------------|-------------------------------------------|---------------------------------|
+| User Command Handler         | cmd_valid, new_target_pos                 | UART driver, config/data        |
+| Position Control Logic       | ctrl_signals (move fwd/rev, idle/safe), pos_status | Feedback Processing, config/data |
+| Motor Control Unit           | driver_signals (fwd/rev/enable)           | ctrl_signals, config/data      |
+| Feedback Acquisition         | current_pos, validity                     | ADC hardware, config/data      |
+| Status/LED Indication        | led_states, error_status                  | pos_status, config/data        |
+| Config/Data                  | system parameters, maps                   | N/A                            |
+
+#### 3.3. Data Flow (Narrative)
+
+- User input via UART triggers User Command Handler.
+- Handler validates/decodes command, issues new target to Position Control Logic.
+- Position Control continuously compares the actual position (from Feedback Acquisition) to the target, deriving motor direction.
+- Motor Control Unit drives output pins accordingly, referencing positional/limit data.
+- Feedback Acquisition regularly polls ADC, passes processed state to Position Control.
+- Status/LED Indication presents real-time status through LEDs based on updates.
+- All configuration/calibration data are accessed in a read-only fashion by all units.
+
+#### 3.4. Architectural Constraints & Features
+
+- No direct cross-unit data dependencies (all interfaces are mediated via function calls or message passing).
+- Supports mock/test harness substitution of all units for demo/learning/test purposes.
+- Minimal dependencies: only standard embedded C; modules implemented for static or dynamic linking.
+
+## 4. Traceability
+All architectural elements directly serve one or more software-level requirements (mapping available on request).
+
+## 5. Exclusions
+No scheduling, OS, periodicity, or explicit real-time mechanism is present at the architectural level.
+No hardware abstraction layer is needed beyond direct peripheral and GPIO interfacing.
+
+## 6. Architecture Diagram (ASCII)
+
+```
++---------------------------+
+| User Command Handler      |
++-------------+-------------+
+              |
+              v
++-------------+-------------+
+| Position Control Logic    |
++------+------+-------------+
+       |            |
+       v            v
++------+------+ +--------------+
+|Feedback Acq| | Motor Control |
++------------+ +--------------+
+       |                |
+       v                v
++-------------+    +----------------+
+|Config/Data  |    | Status/LED Ind.|
++-------------+    +----------------+
+```
+
+## 7. Justification
+- Strict separation per requirements enables easy learning and demo of requirement tracing, code modularity, and test.
+- No unnecessary layering, OS, or real-time dependency.
+- Expansion (more commands, positions, error diagnoses) would require only minimal adjustment at module boundary.
+
+# End of Document
+
