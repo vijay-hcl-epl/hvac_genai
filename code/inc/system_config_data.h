@@ -1,10 +1,20 @@
 #ifndef SYSTEM_CONFIG_DATA_H
 #define SYSTEM_CONFIG_DATA_H
+
 #include <stdint.h>
-#define NUM_POSITIONS 4
-typedef struct {
-    uint16_t adc_pos_thresholds[NUM_POSITIONS];
-    uint8_t num_positions;
-} config_data_t;
-const config_data_t* CNF_Get(void);
+
+struct pos_map_entry {
+    uint16_t adc_val;
+    int logic_pos;
+};
+
+/** Returns pointer to mapping table */
+const struct pos_map_entry* config_get_mapping(void);
+
+/** Returns calibration constant(s) */
+int config_get_calibration(void);
+
+/** Returns limit value by type. */
+int config_get_limit(int type);
+
 #endif // SYSTEM_CONFIG_DATA_H
