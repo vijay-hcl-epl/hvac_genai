@@ -1,0 +1,98 @@
+# 1.0 Architecture Style Evaluation and Decision
+
+## Candidate Architectures Considered
+1. Layered Architecture
+2. Component-Based (Modular) Architecture
+3. Monolithic Architecture
+
+### Evaluation
+- **System Complexity:** The system is moderately complex and must support educational clarity and maintainability. All logic centers around a single actuator with no concurrency or multi-device scaling.
+- **Hardware Interaction:** Multiple hardware interfaces (UART, ADC, GPIO, PWM/Timer).
+- **Testability:** Important to allow isolated validation (process, logic, I/O, indication).
+- **Maintainability:** System must be modifiable for demonstration/extension.
+- **ASPICE Level-3:** Explicit modularity, distinct separation of logic, I/O, and error handling are required for traceability and compliance.
+
+#### Rationale
+- **Monolithic:** Simple, but hinders traceability, clarity, and maintainability; not compliant with ASPICE Level-3.
+- **Layered:** Reasonable, but would introduce artificial layering without significant communication/protocol abstraction.
+- **Component-Based (Modular):** Most naturally supports clear mapping of software requirements and system functions to explicit software units/modules; best for testability, traceability, and educational needs.
+
+**Chosen Architecture Style:**
+- **Component-Based Modular Software Architecture**
+- **Justification:** Directly traceable to requirements. Provides clarity, modularity, and maintainability. Easiest for demonstration and supports ASPICE Level-3 process objectives.
+
+# 2.0 Software Units, Responsibilities, and Interfaces
+
+## Logical Software Units
+| Unit Name               | Main Responsibilities                                                                                          | Interfaces Provided            | Interfaces Used                |
+|------------------------|--------------------------------------------------------------------------------------------------------------|-------------------------------|-------------------------------|
+| CommandHandler         | - Receive and validate UART commands\n- Filter/parse/dispatch position commands                              | Command API                   | UART, FlapControlLogic        |
+| FlapControlLogic       | - Compare current/target position\n- Decide movement direction, start/stop\n- Safeguard limits               | Flap Control API               | PositionFeedback, MotorDriver |
+| PositionFeedback       | - Sample ADC\n- Map ADC to logical position\n- Validate readings, range-check                                  | Position API                   | ADC                           |
+| MotorDriver            | - Set GPIO for motor output\n- Manage PWM/enable signals\n- Enforce movement boundaries/set motor state      | Motor Driver API               | GPIO, PWM                     |
+| StatusIndicator        | - Update status/position LEDs according to state\n- Ensure exclusive green LED indicator                      | Status API                     | GPIO                          |
+| ErrorHandler           | - Handle invalid command/ADC/motor error cases\n- Idle/stop as fallback\n- Route error feedback if needed    | Error API                      | All units (callback if reqd)  |
+| UART                   | - Abstract UART receive handler\n- Deliver RX data events                                 | UART API                  | Hardware UART                 |
+| ADC                    | - Abstract ADC sampling\n- Provide readings on request                                  | ADC API                   | Hardware ADC                  |
+| GPIO                   | - Abstract GPIO pin set/clear functions                                  | GPIO API                  | Hardware GPIO                 |
+
+
+# 3.0 Interface Overview
+
+- **All communication is via static invocation (no messages/queues).**
+- Data flows: UART → CommandHandler → FlapControlLogic → MotorDriver & StatusIndicator, with feedback from PositionFeedback.
+- ErrorHandler accessible from any unit.
+- UART, ADC, GPIO abstract hardware details.
+
+
+# 4.0 Architectural Diagram (Text Representation)
+
+```
++---------------+     +----------------+     +-------------------+
+|   UART        +---->| CommandHandler +---->| FlapControlLogic  |
++---------------+     +----------------+     +-------------------+
+                                                |             |
+                      +-----------------+      |             |
+                      | PositionFeedback +<----+             |
+                      +-----------------+                    |
+                            ^                                 v
+                       +----------+                  +-----------------+
+                       |   ADC    |                  |   MotorDriver   |
+                       +----------+                  +-----------------+
+                                                             |
+                                                  +---------------------+
+                                                  |       GPIO          |
+                                                  +---------------------+
+
+(command and initialization errors from any main unit routed to ErrorHandler)
+
+StatusIndicator receives updates from FlapControlLogic and drives status LEDs.
+
+```
+
+# 5.0 Execution Model/Scheduling
+No explicit execution model or scheduling policy is mandated by the requirements at this stage. All event handling is assumed to be top-level cyclic or interrupt-driven by drivers, as is typical for STM32 MCU demonstration environments. Requirements explicitly exclude multi-command, multitask, or explicit periodic scheduling.
+
+# 6.0 Justification of Architectural Boundaries
+- Each unit aligns with clear software requirements (see mapping below)
+- No new requirements; purely modularization for clarity and demonstration per ASPICE
+- All interfaces are synchronous, direct, and do not require RTOS, queues, or scheduling abstraction
+- No safety, cybersecurity, or implementation-specific logic is introduced
+
+# 7.0 Traceability Table (Unit — SWE.1 IDs)
+| Software Unit        | Key SWE.1 Requirements Mapped                                                         |
+|---------------------|---------------------------------------------------------------------------------------|
+| CommandHandler      | SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-020, SWE-REQ-025         |
+| FlapControlLogic    | SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-008, SWE-REQ-009, SWE-REQ-030         |
+| PositionFeedback    | SWE-REQ-013, SWE-REQ-014, SWE-REQ-015, SWE-REQ-016, SWE-REQ-028, SWE-REQ-033         |
+| MotorDriver         | SWE-REQ-010, SWE-REQ-011, SWE-REQ-012, SWE-REQ-021, SWE-REQ-026, SWE-REQ-041         |
+| StatusIndicator     | SWE-REQ-017, SWE-REQ-018, SWE-REQ-019, SWE-REQ-023, SWE-REQ-027                      |
+| ErrorHandler        | SWE-REQ-036, SWE-REQ-037, SWE-REQ-038, SWE-REQ-031                                   |
+| UART                | SWE-REQ-001, SWE-REQ-020, SWE-REQ-025                                                |
+| ADC                 | SWE-REQ-013, SWE-REQ-022, SWE-REQ-015, SWE-REQ-016                                   |
+| GPIO                | SWE-REQ-010, SWE-REQ-011, SWE-REQ-021, SWE-REQ-023                                   |
+
+# 8.0 Architectural Constraints
+- Architecture is strictly traceable to SWE.1 and does not add/omit any function.
+- No code, data types, schedules, or hardware register specifics included.
+- Does not introduce any method not directly needed for requirements satisfaction.
