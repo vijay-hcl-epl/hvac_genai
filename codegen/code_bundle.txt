@@ -1,0 +1,275 @@
+###### FILE: code/inc/command_interpreter.h ######
+#ifndef COMMAND_INTERPRETER_H
+#define COMMAND_INTERPRETER_H
+#include <stdint.h>
+#include <stdbool.h>
+
+// Status codes
+#define CMD_OK      (0)
+#define CMD_INVALID (1)
+#define CMD_REPEATED (2)
+
+void command_interpreter_init(void);
+int  accept_command(uint8_t cmd);
+
+#endif // COMMAND_INTERPRETER_H
+###### END FILE ######
+
+###### FILE: code/src/command_interpreter.c ######
+#include "command_interpreter.h"
+#include "flap_control.h"
+#include "hw_interface.h"
+
+#define CMD_BUF_SIZE 4
+static uint8_t command_buffer[CMD_BUF_SIZE];
+static uint8_t last_command = 0xFF;
+static bool    cmd_valid = false;
+
+void command_interpreter_init(void) {
+    // Placeholder: UART driver setup if needed
+}
+
+int accept_command(uint8_t cmd)
+{
+    if (cmd == last_command)
+        return CMD_REPEATED;
+    if (cmd > 7)
+        return CMD_INVALID;
+    last_command = cmd;
+    cmd_valid = true;
+    set_target_position(cmd);
+    return CMD_OK;
+}
+###### END FILE ######
+
+###### FILE: code/inc/flap_control.h ######
+#ifndef FLAP_CONTROL_H
+#define FLAP_CONTROL_H
+#include <stdint.h>
+
+void flap_control_init(void);
+void set_target_position(uint8_t pos);
+
+#endif // FLAP_CONTROL_H
+###### END FILE ######
+
+###### FILE: code/src/flap_control.c ######
+#include "flap_control.h"
+#include "motor_control.h"
+#include "feedback_acquisition.h"
+#include "status_indication.h"
+
+#define FLAP_POSITIONS  5
+static uint8_t valid_positions[FLAP_POSITIONS] = {0,1,2,3,4};
+static uint8_t target_position = 0;
+static uint8_t current_position = 0xFF;
+
+void flap_control_init(void) {
+    // No dynamic setup required
+    target_position = 0xFF;
+}
+
+void set_target_position(uint8_t pos) {
+    // Check if valid position
+    int found = 0;
+    for (int i=0; i<FLAP_POSITIONS; ++i) {
+        if (valid_positions[i] == pos) found = 1;
+    }
+    if (!found) {
+        status_indication_set_error(true);
+        return;
+    }
+    if (pos == current_position) return;
+    // Command to motor control
+    flap_dir_t dir = (pos > current_position) ? FLAP_UP : FLAP_DOWN;
+    motor_run(dir);
+    // Wait for feedback, simplified as direct call
+    current_position = feedback_acquisition_get_position();
+    if (current_position == pos) {
+        motor_stop();
+        status_indication_set_position(pos);
+    }
+}
+###### END FILE ######
+
+###### FILE: code/inc/motor_control.h ######
+#ifndef MOTOR_CONTROL_H
+#define MOTOR_CONTROL_H
+#include <stdint.h>
+
+typedef enum {
+    FLAP_UP,
+    FLAP_DOWN
+} flap_dir_t;
+
+void motor_control_init(void);
+void motor_run(flap_dir_t dir);
+void motor_stop(void);
+
+#endif // MOTOR_CONTROL_H
+###### END FILE ######
+
+###### FILE: code/src/motor_control.c ######
+#include "motor_control.h"
+#include "hw_interface.h"
+
+static flap_dir_t current_dir;
+static int motor_active = 0;
+
+void motor_control_init(void) {
+    current_dir = FLAP_UP;
+    motor_active = 0;
+}
+
+void motor_run(flap_dir_t dir) {
+    // Enforce safe control: never set both directions
+    gpio_clear(GPIO_MOTOR_CW);
+    gpio_clear(GPIO_MOTOR_CCW);
+    if (dir == FLAP_UP) gpio_set(GPIO_MOTOR_CW);
+    else gpio_set(GPIO_MOTOR_CCW);
+    current_dir = dir;
+    motor_active = 1;
+}
+
+void motor_stop(void) {
+    gpio_clear(GPIO_MOTOR_CW);
+    gpio_clear(GPIO_MOTOR_CCW);
+    motor_active = 0;
+}
+###### END FILE ######
+
+###### FILE: code/inc/feedback_acquisition.h ######
+#ifndef FEEDBACK_ACQUISITION_H
+#define FEEDBACK_ACQUISITION_H
+#include <stdint.h>
+
+void feedback_acquisition_init(void);
+uint8_t feedback_acquisition_get_position(void);
+
+#endif // FEEDBACK_ACQUISITION_H
+###### END FILE ######
+
+###### FILE: code/src/feedback_acquisition.c ######
+#include "feedback_acquisition.h"
+#include "hw_interface.h"
+
+#define ADC_MIN      100
+#define ADC_MAX      4000
+#define FLAP_POSITIONS 5
+static uint16_t adc_thresholds[FLAP_POSITIONS] = {500, 1250, 2000, 2750, 3500};
+
+uint8_t feedback_acquisition_get_position(void) {
+    uint16_t adc_val = adc_read();
+    for (int i=0; i<FLAP_POSITIONS; ++i) {
+        if (adc_val < adc_thresholds[i]) return (uint8_t)i;
+    }
+    return FLAP_POSITIONS-1; // max position if above all thresholds
+}
+
+void feedback_acquisition_init(void) {
+}
+###### END FILE ######
+
+###### FILE: code/inc/status_indication.h ######
+#ifndef STATUS_INDICATION_H
+#define STATUS_INDICATION_H
+#include <stdint.h>
+#include <stdbool.h>
+
+void status_indication_init(void);
+void status_indication_set_position(uint8_t pos);
+void status_indication_set_error(bool err);
+
+#endif // STATUS_INDICATION_H
+###### END FILE ######
+
+###### FILE: code/src/status_indication.c ######
+#include "status_indication.h"
+#include "hw_interface.h"
+
+#define POSITION_LED_START  0
+#define NUM_POSITION_LEDS   5
+static uint8_t current_led = 0xFF;
+static bool    error_state = false;
+
+void status_indication_init(void) {}
+
+void status_indication_set_position(uint8_t pos) {
+    // Switch LEDs
+    for (int i=0; i<NUM_POSITION_LEDS; ++i)
+        gpio_clear(POSITION_LED_START+i);
+    gpio_set(POSITION_LED_START+pos);
+    current_led = pos;
+    error_state = false;
+}
+void status_indication_set_error(bool err) {
+    error_state = err;
+    // Light a dedicated error LED; placeholder: gpio_set(9);
+    if (err) gpio_set(9); else gpio_clear(9);
+}
+###### END FILE ######
+
+###### FILE: code/inc/hw_interface.h ######
+#ifndef HW_INTERFACE_H
+#define HW_INTERFACE_H
+#include <stdint.h>
+
+// Pin aliases
+#define GPIO_MOTOR_CW   (0)
+#define GPIO_MOTOR_CCW  (1)
+
+void hw_interface_init(void);
+void gpio_set(uint8_t pin);
+void gpio_clear(uint8_t pin);
+uint16_t adc_read(void);
+uint8_t uart_read(void);
+
+#endif // HW_INTERFACE_H
+###### END FILE ######
+
+###### FILE: code/src/hw_interface.c ######
+#include "hw_interface.h"
+
+void hw_interface_init(void) {
+    // Placeholder
+}
+
+void gpio_set(uint8_t pin) {
+    // Simulate pin set
+}
+void gpio_clear(uint8_t pin) {
+    // Simulate pin clr
+}
+uint16_t adc_read(void) {
+    // Simulate ADC value (stub)
+    return 1000;
+}
+uint8_t uart_read(void) {
+    // Simulate UART RX (stub)
+    return 0;
+}
+###### END FILE ######
+
+###### FILE: code/src/main.c ######
+#include "command_interpreter.h"
+#include "flap_control.h"
+#include "motor_control.h"
+#include "feedback_acquisition.h"
+#include "status_indication.h"
+#include "hw_interface.h"
+
+int main(void) {
+    hw_interface_init();
+    command_interpreter_init();
+    flap_control_init();
+    motor_control_init();
+    feedback_acquisition_init();
+    status_indication_init();
+
+    while(1) {
+        uint8_t cmd = uart_read();
+        accept_command(cmd);
+    }
+    return 0;
+}
+###### END FILE ######
