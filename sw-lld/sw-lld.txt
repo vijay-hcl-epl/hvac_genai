@@ -1,0 +1,72 @@
+# Software Low-Level Design — HVAC Flap Actuator Demo (demo-43d)
+
+## 1. Introduction
+This Software LLD documents module responsibilities and static interfaces, in direct traceability to the requirements and chosen ASPICE-compliant architecture. There is no prescribed execution or scheduling pattern. Focus is on clear separation, testability, and learnability.
+
+## 2. Software Units and Interfaces
+
+### 2.1 User Command Handler
+- Parses and validates UART input as position commands
+- Converts numeric UART data into setpoint requests
+- Ignores malformed or out-of-range input (per requirements)
+- API (CMD_IF): `UserCmdHandler_Process(uint8_t rx_byte)`, `UserCmdHandler_GetTarget(void)`
+
+### 2.2 Position Control Logic
+- Receives requested target, compares to actual position
+- Issues direction and enable requests to Motor Controller
+- Requests/coordinates feedback acquisition
+- API (CTRL_IF): `PositionCtrl_Update(void)`, `PositionCtrl_GetStatus(void)`
+
+### 2.3 Motor Controller
+- Sets motor direction (GPIO) per control request
+- Enables/disables drive output (GPIO/PWM)
+- Stops motor on request or error state
+- API (MOTOR_IF): `MotorCtrl_Set(uint8_t dir, bool enable)`, `MotorCtrl_Stop(void)`
+
+### 2.4 Feedback Acquisition Processor
+- Initiates ADC sampling
+- Translates raw ADC to logical position (via config map)
+- Filters/stabilizes input as needed
+- API (DATA_IF): `FeedbackAcq_Trigger(void)`, `FeedbackAcq_GetPosition(void)`
+
+### 2.5 Status/LED Indicator
+- Drives status and position indication LEDs
+- Reflects actual position, system state (per feedback)
+- API (LED_IF): `StatusLED_Set(uint8_t pos)`, `StatusLED_ShowPower(bool on)`
+
+### 2.6 System Config/Data
+- Houses all static (const) configuration/calibration values
+- Maps ADC threshold to position index, LED pin assignments, etc.
+- API (CONF_IF): readonly structure reference(s)
+
+## 3. Module Collaboration (Text Diagram)
+
+UserCmdHandler → (CMD_IF) → PositionCtrlLogic → (CTRL_IF) → MotorCtrl
+                                     ↑                   ↓
+                          FeedbackAcqProc ← (DATA_IF) ←
+                                     ↓
+                          StatusLEDIndicator ← (LED_IF)
+                          SystemConfigData (CONF_IF, structure)
+
+## 4. Coding Outline
+- Each module: one header (declares interface, types), one C file (implementation)
+- Internal module data is `static`, only exposed via interface APIs
+- No dynamic memory, global variables static or in `main.c` only
+- All inter-module linkage via above APIs
+
+## 5. Traceability
+| Module               | Key SWE-REQs               |
+|----------------------|----------------------------|
+| UserCmdHandler       | 016-019,029,037            |
+| PositionCtrlLogic    | 001-006,025-028            |
+| MotorCtrl            | 007-012,034                |
+| FeedbackAcqProc      | 012-015,032                |
+| StatusLEDIndicator   | 020-022,038                |
+| SystemConfigData     | 006,032,037                |
+
+## 6. Exclusions
+- No safety, diagnostics, concurrency, interrupts, or advanced error handling beyond safe error ignores
+- No RTOS, timer, or state machine pattern is coded unless needed to map requirements.
+- No code for networking, vehicle comms, or automated test is included or implied.
+
+# END
