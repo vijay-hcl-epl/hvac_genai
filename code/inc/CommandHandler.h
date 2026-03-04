@@ -1,10 +1,10 @@
 #ifndef COMMAND_HANDLER_H
 #define COMMAND_HANDLER_H
-
 #include <stdint.h>
+#include <stdbool.h>
+#include "SystemTypes.h"
 
-void UART_RX_Handler(uint8_t byte);
-void ParseCommand(const uint8_t* buffer, uint8_t length);
-void SetTargetPosition(uint8_t pos);
+void CommandHandler_Init(void);
+void CommandHandler_UART_ByteReceived(uint8_t byte);
 
 #endif // COMMAND_HANDLER_H

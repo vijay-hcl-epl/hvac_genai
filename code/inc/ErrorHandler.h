@@ -1,5 +1,8 @@
 #ifndef ERROR_HANDLER_H
 #define ERROR_HANDLER_H
-void EnterSafeState(const char* reason);
-void ResetError(void);
+#include "SystemTypes.h"
+
+void ErrorHandler_Trigger(enum ErrorType code);
+void ErrorHandler_Clear(void);
+
 #endif // ERROR_HANDLER_H

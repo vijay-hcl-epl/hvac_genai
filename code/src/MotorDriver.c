@@ -1,14 +1,22 @@
 #include "MotorDriver.h"
-#include <stdint.h>
+#include <stddef.h>
 
-static int8_t motor_enabled = 0;
+static enum MotorDirection direction = MOTOR_DIR_STOP;
+static bool enabled = false;
 
-void EnableMotor(int8_t direction) {
-    /* Set GPIO/PWM for direction and enable output */
-    motor_enabled = 1;
+void MotorDriver_SetDirection(enum MotorDirection dir) {
+    if(dir == MOTOR_DIR_STOP || dir > MOTOR_DIR_REVERSE) return;
+    direction = dir;
+    // Here: Set GPIO pins to control actual motor direction
 }
 
-void DisableMotor(void) {
-    /* Clear enable, set GPIOs to safe */
-    motor_enabled = 0;
+void MotorDriver_Enable(bool en) {
+    enabled = en;
+    // Here: Enable/disable the motor driver GPIO (according to 'enabled')
+}
+
+void MotorDriver_Stop(void) {
+    enabled = false;
+    direction = MOTOR_DIR_STOP;
+    // Here: Deactivate all motor output GPIOs
 }

@@ -1,21 +1,55 @@
 #include "PositionFeedback.h"
-#include <stdint.h>
 
-static int8_t adc_value = 0;
-static int8_t logical_position = 0;
+#define NUM_POSITIONS 5
+typedef struct {
+    uint16_t min_adc;
+    uint16_t max_adc;
+    enum FlapPosition pos;
+} ADCMapEntry;
 
-void SampleADC(void) {
-    /* Simulate ADC read */
-    adc_value = 0; /* Replace with MCU-specific read */
+static const ADCMapEntry adcMap[NUM_POSITIONS] = {
+    { 0, 409, FLAP_POS_0 },
+    { 410, 819, FLAP_POS_1 },
+    { 820, 1228, FLAP_POS_2 },
+    { 1229, 1638, FLAP_POS_3 },
+    { 1639, 2047, FLAP_POS_4 }
+};
+
+static uint16_t last_adc = 0;
+static enum FlapPosition last_pos = FLAP_POS_INVALID;
+static bool feedbackValid = false;
+
+// Simulation/placeholder for actual ADC sampling
+typedef uint16_t (*ADC_Read_Fn)(void);
+static ADC_Read_Fn sample_adc_fn = NULL;
+
+void PositionFeedback_Sample(void) {
+    if(sample_adc_fn == NULL) {
+        // ADC function needs to be set externally
+        feedbackValid = false;
+        last_pos = FLAP_POS_INVALID;
+        return;
+    }
+    last_adc = sample_adc_fn();
+    for(int i = 0; i < NUM_POSITIONS; ++i) {
+        if(last_adc >= adcMap[i].min_adc && last_adc <= adcMap[i].max_adc) {
+            last_pos = adcMap[i].pos;
+            feedbackValid = true;
+            return;
+        }
+    }
+    last_pos = FLAP_POS_INVALID;
+    feedbackValid = false;
 }
 
-int8_t GetCurrentPosition(void) {
-    SampleADC();
-    /* Map ADC to logical position (0-5); simplified */
-    if (adc_value >= 0 && adc_value <= 5) {
-        logical_position = adc_value;
-    } else {
-        logical_position = -1; /* Invalid */
-    }
-    return logical_position;
+enum FlapPosition PositionFeedback_GetPosition(void) {
+    return last_pos;
+}
+
+bool PositionFeedback_IsValid(void) {
+    return feedbackValid;
+}
+
+void PositionFeedback_SetAdcReadFunction(ADC_Read_Fn fn) {
+    sample_adc_fn = fn;
 }
