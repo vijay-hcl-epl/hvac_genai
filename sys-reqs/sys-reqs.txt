@@ -1,0 +1,82 @@
+1.0 System Overview
+
+SYS-REQ-001: The system SHALL control the position of an HVAC flap actuator as commanded by the user via a defined interface.
+SYS-REQ-002: The system SHALL provide real-time feedback of flap position to the user interface.
+SYS-REQ-003: The system SHALL operate using power supplied via the primary system supply voltage.
+[Implied]
+
+2.0 Flap Position Control
+
+SYS-REQ-004: The system SHALL accept user input to command the flap position between fully closed and fully open.
+SYS-REQ-005: The system SHALL adjust the flap position to match the user command within the physical limits of actuator travel.
+SYS-REQ-006: The system SHALL prevent motion beyond physical flap limits.
+[Implied]
+
+3.0 Motor Control
+
+SYS-REQ-007: The system SHALL control the actuator motor to increase, decrease, or maintain the flap position.
+SYS-REQ-008: The system SHALL disengage the motor when the requested flap position matches the feedback position within allowable tolerance.
+SYS-REQ-009: The system SHALL detect and report motor faults (e.g., stall, open/short circuit).
+
+4.0 Position Feedback Acquisition & Processing
+
+SYS-REQ-010: The system SHALL acquire flap position feedback via an analog or digital sensor.
+SYS-REQ-011: The system SHALL process sensor data to determine current position with a tolerance of ±3% of full scale.
+SYS-REQ-012: The system SHALL detect sensor faults (out-of-range or missing signals).
+[Implied]
+
+5.0 User Command Interface
+
+SYS-REQ-013: The system SHALL receive user flap position commands via the defined hardware/software interface (e.g., UART, buttons, etc.).
+SYS-REQ-014: The system SHALL acknowledge receipt of valid commands.
+SYS-REQ-015: The system SHALL reject and indicate any invalid command or out-of-range request.
+
+6.0 Status Indication
+
+SYS-REQ-016: The system SHALL indicate flap position and system status (e.g., movement, target reached, error, idle) via external LEDs or other defined means.
+
+7.0 System Behavior (power-up, idle, normal, target reached, invalid input)
+
+SYS-REQ-017: On power-up, the system SHALL initialize all internal variables, outputs, and state indication.
+SYS-REQ-018: When idle, the system SHALL minimize power consumption and maintain feedback monitoring.
+SYS-REQ-019: When a valid target is reached, the system SHALL maintain flap position and indicate "target reached" status.
+SYS-REQ-020: Upon invalid input, the system SHALL not initiate motion and SHALL provide a clear indication of input error.
+
+8.0 Interfaces (UART, motor driver, ADC, LEDs)
+
+SYS-REQ-021: The system SHALL support communication via UART for receiving commands and/or providing status.
+SYS-REQ-022: The system SHALL interface with the actuator motor driver.
+SYS-REQ-023: The system SHALL utilize ADC channels or relevant interface to acquire analog position feedback.
+SYS-REQ-024: The system SHALL control LEDs for status indication.
+[Implied]
+
+9.0 Constraints & Assumptions
+
+SYS-REQ-025: The system SHALL operate within environmental conditions specified in the project documentation.
+SYS-REQ-026: The actuator position sensor is assumed to be calibrated and linear within the usable range.
+[Implied]
+
+10.0 Non-Functional Requirements
+
+10.1 Responsiveness
+SYS-REQ-027: The system SHALL respond to user commands and update flap position within 500ms.
+
+10.2 Error Handling & Edge Cases
+SYS-REQ-028: The system SHALL detect and persistently indicate hardware or communication errors.
+
+10.3 Resource Constraints
+SYS-REQ-029: The system SHALL operate using available memory and processing resources specified in the hardware documentation.
+
+10.4 Maintainability & Modularity
+SYS-REQ-030: The system SHALL organize its functions to support independent verification of input handling, control, and output indication.
+[Implied]
+
+10.5 Testability
+SYS-REQ-031: The system SHALL include support for end-of-line functional test modes as specified in the test plan.
+
+Architecture-Relevant Considerations Derived from System Requirements
+
+- Concurrency: The requirements suggest parallel acquisition of position feedback, user command handling, and status indication. There are no explicit dependencies requiring strict task sequencing, but responsiveness implies near-simultaneous processing.
+- Interaction Complexity: Interfaces are discrete and modular, with clearly defined points (UART, motor driver, ADC, LED), suggesting manageable interaction complexity.
+- Control Complexity: The control logic mainly involves state transitions for moving/stopping the actuator in response to user input and feedback. No complex control algorithms are mandated.
+- Expandability: Requirements avoid restricting future addition of new interfaces or more advanced diagnostics, so the system is reasonably expandable without significant architecture changes.
