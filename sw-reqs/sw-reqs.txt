@@ -1,0 +1,86 @@
+1.0 Software Scope & Responsibility
+
+This document defines the formal software-level requirements implementing system requirements for the HVAC flap actuator electronic control. The software executes on a microcontroller (with ADC, GPIO, UART, and timers available) and is responsible for interpreting user commands, controlling actuator movement, acquiring feedback, and indicating system states/statuses. Interfaces include UART, GPIO/LED, motor driver, position feedback sensor(s). Requirement IDs: SWE-REQ-001 ...
+
+2.0 Software Functional Requirements
+
+2.1 User Commands
+SWE-REQ-001: The software SHALL receive user flap position commands through configured interfaces. (Trace: SYS-REQ-013)
+SWE-REQ-002: The software SHALL acknowledge valid user flap position commands. (Trace: SYS-REQ-014)
+SWE-REQ-003: The software SHALL reject and indicate any invalid or out-of-range command. (Trace: SYS-REQ-015)
+[Implied] SWE-REQ-004: The software SHALL sanitize all received command values before processing.
+
+2.2 Flap Control
+SWE-REQ-005: The software SHALL interpret valid user commands and compute the requested target flap position. (Trace: SYS-REQ-004, SYS-REQ-005)
+SWE-REQ-006: The software SHALL ensure that requested flap positions do not exceed physical actuator limits. (Trace: SYS-REQ-006)
+[Implied] SWE-REQ-007: The software SHALL map user commands to actuator travel range per system calibration data.
+
+2.3 Motor Control
+SWE-REQ-008: The software SHALL command the actuator motor to increase, decrease, or maintain the flap position as required. (Trace: SYS-REQ-007)
+SWE-REQ-009: The software SHALL disengage motor drive when feedback position matches requested position within system tolerance. (Trace: SYS-REQ-008)
+SWE-REQ-010: The software SHALL detect and indicate motor driver faults. (Trace: SYS-REQ-009)
+[Implied] SWE-REQ-011: The software SHALL perform self-checks of motor control outputs on initialization.
+
+2.4 Feedback Processing
+SWE-REQ-012: The software SHALL acquire flap position feedback using the sensor interface(s). (Trace: SYS-REQ-010)
+SWE-REQ-013: The software SHALL process acquired sensor data and determine the current flap position, achieving ±3% of full scale accuracy. (Trace: SYS-REQ-011)
+SWE-REQ-014: The software SHALL detect and indicate sensor faults, including out-of-range or missing feedback signals. (Trace: SYS-REQ-012)
+
+2.5 Status Indication
+SWE-REQ-015: The software SHALL output status via discrete signals for state indications including: in motion, target reached, error, and idle. (Trace: SYS-REQ-016)
+[Implied] SWE-REQ-016: The software SHALL compose multi-status indications if two or more relevant conditions are active simultaneously.
+
+3.0 Software Interface Requirements
+
+3.1 UART
+SWE-REQ-017: The software SHALL implement a UART interface for receiving commands and emitting status indications. (Trace: SYS-REQ-021)
+
+3.2 ADC (Position Feedback Acquisition)
+SWE-REQ-018: The software SHALL configure and use ADC channels to acquire analog position sensor signals. (Trace: SYS-REQ-023)
+
+3.3 Motor Driver Outputs
+SWE-REQ-019: The software SHALL control digital/GPIO outputs for actuator motor control to drive direction and enable/disable. (Trace: SYS-REQ-022)
+
+3.4 Status LEDs
+SWE-REQ-020: The software SHALL control dedicated outputs to LEDs for state and error indication. (Trace: SYS-REQ-024)
+[Implied] SWE-REQ-021: All interfaces SHALL be initialized in a safe state at startup.
+
+4.0 Software Behavioral Requirements
+
+4.1 Startup
+SWE-REQ-022: The software SHALL initialize all variables, interfaces, and outputs upon reset/power-up. (Trace: SYS-REQ-017)
+
+4.2 Normal Operation
+SWE-REQ-023: The software SHALL continuously monitor all configured inputs and feedback channels. (Trace: SYS-REQ-018)
+SWE-REQ-024: On receipt of valid user command, the software SHALL actuate the flap toward the commanded position, subject to physical and safety constraints. (Trace: SYS-REQ-005, SYS-REQ-006)
+SWE-REQ-025: When feedback position matches target, the software SHALL maintain current position and set "target reached" status. (Trace: SYS-REQ-008, SYS-REQ-019)
+
+4.3 Command Handling and Input Validation
+SWE-REQ-026: The software SHALL verify every user command for range and validity before executing any actuation. (Trace: SYS-REQ-015, SYS-REQ-020)
+
+4.4 Fault and Error Response
+SWE-REQ-027: On detecting fault(s), the software SHALL inhibit actuator motion and set corresponding status indication(s). (Trace: SYS-REQ-009, SYS-REQ-012, SYS-REQ-020, SYS-REQ-028)
+[Implied] SWE-REQ-028: The software SHALL log/reset error status only if/when cleared per external command or power-cycle.
+
+5.0 Software Data & Configuration
+SWE-REQ-029: The software SHALL utilize configuration data including actuator limits, calibration values, and interface settings loaded from code constants or, if available, from non-volatile memory. (Trace: SYS-REQ-026)
+[Implied] SWE-REQ-030: The software configuration SHALL provide diagnostics for out-of-range values on load.
+
+6.0 Software Error Handling
+SWE-REQ-031: Software SHALL detect and persistently indicate hardware or communication errors detected at run time. (Trace: SYS-REQ-028)
+[Implied] SWE-REQ-032: If sensor or actuator errors occur, the software SHALL not initiate new movement commands until reset.
+
+7.0 Performance & Responsiveness
+SWE-REQ-033: The software SHALL respond to user flap position commands and update control output for flap actuation within 500ms of valid user command reception. (Trace: SYS-REQ-027)
+[Implied] SWE-REQ-034: The software SHALL prioritize execution of actuation and command handling for timely system response.
+
+8.0 Resource Constraints
+SWE-REQ-035: The software SHALL operate within available MCU memory and CPU bandwidth, executing all required functions without exceeding system resources. (Trace: SYS-REQ-029)
+[Implied] SWE-REQ-036: The software SHALL avoid memory fragmentation and excessive stack/heap use.
+
+9.0 Testability
+SWE-REQ-037: The software SHALL implement support for end-of-line or service test modes via dedicated command or interface. (Trace: SYS-REQ-031)
+[Implied] SWE-REQ-038: The software SHALL allow test status/fault conditions to be simulated through test-mode commands.
+
+10.0 Implied Requirements
+[Implied] Any software requirement inferred to fully realize the traced system behavior, which does not add new system-level actions or constraints.
