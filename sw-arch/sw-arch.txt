@@ -1,0 +1,126 @@
+============================
+HVAC Flap Actuator — Software Architecture (SWE.2)
+============================
+
+Input References:
+- System Requirements sys-reqs/sys-reqs.txt (SHA: a9976ca6b7cf24c137ee7d3a0b556a637cbf727d)
+- Software Requirements sw-reqs/sw-reqs.txt (SHA: dcbc6938bc17ae2889f662e6afcb34bbb985d4b9)
+
+----------------------------
+ARCHITECTURE STYLE SELECTION
+----------------------------
+
+Candidate Styles Considered:
+1. Monolithic (all logic in a single unit)
+2. Layered (separation: application logic, platform abstractions, I/O/HW)
+3. Component-based (larger modules with clear interfaces)
+
+Evaluation:
+- System complexity is low, with logical separation between user command handling, actuator/motor control, feedback acquisition, and status indication (SWE-REQ-001, SWE-REQ-005, SWE-REQ-011, SWE-REQ-013).
+- HW interaction is clearly defined at the interface level (SWE-REQ-016, SWE-REQ-017, SWE-REQ-018, SWE-REQ-019, SWE-REQ-020).
+- Testability and maintainability are explicitly demanded (SWE-REQ-020, SWE-REQ-028, SWE-REQ-037).
+- ASPICE L3 requires clear unit boundaries and interfaces, not monolithic.
+
+Selection: Layered Architecture
+- The layered style allows modular implementation and separation of core logic from platform hardware interfaces, while keeping units at a maintainable granularity for ASPICE alignment.
+
+Rejection Rationale:
+- Monolithic: Rejected—requirements demand clear separation and modularity for verification and test.
+- Component-based: Overly complex for current requirements, as it would partition further than traceable responsibilities warrant.
+
+----------------------------
+SOFTWARE ARCHITECTURE DEFINITION
+----------------------------
+
+Software Units & Responsibilities:
+
+1. Command Handler
+   - Responsibilities: Interpret and validate user commands (SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004). Reject and acknowledge input.
+   - Interfaces Provided: Command interface.
+   - Interfaces Used: System State Manager, Status Indicator.
+
+2. Flap Control Logic
+   - Responsibilities: Calculate target position, enforce limits, idle/active transitions (SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-023, SWE-REQ-025).
+   - Interfaces Provided: Target position command.
+   - Interfaces Used: Command Handler, Motor Driver Interface, Position Feedback Processor.
+
+3. Motor Driver Interface
+   - Responsibilities: Command motor direction, enable/disable, fault feedback. No direct hardware layer logic. (SWE-REQ-008, SWE-REQ-009, SWE-REQ-010, SWE-REQ-018)
+   - Interfaces Provided: Motor control API.
+   - Interfaces Used: Flap Control Logic.
+
+4. Position Feedback Processor
+   - Responsibilities: Acquire/process position sensor data, validate signal, provide current position (SWE-REQ-011, SWE-REQ-012, SWE-REQ-017).
+   - Interfaces Provided: Position data, error notification.
+   - Interfaces Used: Flap Control Logic, System State Manager.
+
+5. Status Indicator
+   - Responsibilities: Manage LEDs or indicator output for system status, target reached, error (SWE-REQ-013, SWE-REQ-014, SWE-REQ-015, SWE-REQ-019).
+   - Interfaces Provided: Status output API.
+   - Interfaces Used: System State Manager.
+
+6. System State Manager
+   - Responsibilities: System-level state transitions: power-up init, idle, active, error (SWE-REQ-021, SWE-REQ-022, SWE-REQ-024, SWE-REQ-025, SWE-REQ-031).
+   - Interfaces Provided: State transition API.
+   - Interfaces Used: All units needing status/state.
+
+7. HW Abstraction Layer (HAL)
+   - Responsibilities: Platform abstraction for UART/ADC/GPIO (SWE-REQ-016, SWE-REQ-017, SWE-REQ-018, SWE-REQ-019, SWE-REQ-020). No logic beyond interface definition.
+   - Interfaces Provided: Hardware APIs for UART, ADC, GPIO/LEDs.
+   - Interfaces Used: Motor Driver Interface, Position Feedback Processor, Status Indicator.
+
+----------------------------
+EXECUTION MODEL
+----------------------------
+
+No explicit execution model or scheduling policy is mandated by the requirements at this stage. 
+(SWE-REQ-026, SWE-REQ-033 — explicitly prohibit architecture-driven assumptions about scheduling, concurrency, or time slicing beyond responsiveness.)
+
+----------------------------
+A. TEXT-BASED ARCHITECTURE DIAGRAM
+----------------------------
+
+[ Command Handler ]------|
+                        v
+         [ System State Manager ]<------+
+            ^       ^     ^             |
+            |       |     |             |
+     [ Flap Control ]     |             |
+            ^             |             |
+    [ Motor Driver ]      |             |
+            ^             |             |
+    [ HW Abstraction ]<---+             |
+            |                           |
+    [ Position Feedback ] ---->
+            |                           |
+    [ HW Abstraction ]<-----------------+
+            |
+    [ Status Indicator ]<-----+
+            ^                 |
+    [ HW Abstraction ]<-------+
+
+Legend: Data/control flow ("->"), Shared state/event signaling ("<--->"), Each box is a distinct software unit per ASPICE.
+
+----------------------------
+B. SOFTWARE ARCHITECTURE TABLE
+----------------------------
+
+| Software Unit            | Responsibilities                                               | Interfaces Provided     | Interfaces Used                     |
+|-------------------------|----------------------------------------------------------------|------------------------|-------------------------------------|
+| Command Handler         | Interpret/validate user commands, reject/acknowledge input     | Command IF             | System State Manager, Status Ind    |
+| Flap Control Logic      | Calculate/evaluate target, enforce limits, transition mgmt     | Target Cmd, Control IF | Command Handler, Motor Driver, PosFb|
+| Motor Driver Interface  | Abstract motor command/feedback to core logic                  | Motor Driver API       | Flap Control Logic, HW Abstraction  |
+| Position Feedback Proc. | Sensor acquisition/validation, current posn feedback           | Position Data, Errors  | Flap Control, HW Abstraction        |
+| Status Indicator        | Display/notify system status/errors                            | Status Outputs         | System State Manager, HW Abstraction|
+| System State Manager    | Manage init, idle, error transitions, global error handling    | State Transitions API  | All other units                     |
+| HW Abstraction Layer    | Abstract UART, ADC, GPIO/LED platform access                  | HW APIs (UART/ADC/etc) | Used by Motor, Position, Status     |
+
+----------------------------
+COMPLIANCE / TRACEABILITY
+----------------------------
+
+- All interfaces, responsibilities, and data flows are traceable to one or more explicit SWE.1 software requirements as listed above.
+- No system behavior, feature, or interface is included unless specifically mandated by the requirements document.
+- No safety/cybersecurity/diagnostics, concurrency, scheduling, or low-level implementation are assumed or defined.
+
+[END OF ARCHITECTURE]
