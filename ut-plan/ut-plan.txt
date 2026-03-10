@@ -1,249 +1,128 @@
-==============================
-SWE.4 UNIT TEST PLAN — HVAC FLAP ACTUATOR (TLE9851QXW)
-==============================
+# SWE.4 – Unit Test Plan
 
-Units under test:
-- Command Interface Unit
-- Flap Position Controller
-- Motor Control Unit
-- Feedback Processing Unit
-- Status Indication Unit
-- Configuration & Diagnostics Unit
+## Traceability to Requirement
 
-Unit list and responsibilities, as per LLD:
+| Requirement ID    | Requirement Text                                                                                       | Software Units Under Test                |
+|-------------------|-------------------------------------------------------------------------------------------------------|------------------------------------------|
+| SWE-REQ-001       | The software SHALL process all input and output signals exclusively via the defined electrical interfaces specified in the system-level signal list. | All (listed below)                       |
 
---------------------------------------------------------------------------
-Unit: Command Interface Unit
-Responsibility: Receiving, decoding, range/format validation of UART user commands.
-SW-REQs: SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-015, SWE-REQ-020
+---
 
-APIs: command_check_uart(), get_validated_command()
+## 1. Introduction
 
-Test Cases:
-1. [TC-CMD-001] Valid Command — Normal
-   SW-REQ: SWE-REQ-001, SWE-REQ-002
-   Objective: Confirm valid command is correctly decoded and accepted.
-   Preconditions: UART receives [cmd][pos] in range
-   Input: UART RX buffer with correct format (pos=50)
-   Expected: get_validated_command() returns valid, error_code=CMD_NO_ERROR
-   Pass Criteria: Valid true, error_code=0
+This SWE.4 Unit Test Plan establishes and documents unit-level tests for all identified software units in the HVAC Door System as required by SWE-REQ-001. Each test is directly traceable to the requirement to demonstrate compliance per ASPICE Level 3.
 
-2. [TC-CMD-002] Command Format Error
-   SW-REQ: SWE-REQ-002
-   Objective: Detect format errors
-   Preconditions: UART receives packet with wrong length/structure
-   Input: UART RX buffer, len!=2
-   Expected: get_validated_command() valid false, CMD_FORMAT_ERROR
-   Pass Criteria: Valid false, error_code=1
+---
 
-3. [TC-CMD-003] Command Out of Range
-   SW-REQ: SWE-REQ-002, SWE-REQ-003
-   Objective: Detect out of range for target_position
-   Preconditions: UART receives [cmd][pos>100]
-   Input: RX buffer with pos=150
-   Expected: Valid false, error_code=CMD_RANGE_ERROR
-   Pass Criteria: valid==false; error==CMD_RANGE_ERROR
+## 2. Tested Software Units and Public APIs
 
-4. [TC-CMD-004] UART Fault Handling (Mocked)
-   SW-REQ: SWE-REQ-003
-   Objective: Simulate UART receive failure or framing error
-   Preconditions: uart_read() returns false
-   Expected: valid==false, error==CMD_FORMAT_ERROR
+### 2.1 command_interface
+- void command_interface_init(void)
+- void command_check_uart(void)
+- bool get_validated_command(Command_t *cmd)
 
---------------------------------------------------------------------------
-Unit: Flap Position Controller
-Responsibility: Position tracking, limit enforcement, movement triggering.
-SW-REQs: SWE-REQ-004, SWE-REQ-005, SWE-REQ-021, SWE-REQ-022, SWE-REQ-023, SWE-REQ-026
+### 2.2 flap_position_controller
+- void flap_position_controller_init(void)
+- void process_command(const Command_t *cmd)
+- MoveStatus_t get_move_status(void)
 
-APIs: process_command(), get_move_status()
+### 2.3 motor_control
+- void motor_control_init(void)
+- void motor_drive(int8_t direction)
+- MotorControlStatus_t get_fault_flags(void)
 
-Test Cases:
-1. [TC-FPC-001] Valid Move Command
-   SW-REQ: SWE-REQ-004,
-   Objective: New command triggers move, in allowable range.
-   Preconditions: cmd.valid=true, pos in [0,100]
-   Input: process_command(cmd:pos=40)
-   Expected: move_status=MOVE_IN_PROGRESS, target=40
+### 2.4 feedback_processing
+- void feedback_processing_init(void)
+- uint16_t get_position(void)
+- SensorStatus_t get_sensor_status(void)
 
-2. [TC-FPC-002] Out-of-Range Move
-   SW-REQ: SWE-REQ-005
-   Objective: Move exceeds calibration/limit
-   Preconditions: cmd.pos=150 (>max)
-   Input: process_command(cmd)
-   Expected: move_status=MOVE_LIMIT_ERROR
+### 2.5 status_indication
+- void status_indication_init(void)
+- void set_status(SystemStatus_t status)
+- void report_error(uint8_t error)
+- void signal_startup(void)
 
-3. [TC-FPC-003] Target Reached
-   SW-REQ: SWE-REQ-023
-   Objective: move completes on target
-   Preconditions: current=target
-   Input: get_move_status()
-   Expected: move_status=MOVE_DONE
+### 2.6 config_diag
+- void config_diag_init(void)
+- const ConfigData_t *get_config(void)
+- void log_event(uint8_t code)
+- DiagResult_t invoke_diagnostic(void)
 
-4. [TC-FPC-004] Invalid Command
-   SW-REQ: SWE-REQ-004
-   Objective: Behavior on cmd.valid=false
-   Preconditions: cmd.valid==false
-   Input: process_command(cmd)
-   Expected: move_status=MOVE_IDLE
+---
 
---------------------------------------------------------------------------
-Unit: Motor Control Unit
-Responsibility: Forward/reverse/stop, limit/fault detection.
-SW-REQs: SWE-REQ-006, SWE-REQ-007, SWE-REQ-008, SWE-REQ-009, SWE-REQ-016, SWE-REQ-035
+## 3. Unit Test Cases
 
-APIs: motor_drive(), get_fault_flags()
+### 3.1 command_interface
 
-Test Cases:
-1. [TC-MCU-001] Forward Drive
-   SW-REQ: SWE-REQ-006
-   Objective: motor_drive(1) sets MOTOR_RUNNING_FWD
-   Preconditions: status.state != MOTOR_RUNNING_FWD
-   Input: motor_drive(1)
-   Expected: status.state == MOTOR_RUNNING_FWD
+| Test Case ID | Objective                                     | Test Description                                                                  | Input(s)          | Expected Output / Result           | SWE-REQ Trace |
+|--------------|-----------------------------------------------|-----------------------------------------------------------------------------------|-------------------|-----------------------------------|---------------|
+| CI_TC_01     | Initialization                                | Initialize the command interface                                                  | None              | No error, proper initial state    | SWE-REQ-001   |
+| CI_TC_02     | Valid UART Command                            | Simulate valid command on UART, check acceptance                                  | Valid UART frame  | get_validated_command = true      | SWE-REQ-001   |
+| CI_TC_03     | Invalid UART Data                             | Feed noise/corrupted data, ensure rejection                                       | Corrupt frame     | get_validated_command = false     | SWE-REQ-001   |
+| CI_TC_04     | Boundary Condition: Empty Command             | Submit empty/no-op command, check for no processing                               | NULL/boundary cmd | No processing occurs              | SWE-REQ-001   |
+| CI_TC_05     | Error Handling: Buffer Overflow               | Simulate buffer overflow, observe recovery                                        | Overflow trigger  | Interface recovers, no crash      | SWE-REQ-001   |
 
-2. [TC-MCU-002] Reverse Drive
-   SW-REQ: SWE-REQ-006
-   Input: motor_drive(-1)
-   Expected: status.state == MOTOR_RUNNING_REV
+### 3.2 flap_position_controller
 
-3. [TC-MCU-003] Motor Stop
-   SW-REQ: SWE-REQ-007
-   Input: motor_drive(0)
-   Expected: status.state==MOTOR_STOPPED
+| Test Case ID | Objective                                     | Test Description                                                                  | Input(s)          | Expected Output / Result           | SWE-REQ Trace |
+|--------------|-----------------------------------------------|-----------------------------------------------------------------------------------|-------------------|-----------------------------------|---------------|
+| FC_TC_01     | Initialization                                | Verify controller initializes correctly                                           | None              | Nominal state                     | SWE-REQ-001   |
+| FC_TC_02     | Nominal Command Processing                    | Send valid move command, check output/status                                      | Move command      | Updated move status               | SWE-REQ-001   |
+| FC_TC_03     | Invalid Command Rejection                     | Send malformed/incomplete command, ensure ignoring                                | Invalid command   | No state change                   | SWE-REQ-001   |
+| FC_TC_04     | Boundary: Max Move Command                    | Issue max allowed move, verify limit handling                                     | Max value         | Proper move, no overflow          | SWE-REQ-001   |
+| FC_TC_05     | Error: Redundant Command                      | Repeat same command, ensure safe response                                         | Repeat cmd        | Handles idempotently              | SWE-REQ-001   |
 
-4. [TC-MCU-004] Fault Condition (Mock)
-   SW-REQ: SWE-REQ-009
-   Objective: set fault, get_fault_flags() returns MotorState_t==MOTOR_FAULT
-   Input: Simulate hardware fault (mock)
-   Expected: returned fault state
+### 3.3 motor_control
 
---------------------------------------------------------------------------
-Unit: Feedback Processing Unit
-Responsibility: ADC sampling, feedback validation.
-SW-REQs: SWE-REQ-010, SWE-REQ-011, SWE-REQ-012, SWE-REQ-017, SWE-REQ-033
+| Test Case ID | Objective                                     | Test Description                                                                  | Input(s)          | Expected Output / Result           | SWE-REQ Trace |
+|--------------|-----------------------------------------------|-----------------------------------------------------------------------------------|-------------------|-----------------------------------|---------------|
+| MC_TC_01     | Initialization                                | Initialize motor control hardware abstraction                                     | None              | No error state                    | SWE-REQ-001   |
+| MC_TC_02     | Motor Drive Normal Direction                  | Command motor to drive forward/reverse                                            | +1/-1 direction   | Motor drives as commanded         | SWE-REQ-001   |
+| MC_TC_03     | Invalid Direction Input                       | Out-of-range direction input                                                      | >+1, <-1          | Command rejected or saturates     | SWE-REQ-001   |
+| MC_TC_04     | Fault Flag Test                               | Simulate a fault, verify reported by get_fault_flags                              | Fault injection   | Fault flag set                    | SWE-REQ-001   |
+| MC_TC_05     | Boundary: Direction Zero                      | Neutral command (0 direction)                                                     | 0                 | Motor does not move               | SWE-REQ-001   |
 
-APIs: get_position(), get_sensor_status()
+### 3.4 feedback_processing
 
-Test Cases:
-1. [TC-FPU-001] Normal ADC Value
-   SW-REQ: SWE-REQ-010
-   Objective: get_position() returns within range
-   Preconditions: last_adc=50
-   Input: get_position()
-   Expected: 50
+| Test Case ID | Objective                                     | Test Description                                                                  | Input(s)          | Expected Output / Result           | SWE-REQ Trace |
+|--------------|-----------------------------------------------|-----------------------------------------------------------------------------------|-------------------|-----------------------------------|---------------|
+| FP_TC_01     | Initialization                                | Ensure feedback processing is initialized                                         | None              | OK, initial status                | SWE-REQ-001   |
+| FP_TC_02     | Nominal Position Reading                      | Valid sensor data processed, position returned                                    | Normal data       | Actual position                   | SWE-REQ-001   |
+| FP_TC_03     | Boundary: Min & Max Sensor                    | Test lower and upper range limits of sensor input                                 | Min/Max value     | Edge positions reported           | SWE-REQ-001   |
+| FP_TC_04     | Error: Sensor Failure                         | Simulate sensor disconnect or error                                               | Fault input       | Error status/flag reported        | SWE-REQ-001   |
 
-2. [TC-FPU-002] Sensor Range Error
-   SW-REQ: SWE-REQ-011
-   Input: last_adc=1000 ( > sensor range )
-   Expected: get_sensor_status()==SENSOR_RANGE_ERROR
+### 3.5 status_indication
 
-3. [TC-FPU-003] Sensor Fault Detection (Mock)
-   SW-REQ: SWE-REQ-012
-   Input: Artificial sensor/pin fault (mock)
-   Expected: get_sensor_status()==SENSOR_FAULT
+| Test Case ID | Objective                                     | Test Description                                                                  | Input(s)          | Expected Output / Result           | SWE-REQ Trace |
+|--------------|-----------------------------------------------|-----------------------------------------------------------------------------------|-------------------|-----------------------------------|---------------|
+| SI_TC_01     | Initialization                                | Initialize status indication, verify outputs                                      | None              | OK, no error LED                  | SWE-REQ-001   |
+| SI_TC_02     | Set Normal Status Indication                  | Set and verify normal status output                                               | Normal status     | Correct output activated          | SWE-REQ-001   |
+| SI_TC_03     | Error Reporting                               | Simulate error and call report_error                                              | Error input       | Corresponding error indication    | SWE-REQ-001   |
+| SI_TC_04     | Startup Indication                            | On system power-up, call signal_startup                                           | None              | Startup indication visible        | SWE-REQ-001   |
 
---------------------------------------------------------------------------
-Unit: Status Indication Unit
-Responsibility: System status, error reporting.
-SW-REQs: SWE-REQ-013, SWE-REQ-014, SWE-REQ-018, SWE-REQ-030, SWE-REQ-032, SWE-REQ-039
+### 3.6 config_diag
 
-APIs: set_status(), report_error(), signal_startup()
+| Test Case ID | Objective                                     | Test Description                                                                  | Input(s)          | Expected Output / Result           | SWE-REQ Trace |
+|--------------|-----------------------------------------------|-----------------------------------------------------------------------------------|-------------------|-----------------------------------|---------------|
+| CD_TC_01     | Initialization                                | Initialize config/diagnostic interface                                            | None              | Successful init                   | SWE-REQ-001   |
+| CD_TC_02     | Retrieve Nominal Config                       | Access configuration data                                                         | None              | Non-null, accurate config         | SWE-REQ-001   |
+| CD_TC_03     | Log Event (Nominal/Boundary)                  | Log typical and max code; verify logging                                          | Event code (0/max)| Event is logged                   | SWE-REQ-001   |
+| CD_TC_04     | Diagnostic Routine Success & Failure          | Invoke diagnostic and simulate both pass/failure                                  | Inputs as needed  | Correct DiagResult_t returned     | SWE-REQ-001   |
 
-Test Cases:
-1. [TC-STAT-001] Set Moving Status
-   SW-REQ: SWE-REQ-013
-   Input: set_status(STATUS_MOVING)
-   Expected: sys_status == STATUS_MOVING
+---
 
-2. [TC-STAT-002] Report Error
-   SW-REQ: SWE-REQ-030
-   Input: report_error(3)
-   Expected: [verify error reporting: check call, call arguments]
+## 4. Coverage and Justification
 
---------------------------------------------------------------------------
-Unit: Configuration & Diagnostics Unit
-Responsibility: Configuration persistence, diag, event logging.
-SW-REQs: SWE-REQ-024, ..., SWE-REQ-038
+This test plan ensures:
+- All public APIs are exercised.
+- Each module’s input/output interfaces are validated (per SWE-REQ-001).
+- Nominal, boundary, invalid, and error-handling scenarios are tested.
+- Traceability is maintained for ASPICE compliance.
 
-APIs: get_config(), log_event(), invoke_diagnostic()
+---
 
-Test Cases:
-1. [TC-CD-001] Diagnostic Pass
-   SW-REQ: SWE-REQ-024
-   Input: invoke_diagnostic()
-   Expected: DIAG_OK
+## 5. Maintenance and Review
 
-2. [TC-CD-002] Configuration CRC Error (Mock)
-   SW-REQ: SWE-REQ-028
-   Objective: simulate config CRC mismatch
-   Expected: error reported, error status
+Any refinement of requirements or design will trigger review and update of this Unit Test Plan.
 
-3. [TC-CD-003] Log Event Called
-   SW-REQ: SWE-REQ-027
-   Input: log_event(17)
-   Expected: Event call handled and can be queried
-
---------------------------------------------------------------------------
-
-ISOLATION AND MOCKING PLAN (ALL UNITS):
-- All non-unit calls (ADC, UART, PWM, GPIO, NV memory) MUST be mocked using C mocking framework.
-- No real hardware is present/allowed. 
-- All tests shall be deterministic and repeatable (fixed input).
-
-TRACEABILITY TABLES
------------------------------------
-SWREQ–>Test Case Table:
-SWE-REQ-001: TC-CMD-001
-SWE-REQ-002: TC-CMD-001, TC-CMD-002, TC-CMD-003
-SWE-REQ-003: TC-CMD-003, TC-CMD-004
-SWE-REQ-004: TC-FPC-001, TC-FPC-004
-SWE-REQ-005: TC-FPC-002
-SWE-REQ-006: TC-MCU-001, TC-MCU-002
-SWE-REQ-007: TC-MCU-003
-SWE-REQ-008: (If fault, TC-MCU-004)
-SWE-REQ-009: TC-MCU-004
-SWE-REQ-010: TC-FPU-001
-SWE-REQ-011: TC-FPU-002
-SWE-REQ-012: TC-FPU-003
-SWE-REQ-013: TC-STAT-001
-SWE-REQ-014: TC-STAT-002
-SWE-REQ-016: TC-MCU-001, TC-MCU-002
-SWE-REQ-017: TC-FPU-001
-SWE-REQ-018: TC-STAT-001
-SWE-REQ-020: TC-CMD-001
-...
-
-SW UNIT–>Test Case Table:
-Command Interface: TC-CMD-001 to 004
-Flap Position Controller: TC-FPC-001 to 004
-Motor Control Unit: TC-MCU-001 to 004
-Feedback Processing: TC-FPU-001 to 003
-Status Indication: TC-STAT-001 to 002
-Config & Diagnostics: TC-CD-001 to 003
-
-EXAMPLE UNIT TEST C STUB (CMD INTERFACE)
------------------------------------------
-#include "command_interface.h"
-#include "mock_uart.h" // Mocks
-#include <assert.h>
-
-void test_valid_cmd_decoding() {
-    uart_mock_set_receive_data((uint8_t[]){0x01, 50}, 2);
-    command_check_uart();
-    Command_t cmd;
-    assert(get_validated_command(&cmd));
-    assert(cmd.target_position==50);
-    assert(cmd.error_code==CMD_NO_ERROR);
-}
-
-void test_cmd_format_error() {
-    uart_mock_set_receive_data((uint8_t[]){0x01}, 1);
-    command_check_uart();
-    Command_t cmd;
-    assert(!get_validated_command(&cmd));
-    assert(cmd.error_code==CMD_FORMAT_ERROR);
-}
-
-// ... More stub examples in actual repository
-
-END OF PLAN
+---
