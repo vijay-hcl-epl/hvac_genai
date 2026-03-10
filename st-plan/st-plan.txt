@@ -1,187 +1,142 @@
-=================================================================
-SYSTEM QUALIFICATION TEST SPECIFICATION (ASPICE SYS.5)
-HVAC Flap Actuator
-=================================================================
+# HVAC Flap Actuator System Qualification Test Specification (ASPICE SYS.5)
 
-1. INTRODUCTION
----------------
-This document defines the ASPICE SYS.5 System Qualification Test Specification for the HVAC flap actuator system. The test cases are derived exclusively from formal System Requirements maintained in IBM DOORS Next (Project Area: thillaiv Project (Requirements Management)).
+## 1. Introduction
+This document specifies the System Qualification Test Specification (SYS.5) for the HVAC flap actuator system. The objective is to systematically verify the end-to-end behavior of the integrated system according to system-level requirements retrieved from IBM DOORS Next.
 
-2. TEST SCOPE
----------------
-System qualification testing focuses on the fully integrated HVAC flap actuator system, executed on a hardware bench with observations through system interfaces only. The testing does not inspect internal software or perform unit-level checks; it validates end-to-end behavioral correctness, robustness, and traceability to system requirements.
+## 2. Test Scope
+System qualification testing covers the complete HVAC flap actuator functionality as experienced at the system boundary, including user command input via UART, motor activation, flap position feedback via potentiometer/ADC, and feedback via status LEDs. Testing is performed on the hardware bench setup, observing only external interfaces. There is no inspection or instrumentation of the internal software; the focus is on observable system effects of system-level requirements.
 
-Interfaces covered:
- - UART (user commands)
- - Motor driver outputs
- - ADC (flap position feedback)
- - LED status outputs
+## 3. System Requirement Traceability
 
-Assumptions:
- - Tests run on prototype hardware
- - Observation via serial terminal and physical outputs
- - No real-time vehicle integration (CAN/LIN) is present
+| System Requirement ID    | Requirement Text |
+|-------------------------|-----------------|
+| SYS-REQ-001             | The system SHALL provide defined electrical interfaces for all expected input and output signals as per system-level signal lists. |
 
-3. SYSTEM REQUIREMENT TRACEABILITY
-----------------------------------
-SYS-REQ-001: The system SHALL provide defined electrical interfaces for all expected input and output signals as per system-level signal lists.
-[Retrieved from DOORS Next Resource: https://jazz.net/sandbox01-rm/resources/TX_brBe0BlLEfGiE4wGh9TStA]
+## 4. Test Environment Description
+- Hardware: Bench setup including STM32 MCU, DC motor, potentiometer, L298N driver, status LEDs, UART interface
+- Software: HVAC actuator firmware
+- External PC or script to send UART commands
+- Manual or automated (script-based) observation of motor and LED behavior
 
-4. TEST ENVIRONMENT
--------------------
- - Hardware: STM32F407G-DISC1, L298N Motor Driver, Rotary Potentiometer, LEDs
- - Communication: USB-to-UART interface (for PC commands)
- - Observation: Visual on LEDs, Serial command logs, Motor/flap movement
- - Power supply: Lab DC supply (12V/5V rails)
+## 5. System Test Cases
 
-5. SYSTEM TEST CASES
---------------------
-[Each test case traces to SYS-REQ-001 above.]
+### 5.1 Power-Up and Initialization
+- **Test Case ID:** TC-001
+- **Mapped System Requirement ID:** SYS-REQ-001
+- **Objective:** Verify system initializes all electrical interfaces and enters a known safe state.
+- **Preconditions:** System powered OFF
+- **Test Inputs:** Power ON
+- **Test Steps:**
+   1. Power ON system
+   2. Observe status LED, motor state, and position LED outputs
+- **Expected Results:**
+   - Status LED turns ON
+   - Motor remains OFF
+   - Position LEDs reflect initial detected position
+- **Pass/Fail Criteria:** All conditions above are met
 
-TC-01: System Power-Up Initialization
--------------------------------------
-- Requirement: SYS-REQ-001
-- Objective: Verify correct initialization of all electrical interfaces and system state at power-up.
-- Preconditions: System powered off
-- Test Inputs: Power on system
-- Steps:
-   1. Apply power to the system.
-   2. Observe power/status LED.
-   3. Check motor state (should be OFF).
-   4. Inspect UART output for startup banner (if implemented).
-   5. Observe that green LEDs reflect current flap position.
-- Expected Results:
-   - Status LED = ON.
-   - Flap does not move unexpectedly.
-   - System is idle and ready for command.
-- Pass/Fail: All checkpoints above must pass.
+### 5.2 Valid Flap Position Commands
+- **Test Case ID:** TC-002
+- **Mapped System Requirement ID:** SYS-REQ-001
+- **Objective:** Verify system moves flap to each defined position (0 to 5) on valid UART command
+- **Preconditions:** System powered ON and initialized; Motor idle
+- **Test Inputs:** UART commands: 0, 1, 2, 3, 4, 5 (sent individually)
+- **Test Steps:**
+   1. Send valid command (e.g., "3")
+   2. Observe motor movement and position LED
+   3. Repeat for all positions (0 to 5)
+- **Expected Results:**
+   - Motor moves flap to commanded position
+   - Motor stops when position reached
+   - Only correct position LED is ON
+- **Pass/Fail Criteria:** Each command yields expected flap position, motor behavior, and correct LED indication
 
-TC-02: Valid Flap Position Command: Position 0
-----------------------------------------------
-- Requirement: SYS-REQ-001
-- Objective: Verify system moves flap to Position 0 and indicates status.
-- Preconditions: System powered and idle
-- Test Inputs: UART command "0"
-- Steps:
-   1. Send command "0" from PC terminal.
-   2. Observe motor moves flap to position 0.
-   3. Observe green LED for position 0 lights up.
-   4. Confirm motor stops after reaching position.
-- Expected Results:
-   - Flap moves to and holds position 0.
-   - Only position 0 LED is ON.
-   - Motor OFF upon position reached.
-- Pass/Fail: All checkpoints must pass.
+### 5.3 Boundary Position Command (Lowest/Highest)
+- **Test Case ID:** TC-003
+- **Mapped System Requirement ID:** SYS-REQ-001
+- **Objective:** Verify system response to lowest (0) and highest (5) valid commands
+- **Preconditions:** System ready
+- **Test Inputs:** UART commands: 0 and 5
+- **Test Steps:**
+   1. Send "0" then "5"
+   2. Observe motion and position LED
+- **Expected Results:**
+   - Flap moves to boundary positions correctly
+   - Motor stops at boundary
+- **Pass/Fail Criteria:** Flap reaches and holds at each boundary; system maintains correct indication
 
-[Repeat above for positions 1–5: TC-03 through TC-07, same format, using UART commands from 1–5]
+### 5.4 Invalid UART Command (Out-of-Range)
+- **Test Case ID:** TC-004
+- **Mapped System Requirement ID:** SYS-REQ-001
+- **Objective:** Verify system ignores out-of-range UART commands
+- **Preconditions:** System ready
+- **Test Inputs:** UART command: 6, -1
+- **Test Steps:**
+   1. Send invalid value (e.g., "6", "-1")
+   2. Observe motor and LED
+- **Expected Results:**
+   - No movement or change in state
+   - No error indication required
+- **Pass/Fail Criteria:** System ignores invalid commands without changing state
 
-TC-08: Boundary Condition: Invalid UART Command (Out of Range)
--------------------------------------------------------------
-- Requirement: SYS-REQ-001
-- Objective: System handles command outside valid range (example: "7") safely.
-- Preconditions: System powered
-- Test Inputs: UART command "7"
-- Steps:
-   1. Send command "7".
-   2. Observe system behavior.
-- Expected Results:
-   - Flap does not move.
-   - No change in LEDs.
-   - Motor remains OFF.
-- Pass/Fail: System ignores input; no incorrect actuation or indication.
+### 5.5 Invalid Command Format
+- **Test Case ID:** TC-005
+- **Mapped System Requirement ID:** SYS-REQ-001
+- **Objective:** Ensure system ignores malformed UART input
+- **Preconditions:** System ready
+- **Test Inputs:** UART strings: "abc", "", "@!#"
+- **Test Steps:**
+   1. Send malformed command
+   2. Observe system
+- **Expected Results:** No change in system behavior
+- **Pass/Fail Criteria:** System ignores malformed inputs
 
-TC-09: Boundary Condition: Invalid Command Format
-------------------------------------------------
-- Requirement: SYS-REQ-001
-- Objective: System safely ignores non-numeric or malformed UART input.
-- Preconditions: System powered
-- Test Inputs: UART command "A"
-- Steps:
-   1. Send command "A".
-   2. Observe system behavior.
-- Expected Results:
-   - No actuation; no state change; no error crash.
-- Pass/Fail: System ignores malformed input safely.
+### 5.6 Sensor Range Error Handling
+- **Test Case ID:** TC-006
+- **Mapped System Requirement ID:** SYS-REQ-001
+- **Objective:** Verify that system responds safely if potentiometer/ADC reading is outside expected range
+- **Preconditions:** System ready
+- **Test Inputs:** Simulate faulty (out-of-range) potentiometer value
+- **Test Steps:**
+   1. Inject/analyze ADC value out of expected bounds
+   2. Observe system
+- **Expected Results:**
+   - Motor immediately stops
+   - System enters safe state, does not crash
+- **Pass/Fail Criteria:** System handles input safely, keeps motor off
 
-TC-10: Sensor Feedback Validation
---------------------------------
-- Requirement: SYS-REQ-001
-- Objective: Confirm ADC feedback matches actual flap position throughout movements.
-- Preconditions: System powered, functional sensor
-- Test Inputs: UART command "2", then observe
-- Steps:
-   1. Move flap through all positions.
-   2. Monitor reported ADC/logical position.
-- Expected Results:
-   - ADC values are within expected ranges for all requested positions.
-   - LEDs correspond with measured position.
-- Pass/Fail: Sensor mapping and outputs consistent with requirements.
+### 5.7 Command During Movement
+- **Test Case ID:** TC-007
+- **Mapped System Requirement ID:** SYS-REQ-001
+- **Objective:** Verify that system continues to handle valid/invalid commands while in transition
+- **Preconditions:** Flap in motion (executing previous command)
+- **Test Inputs:** UART command during movement
+- **Test Steps:**
+   1. Command flap to one extreme
+   2. Before motion completes, send new command
+   3. Observe behavior
+- **Expected Results:** Most recent valid command accepted/processed; invalid ignored; no unsafe state
+- **Pass/Fail Criteria:** System manages command queueing/prioritization safely
 
-TC-11: Motor Stops Correctly at Target
---------------------------------------
-- Requirement: SYS-REQ-001
-- Objective: Verify that once the flap reaches the commanded position, the motor turns OFF and system holds the position.
-- Preconditions: System in motion
-- Test Inputs: Any valid position command
-- Steps:
-   1. Command flap to any position.
-   2. Observe if motor stops on position reached.
-- Expected Results:
-   - No overshoot, no continued run.
-- Pass/Fail: Motor reliably stops at each commanded position.
+### 5.8 Robustness: No Unexpected Reset
+- **Test Case ID:** TC-008
+- **Mapped System Requirement ID:** SYS-REQ-001
+- **Objective:** Ensure system does not reset, crash, or enter undefined state during normal or fault conditions
+- **Preconditions:** System steady-state or under stress
+- **Test Inputs:** Execution of all above test scenarios
+- **Test Steps:**
+   1. Execute all test cases in sequence
+   2. Monitor system for resets/undefined states
+- **Expected Results:**
+   - No unexpected system reset or undefined state observed
+- **Pass/Fail Criteria:** System remains operational
 
-TC-12: Status Indication Behavior
---------------------------------
-- Requirement: SYS-REQ-001
-- Objective: Verify that only the correct position LED is ON at any point.
-- Preconditions: System powered
-- Test Inputs: Series of valid UART commands (0–5)
-- Steps:
-   1. Command system through all positions.
-   2. Observe LEDs.
-- Expected Results:
-   - At most one position LED ON per command.
-- Pass/Fail: Status indication is unambiguous and correct.
+## 6. Traceability Matrix
 
-TC-13: System Robustness – Command During Movement
---------------------------------------------------
-- Requirement: SYS-REQ-001
-- Objective: Issue a new command while flap is in motion; system must respond acceptably and never enter an undefined state.
-- Preconditions: System moving to a previous position
-- Test Inputs: UART command "3", then during movement send "1"
-- Steps:
-   1. Send sequential commands as described
-   2. Observe transition and system state
-- Expected Results:
-   - System either finishes prior or switches reliably, but never locks or resets.
-- Pass/Fail: No crash/lockup; response as per system spec.
+| System Requirement ID | Test Case IDs                       |
+|----------------------|-------------------------------------|
+| SYS-REQ-001          | TC-001, TC-002, TC-003, TC-004, TC-005, TC-006, TC-007, TC-008 |
 
-6. TRACEABILITY MATRIX
-----------------------
-| System Requirement | Test Cases                   |
-|---------------------|-----------------------------|
-| SYS-REQ-001         | TC-01, TC-02, TC-03, TC-04, TC-05, TC-06, TC-07, TC-08, TC-09, TC-10, TC-11, TC-12, TC-13 |
-
-| Test Case | System Requirement |
-|-----------|-------------------|
-| TC-01     | SYS-REQ-001       |
-| TC-02     | SYS-REQ-001       |
-| TC-03     | SYS-REQ-001       |
-| TC-04     | SYS-REQ-001       |
-| TC-05     | SYS-REQ-001       |
-| TC-06     | SYS-REQ-001       |
-| TC-07     | SYS-REQ-001       |
-| TC-08     | SYS-REQ-001       |
-| TC-09     | SYS-REQ-001       |
-| TC-10     | SYS-REQ-001       |
-| TC-11     | SYS-REQ-001       |
-| TC-12     | SYS-REQ-001       |
-| TC-13     | SYS-REQ-001       |
-
-7. PASS/FAIL EVALUATION CRITERIA
---------------------------------
-Each test case is passed if all defined expected results are achieved without deviation. Any failure to meet a pass criterion—such as incorrect actuation, unsafe handling of invalid commands, incorrect LED indication, or system instability—constitutes a test failure and shall be flagged for investigation and corrective action.
-
-=================================================================
-END OF DOCUMENT
-=================================================================
+## 7. Pass/Fail Evaluation Criteria
+- Each test case has documented expected results and binary Pass/Fail based on full criteria satisfaction.
+- System passes qualification if all test cases pass without deviation.
