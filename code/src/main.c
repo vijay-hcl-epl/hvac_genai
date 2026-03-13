@@ -3,20 +3,26 @@
 #include "adc_interface.h"
 #include "motor_driver_if.h"
 #include "status_output_if.h"
-#include "config_data.h"
 #include "error_handler.h"
+#include "config_data.h"
 
-int main(void) {
+int main(void)
+{
+    // System Initialization
+    ErrorHandler_Init();
+    ConfigData_Get();
     UserCommandIF_Init();
     FlapControlLogic_Init();
-    ADC_Interface_Init();
+    ADCInterface_Init();
     MotorDriverIF_Init();
     StatusOutputIF_Init();
-    ConfigData_Init();
-    ErrorHandler_Init();
+
     while(1) {
+        ADCInterface_StartConversion();
+        FlapControlLogic_Process();
         UserCommandIF_Process();
-        FlapControlLogic_Update();
+        // Add delay or WFI as needed
     }
+
     return 0;
 }

@@ -1,7 +1,11 @@
 #include "config_data.h"
-static ConfigData config = {
-    .adc_thresholds = {0, 819, 1638, 2457, 3276, 4095},
-    .uart_baud = 9600
+
+static const ConfigData_t config = {
+    .adc_thresholds = {800, 1200, 1600, 2000, 2400, 2800},
+    .baudrate = 115200,
+    .uart_channel = 1
 };
-void ConfigData_Init(void) {}
-const ConfigData* ConfigData_Get(void) { return &config; }
+
+const ConfigData_t* ConfigData_Get(void) {
+    return &config;
+}

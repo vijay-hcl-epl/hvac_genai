@@ -1,24 +1,31 @@
 #include "adc_interface.h"
+#include "config_data.h"
 #include "error_handler.h"
 
 static uint16_t adc_last_value = 0;
 
-void ADC_Interface_Init(void) {
+void ADCInterface_Init(void) {
     adc_last_value = 0;
 }
 
-uint8_t ADC_Interface_GetPosition(void) {
-    // scale 0-4095 ADC to 0-5 position (stub linear scale)
-    uint16_t raw = ADC_Interface_GetRaw();
-    if (raw > 4095) {
-        ErrorHandler_SetError(0x10); // Range error
-        return 0xFF;
-    }
-    return (uint8_t)((raw * 6) / 4096);
+void ADCInterface_StartConversion(void) {
+    // Hardware specific: trigger ADC, poll for result
+    adc_last_value = 1030; // dummy placeholder (should read real ADC)
 }
 
-uint16_t ADC_Interface_GetRaw(void) {
-    // return stub ADC value in [0,4095]
-    // In real firmware, would read from hardware
+uint16_t ADCInterface_GetLastValue(void) {
     return adc_last_value;
+}
+
+uint8_t ADCInterface_GetPosition(void) {
+    // Map ADC value to flap position (0–5) using thresholds
+    const ConfigData_t* cfg = ConfigData_Get();
+    for(uint8_t i=0; i<6; ++i) {
+        if(adc_last_value <= cfg->adc_thresholds[i]) {
+            return i;
+        }
+    }
+    // If not within thresholds, out-of-range
+    ErrorHandler_Set(ERR_ADC_OOR);
+    return 0xFF;
 }
