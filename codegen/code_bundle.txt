@@ -2,364 +2,290 @@
 #ifndef USER_COMMAND_IF_H
 #define USER_COMMAND_IF_H
 #include <stdint.h>
-
 void UserCommandIF_Init(void);
-void UserCommandIF_RxHandler(uint8_t rx_byte);
-void UserCommandIF_Tick(void);
-void UserCommandIF_Reset(void);
-uint8_t UserCommandIF_GetLastStatus(void);
+void UserCommandIF_RxHandler(uint8_t byte);
+void UserCommandIF_Process(void);
+void UserCommandIF_IssueACK(void);
+void UserCommandIF_IssueNACK(void);
 uint8_t UserCommandIF_GetLastCommand(void);
-
-#endif // USER_COMMAND_IF_H
+#endif
 ###### END FILE ######
 ###### FILE: code/src/user_command_if.c ######
 #include "user_command_if.h"
-#include "flap_control_logic.h"
 #include "error_handler.h"
-
-#define CMD_MIN 0
-#define CMD_MAX 5
-
 static uint8_t cmd_buffer[8];
-static uint8_t cmd_value = 0;
-static uint8_t status_code = 0;
-static uint8_t error_count = 0;
-
+static uint8_t cmd_value;
+static uint8_t status_code;
+static uint8_t error_count;
 void UserCommandIF_Init(void) {
     cmd_value = 0;
     status_code = 0;
     error_count = 0;
 }
-
-void UserCommandIF_RxHandler(uint8_t rx_byte) {
-    // For demo, take rx_byte as command directly
-    if (rx_byte >= CMD_MIN && rx_byte <= CMD_MAX) {
-        cmd_value = rx_byte;
-        status_code = 0; // OK
-        FlapControlLogic_RequestMoveTo(cmd_value);
+void UserCommandIF_RxHandler(uint8_t byte) {
+    // UART/LIN receive ISR or poll handler
+    // Very simplified logic, no real protocol parsing here
+    if (byte <= 5) {
+        cmd_value = byte;
+        UserCommandIF_IssueACK();
     } else {
-        status_code = 1; // ERR
         error_count++;
-        ErrorHandler_SetErrorCode(ERR_CMD_INVALID);
+        UserCommandIF_IssueNACK();
+        ErrorHandler_SetError(ERROR_INVALID_CMD);
     }
 }
-
-void UserCommandIF_Tick(void) {
-    // No polling in this mock
+void UserCommandIF_Process(void) {
+    // Could be periodically called to process command
 }
-
-void UserCommandIF_Reset(void) {
-    cmd_value = 0;
-    status_code = 0;
-    error_count = 0;
+void UserCommandIF_IssueACK(void) {
+    status_code = 0x00; // OK
+    // emit OK on UART - placeholder
 }
-
-uint8_t UserCommandIF_GetLastStatus(void) {
-    return status_code;
+void UserCommandIF_IssueNACK(void) {
+    status_code = 0xFF; // ERR
+    // emit error on UART - placeholder
 }
-
 uint8_t UserCommandIF_GetLastCommand(void) {
     return cmd_value;
 }
 ###### END FILE ######
-###### FILE: code/inc/flap_control_logic.h ######
-#ifndef FLAP_CONTROL_LOGIC_H
-#define FLAP_CONTROL_LOGIC_H
+###### FILE: code/inc/flap_control.h ######
+#ifndef FLAP_CONTROL_H
+#define FLAP_CONTROL_H
 #include <stdint.h>
-
-typedef enum {
-    FLAP_STATE_IDLE,
-    FLAP_STATE_MOVING,
-    FLAP_STATE_SAFE,
-    FLAP_STATE_ERROR
-} FlapControlState_t;
-
-void FlapControlLogic_Init(void);
-void FlapControlLogic_RequestMoveTo(uint8_t position);
-void FlapControlLogic_MainLoop(void);
-uint8_t FlapControlLogic_GetStatus(void);
-uint8_t FlapControlLogic_GetActualPosition(void);
-
-#endif // FLAP_CONTROL_LOGIC_H
+typedef enum { FLAP_IDLE, FLAP_MOVING, FLAP_SAFE, FLAP_ERROR } FlapControlState;
+void FlapControl_Init(void);
+void FlapControl_MoveTo(uint8_t position);
+void FlapControl_Update(void);
+uint8_t FlapControl_GetStatus(void);
+#endif
 ###### END FILE ######
-###### FILE: code/src/flap_control_logic.c ######
-#include "flap_control_logic.h"
+###### FILE: code/src/flap_control.c ######
+#include "flap_control.h"
 #include "adc_if.h"
 #include "motor_driver_if.h"
 #include "error_handler.h"
-#include "configuration_data.h"
-#include <stdbool.h>
-
+#include "status_output_if.h"
+#include "configuration.h"
 static uint8_t pos_target = 0;
 static uint8_t pos_actual = 0;
-static FlapControlState_t flap_state = FLAP_STATE_IDLE;
-extern void StatusOutputIF_SetStatus(uint8_t code);
-
-void FlapControlLogic_Init(void) {
+static FlapControlState state = FLAP_IDLE;
+void FlapControl_Init(void) {
     pos_target = 0;
-    pos_actual = ADCIF_GetPos();
-    flap_state = FLAP_STATE_IDLE;
+    pos_actual = AdcIf_GetPosition();
+    state = FLAP_IDLE;
 }
-
-void FlapControlLogic_RequestMoveTo(uint8_t position) {
-    if (!ConfigurationData_IsValidPosition(position)) {
-        flap_state = FLAP_STATE_ERROR;
-        ErrorHandler_SetErrorCode(ERR_OUT_OF_RANGE);
-        StatusOutputIF_SetStatus(STATUS_ERR);
+void FlapControl_MoveTo(uint8_t position) {
+    if (position > 5) {
+        ErrorHandler_SetError(ERROR_INVALID_CMD);
+        state = FLAP_ERROR;
         return;
     }
     pos_target = position;
-    flap_state = FLAP_STATE_MOVING;
+    FlapControl_Update();
 }
-
-void FlapControlLogic_MainLoop(void) {
-    pos_actual = ADCIF_GetPos();
-    if (flap_state == FLAP_STATE_MOVING) {
-        if (!ADCIF_IsValid()) {
-            flap_state = FLAP_STATE_ERROR;
-            ErrorHandler_SetErrorCode(ERR_ADC_FAULT);
-            StatusOutputIF_SetStatus(STATUS_ERR);
-            MotorDriverIF_Off();
-        } else if (pos_actual < pos_target) {
-            MotorDriverIF_Drive(DIRECTION_UP, 100);
-            StatusOutputIF_SetStatus(STATUS_MOVING);
+void FlapControl_Update(void) {
+    pos_actual = AdcIf_GetPosition();
+    if (state == FLAP_SAFE || state == FLAP_ERROR) return;
+    if (pos_actual == pos_target) {
+        state = FLAP_IDLE;
+        MotorDriver_Off();
+        StatusOutputIf_SetStatus(STATUS_TARGET_REACHED);
+    } else {
+        state = FLAP_MOVING;
+        if (pos_actual < pos_target) {
+            MotorDriver_Drive(DIR_INC, 50);
         } else if (pos_actual > pos_target) {
-            MotorDriverIF_Drive(DIRECTION_DOWN, 100);
-            StatusOutputIF_SetStatus(STATUS_MOVING);
-        } else {
-            MotorDriverIF_Off();
-            flap_state = FLAP_STATE_IDLE;
-            StatusOutputIF_SetStatus(STATUS_TARGET_REACHED);
+            MotorDriver_Drive(DIR_DEC, 50);
         }
-    } else if (flap_state == FLAP_STATE_IDLE) {
-        MotorDriverIF_Off();
-        StatusOutputIF_SetStatus(STATUS_IDLE);
+        StatusOutputIf_SetStatus(STATUS_IN_MOTION);
     }
 }
-
-uint8_t FlapControlLogic_GetStatus(void) {
-    return flap_state;
-}
-
-uint8_t FlapControlLogic_GetActualPosition(void) {
-    return pos_actual;
+uint8_t FlapControl_GetStatus(void) {
+    return (uint8_t)state;
 }
 ###### END FILE ######
 ###### FILE: code/inc/adc_if.h ######
 #ifndef ADC_IF_H
 #define ADC_IF_H
 #include <stdint.h>
-#include <stdbool.h>
-
-void ADCIF_Init(void);
-void ADCIF_StartConversion(void);
-uint8_t ADCIF_GetPos(void);
-bool ADCIF_IsValid(void);
-
-#endif // ADC_IF_H
+void AdcIf_Init(void);
+uint16_t AdcIf_ReadRaw(void);
+uint8_t AdcIf_GetPosition(void);
+#endif
 ###### END FILE ######
 ###### FILE: code/src/adc_if.c ######
 #include "adc_if.h"
-#include "configuration_data.h"
-
+#include "configuration.h"
+#include "error_handler.h"
 static uint16_t adc_last_value = 0;
-static bool adc_valid = true;
-
-void ADCIF_Init(void) {
+void AdcIf_Init(void) {
+    // Hardware ADC init placeholder
     adc_last_value = 0;
-    adc_valid = true;
 }
-
-void ADCIF_StartConversion(void) {
-    // Simulate ADC conversion
-    adc_last_value = 300; // Dummy value representing mid-scale
-    adc_valid = ConfigurationData_IsInRange(adc_last_value);
+uint16_t AdcIf_ReadRaw(void) {
+    // Dummy hardware read
+    adc_last_value = 1234;
+    return adc_last_value;
 }
-
-uint8_t ADCIF_GetPos(void) {
-    // Convert ADC value to position using thresholds
-    return ConfigurationData_MapAdcToPos(adc_last_value);
-}
-
-bool ADCIF_IsValid(void) {
-    return adc_valid;
+uint8_t AdcIf_GetPosition(void) {
+    adc_last_value = AdcIf_ReadRaw();
+    // Use calibration thresholds from configuration
+    uint8_t i;
+    const uint16_t *thresh = Configuration_GetThresholds();
+    for (i = 0; i < 5; i++) {
+        if (adc_last_value < thresh[i]) return i;
+    }
+    return 5;
 }
 ###### END FILE ######
 ###### FILE: code/inc/motor_driver_if.h ######
 #ifndef MOTOR_DRIVER_IF_H
 #define MOTOR_DRIVER_IF_H
 #include <stdint.h>
-
-typedef enum {
-    DIRECTION_STOP = 0,
-    DIRECTION_UP,
-    DIRECTION_DOWN
-} MotorDirection_t;
-
-void MotorDriverIF_Init(void);
-void MotorDriverIF_Drive(MotorDirection_t direction, uint8_t duty);
-void MotorDriverIF_Off(void);
-
-#endif // MOTOR_DRIVER_IF_H
+typedef enum { DIR_INC, DIR_DEC } MotorDirection;
+void MotorDriver_Init(void);
+void MotorDriver_Drive(MotorDirection dir, uint8_t duty);
+void MotorDriver_Brake(void);
+void MotorDriver_Off(void);
+#endif
 ###### END FILE ######
 ###### FILE: code/src/motor_driver_if.c ######
 #include "motor_driver_if.h"
-
-static MotorDirection_t last_dir = DIRECTION_STOP;
-static uint8_t last_duty = 0;
-
-void MotorDriverIF_Init(void) {
-    last_dir = DIRECTION_STOP;
-    last_duty = 0;
+#include "error_handler.h"
+static uint8_t pwm_duty_cycle;
+void MotorDriver_Init(void) {
+    pwm_duty_cycle = 0;
+    // hw init stub
 }
-
-void MotorDriverIF_Drive(MotorDirection_t direction, uint8_t duty) {
-    last_dir = direction;
-    last_duty = duty;
-    // Would write PWM and direction/bridge control registers here
+void MotorDriver_Drive(MotorDirection dir, uint8_t duty) {
+    pwm_duty_cycle = duty;
+    // set PWM, direction GPIO here (stub)
 }
-
-void MotorDriverIF_Off(void) {
-    last_dir = DIRECTION_STOP;
-    last_duty = 0;
-    // Would turn off the PWM/motor
+void MotorDriver_Brake(void) {
+    pwm_duty_cycle = 0;
+    // brake logic stub
+}
+void MotorDriver_Off(void) {
+    pwm_duty_cycle = 0;
+    // deactivate bridge outputs stub
 }
 ###### END FILE ######
 ###### FILE: code/inc/status_output_if.h ######
 #ifndef STATUS_OUTPUT_IF_H
 #define STATUS_OUTPUT_IF_H
 #include <stdint.h>
-
-#define STATUS_OK 0
-#define STATUS_ERR 1
-#define STATUS_MOVING 2
-#define STATUS_TARGET_REACHED 3
-#define STATUS_IDLE 4
-
-void StatusOutputIF_Init(void);
-void StatusOutputIF_SetStatus(uint8_t code);
-
-#endif // STATUS_OUTPUT_IF_H
+typedef enum { STATUS_OK, STATUS_ERR, STATUS_IN_MOTION, STATUS_IDLE, STATUS_TARGET_REACHED } StatusCode;
+void StatusOutputIf_Init(void);
+void StatusOutputIf_SetStatus(StatusCode code);
+#endif
 ###### END FILE ######
 ###### FILE: code/src/status_output_if.c ######
 #include "status_output_if.h"
-
-static uint8_t status_code = STATUS_IDLE;
-
-void StatusOutputIF_Init(void) {
+static StatusCode status_code = STATUS_IDLE;
+void StatusOutputIf_Init(void) {
     status_code = STATUS_IDLE;
 }
-
-void StatusOutputIF_SetStatus(uint8_t code) {
+void StatusOutputIf_SetStatus(StatusCode code) {
     status_code = code;
-    // Would drive GPIO/LEDs here
+    // GPIO or high-side driver update stub
 }
 ###### END FILE ######
-###### FILE: code/inc/configuration_data.h ######
-#ifndef CONFIGURATION_DATA_H
-#define CONFIGURATION_DATA_H
+###### FILE: code/inc/configuration.h ######
+#ifndef CONFIGURATION_H
+#define CONFIGURATION_H
 #include <stdint.h>
-#include <stdbool.h>
-
-#define POS_NUM 6
-
-void ConfigurationData_Init(void);
-bool ConfigurationData_IsValidPosition(uint8_t pos);
-bool ConfigurationData_IsInRange(uint16_t adc_val);
-uint8_t ConfigurationData_MapAdcToPos(uint16_t adc_val);
-
-#endif // CONFIGURATION_DATA_H
+void Configuration_Init(void);
+const uint16_t* Configuration_GetThresholds(void);
+#endif
 ###### END FILE ######
-###### FILE: code/src/configuration_data.c ######
-#include "configuration_data.h"
-
-static uint16_t thresholds[POS_NUM+1] = {0, 200, 400, 600, 800, 1000, 1200};
-
-void ConfigurationData_Init(void) {}
-
-bool ConfigurationData_IsValidPosition(uint8_t pos) {
-    return (pos < POS_NUM);
+###### FILE: code/src/configuration.c ######
+#include "configuration.h"
+#include "error_handler.h"
+static uint16_t thresholds[6] = {400, 800, 1200, 1600, 2000, 4095};
+void Configuration_Init(void) {
+    // Init from flash/NVM if needed
 }
-
-bool ConfigurationData_IsInRange(uint16_t adc_val) {
-    return (adc_val >= thresholds[0] && adc_val <= thresholds[POS_NUM]);
-}
-
-uint8_t ConfigurationData_MapAdcToPos(uint16_t adc_val) {
-    for (uint8_t i = 0; i < POS_NUM; ++i) {
-        if (adc_val < thresholds[i+1]) return i;
-    }
-    return POS_NUM - 1;
+const uint16_t* Configuration_GetThresholds(void) {
+    return thresholds;
 }
 ###### END FILE ######
 ###### FILE: code/inc/error_handler.h ######
 #ifndef ERROR_HANDLER_H
 #define ERROR_HANDLER_H
 #include <stdint.h>
-
-#define ERR_CMD_INVALID 1
-#define ERR_ADC_FAULT   2
-#define ERR_OUT_OF_RANGE 3
-
+enum {
+    ERROR_NONE=0,
+    ERROR_INVALID_CMD=1,
+    ERROR_ADC_RANGE=2
+};
 void ErrorHandler_Init(void);
-void ErrorHandler_SetErrorCode(uint8_t code);
-void ErrorHandler_Clear(void);
-uint8_t ErrorHandler_GetErrorCode(void);
-
-#endif // ERROR_HANDLER_H
+void ErrorHandler_SetError(uint8_t code);
+void ErrorHandler_ClearError(uint8_t code);
+uint8_t ErrorHandler_GetError(void);
+#endif
 ###### END FILE ######
 ###### FILE: code/src/error_handler.c ######
 #include "error_handler.h"
 #include "status_output_if.h"
-
-static uint8_t error_flags = 0;
-static uint8_t last_error_code = 0;
-
+static uint8_t error_flags = ERROR_NONE;
+static uint8_t last_error_code = ERROR_NONE;
 void ErrorHandler_Init(void) {
-    error_flags = 0;
-    last_error_code = 0;
+    error_flags = ERROR_NONE;
+    last_error_code = ERROR_NONE;
 }
-
-void ErrorHandler_SetErrorCode(uint8_t code) {
+void ErrorHandler_SetError(uint8_t code) {
+    error_flags |= (1<<code);
     last_error_code = code;
-    error_flags = 1;
-    StatusOutputIF_SetStatus(STATUS_ERR);
+    StatusOutputIf_SetStatus(STATUS_ERR);
 }
-
-void ErrorHandler_Clear(void) {
-    error_flags = 0;
+void ErrorHandler_ClearError(uint8_t code) {
+    error_flags &= ~(1<<code);
+    if (error_flags == ERROR_NONE) StatusOutputIf_SetStatus(STATUS_OK);
 }
-
-uint8_t ErrorHandler_GetErrorCode(void) {
+uint8_t ErrorHandler_GetError(void) {
     return last_error_code;
 }
 ###### END FILE ######
-###### FILE: code/src/main.c ######
+###### FILE: code/inc/system_init.h ######
+#ifndef SYSTEM_INIT_H
+#define SYSTEM_INIT_H
+void SystemInit_Init(void);
+#endif
+###### END FILE ######
+###### FILE: code/src/system_init.c ######
+#include "system_init.h"
 #include "user_command_if.h"
-#include "flap_control_logic.h"
+#include "flap_control.h"
 #include "adc_if.h"
 #include "motor_driver_if.h"
 #include "status_output_if.h"
-#include "configuration_data.h"
+#include "configuration.h"
 #include "error_handler.h"
-
-void system_init() {
-    UserCommandIF_Init();
-    FlapControlLogic_Init();
-    ADCIF_Init();
-    MotorDriverIF_Init();
-    StatusOutputIF_Init();
-    ConfigurationData_Init();
+void SystemInit_Init(void) {
+    Configuration_Init();
     ErrorHandler_Init();
+    AdcIf_Init();
+    MotorDriver_Init();
+    StatusOutputIf_Init();
+    UserCommandIF_Init();
+    FlapControl_Init();
 }
-
-int main(void) {
-    system_init();
+###### END FILE ######
+###### FILE: code/src/main.c ######
+#include "system_init.h"
+#include "user_command_if.h"
+#include "flap_control.h"
+#include "adc_if.h"
+#include "motor_driver_if.h"
+#include "status_output_if.h"
+int main(void)
+{
+    SystemInit_Init();
     while (1) {
-        // Simulate receiving commands
-        // UserCommandIF_RxHandler(rx_byte);
-        ADCIF_StartConversion();
-        FlapControlLogic_MainLoop();
+        UserCommandIF_Process();
+        FlapControl_Update();
+        // ... add further polling/status ...
     }
     return 0;
 }
