@@ -1,12 +1,9 @@
 #include "status_output_if.h"
-
-static StatusCode_t current_status = STATUS_IDLE;
-
-void StatusOutputIF_Init(void) {
-    current_status = STATUS_IDLE;
+static StatusCode status_code = STATUS_IDLE;
+void StatusOutputIf_Init(void) {
+    status_code = STATUS_IDLE;
 }
-
-void StatusOutputIF_Set(StatusCode_t code) {
-    current_status = code;
-    // Set/clear LEDs as per code (hardware specific)
+void StatusOutputIf_SetStatus(StatusCode code) {
+    status_code = code;
+    // GPIO or high-side driver update stub
 }

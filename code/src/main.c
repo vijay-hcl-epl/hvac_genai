@@ -1,28 +1,16 @@
+#include "system_init.h"
 #include "user_command_if.h"
-#include "flap_control_logic.h"
-#include "adc_interface.h"
+#include "flap_control.h"
+#include "adc_if.h"
 #include "motor_driver_if.h"
 #include "status_output_if.h"
-#include "error_handler.h"
-#include "config_data.h"
-
 int main(void)
 {
-    // System Initialization
-    ErrorHandler_Init();
-    ConfigData_Get();
-    UserCommandIF_Init();
-    FlapControlLogic_Init();
-    ADCInterface_Init();
-    MotorDriverIF_Init();
-    StatusOutputIF_Init();
-
-    while(1) {
-        ADCInterface_StartConversion();
-        FlapControlLogic_Process();
+    SystemInit_Init();
+    while (1) {
         UserCommandIF_Process();
-        // Add delay or WFI as needed
+        FlapControl_Update();
+        // ... add further polling/status ...
     }
-
     return 0;
 }

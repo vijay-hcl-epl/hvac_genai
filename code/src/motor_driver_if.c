@@ -1,18 +1,19 @@
 #include "motor_driver_if.h"
-
-void MotorDriverIF_Init(void) {
-    // Initialize GPIOs/Timers
+#include "error_handler.h"
+static uint8_t pwm_duty_cycle;
+void MotorDriver_Init(void) {
+    pwm_duty_cycle = 0;
+    // hw init stub
 }
-
-void MotorDriverIF_Drive(MotorDirection_t dir, uint8_t duty) {
-    // Set direction pins, timer PWM duty (hardware specific)
-    (void)dir; (void)duty;
+void MotorDriver_Drive(MotorDirection dir, uint8_t duty) {
+    pwm_duty_cycle = duty;
+    // set PWM, direction GPIO here (stub)
 }
-
-void MotorDriverIF_Brake(void) {
-    // Set both motor lines low (brake)
+void MotorDriver_Brake(void) {
+    pwm_duty_cycle = 0;
+    // brake logic stub
 }
-
-void MotorDriverIF_Off(void) {
-    // Disable all motor outputs
+void MotorDriver_Off(void) {
+    pwm_duty_cycle = 0;
+    // deactivate bridge outputs stub
 }
