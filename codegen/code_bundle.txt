@@ -1,0 +1,114 @@
+###### FILE: code/inc/flap_controller.h ######
+#ifndef FLAP_CONTROLLER_H
+#define FLAP_CONTROLLER_H
+
+#include <stdint.h>
+
+// SWE-REQ-001, SWE-REQ-002
+void FlapController_ReceiveAndValidateCommand(uint8_t requested_position);
+
+// SWE-REQ-003
+uint8_t FlapController_ReadCurrentPosition(void);
+
+// SWE-REQ-004, SWE-REQ-005, SWE-REQ-006
+void FlapController_UpdateMotor(uint8_t requested_position);
+
+// SWE-REQ-007
+void FlapController_UpdateStatusIndicator(void);
+
+// Data structures for internal state
+typedef enum {
+    FLAP_IDLE = 0,
+    FLAP_MOVING,
+    FLAP_TARGET_REACHED,
+    FLAP_INVALID_COMMAND
+} FlapControlState_t;
+
+typedef struct {
+    uint8_t requested_position;
+    uint8_t current_position;
+    FlapControlState_t state;
+} FlapController_t;
+
+#endif // FLAP_CONTROLLER_H
+###### END FILE ######
+
+###### FILE: code/src/flap_controller.c ######
+#include "flap_controller.h"
+
+// Internal static instance
+static FlapController_t g_flap_controller = {0, 0, FLAP_IDLE};
+
+// Simulate reading command and performing validation (SWE-REQ-001, SWE-REQ-002)
+void FlapController_ReceiveAndValidateCommand(uint8_t requested_position) {
+    // Only allow commands within 0-100
+    if(requested_position <= 100) {
+        g_flap_controller.requested_position = requested_position;
+        g_flap_controller.state = FLAP_IDLE;
+    } else {
+        g_flap_controller.state = FLAP_INVALID_COMMAND;
+    }
+}
+
+// Simulate reading of flap potentiometer (SWE-REQ-003)
+uint8_t FlapController_ReadCurrentPosition(void) {
+    // For integration, this would read ADC or similar HW
+    return g_flap_controller.current_position;
+}
+
+// Drives the flap motor towards requested position (SWE-REQ-004, SWE-REQ-005, SWE-REQ-006)
+void FlapController_UpdateMotor(uint8_t requested_position) {
+    if(g_flap_controller.state == FLAP_INVALID_COMMAND) {
+        return; // Do not operate on invalid commands
+    }
+    if(g_flap_controller.current_position < requested_position) {
+        g_flap_controller.current_position++;
+        g_flap_controller.state = FLAP_MOVING;
+    } else if(g_flap_controller.current_position > requested_position) {
+        g_flap_controller.current_position--;
+        g_flap_controller.state = FLAP_MOVING;
+    } else {
+        g_flap_controller.state = FLAP_TARGET_REACHED;
+        // SWE-REQ-006: Stop the flap motor
+    }
+}
+
+// Updates the status indicator (SWE-REQ-007)
+void FlapController_UpdateStatusIndicator(void) {
+    // In production, would update an output
+    // For now, logic is:
+    // E.g. update LED based on g_flap_controller.state
+    // (left as placeholder to indicate state logic only)
+    switch(g_flap_controller.state) {
+        case FLAP_IDLE:
+        case FLAP_MOVING:
+            // Indicator: Moving/idle (active)
+            break;
+        case FLAP_TARGET_REACHED:
+            // Indicator: Target reached (success)
+            break;
+        case FLAP_INVALID_COMMAND:
+            // Indicator: Error
+            break;
+        default:
+            break;
+    }
+}
+###### END FILE ######
+
+###### FILE: code/src/main.c ######
+#include "flap_controller.h"
+
+int main(void) {
+    uint8_t cmd = 50; // Example: mid-position
+    FlapController_ReceiveAndValidateCommand(cmd);
+
+    do {
+        FlapController_UpdateMotor(cmd);
+        FlapController_UpdateStatusIndicator();
+    } while (FlapController_ReadCurrentPosition() != cmd);
+
+    FlapController_UpdateStatusIndicator(); // Final update
+    return 0;
+}
+###### END FILE ######
