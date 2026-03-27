@@ -51,7 +51,7 @@ static void validate_input(ApplicationContext_t *ctx, const UserCommand_t *cmd) 
 
 static void process_logic(ApplicationContext_t *ctx, const UserCommand_t *cmd) {
     // Placeholder logic - process based only on supplied struct
-dash if (cmd->command_id == 1 && cmd->param < 100) {
+    if (cmd->command_id == 1 && cmd->param < 100) {
         ctx->output_triggered = 1;
         ctx->state = APP_STATE_EXECUTING;
     } else {
