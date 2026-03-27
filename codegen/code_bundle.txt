@@ -1,0 +1,239 @@
+###### FILE: code/inc/Application_Layer.h ######
+#ifndef APPLICATION_LAYER_H
+#define APPLICATION_LAYER_H
+
+typedef enum {
+    STATE_IDLE,
+    STATE_VALIDATE,
+    STATE_EXECUTE,
+    STATE_OUTPUT,
+    STATE_ERROR
+} ApplicationStateType;
+
+typedef struct {
+    int requestedCommand;
+    ApplicationStateType currentState;
+    int isCommandValid;
+    int outputRequestState;
+} ApplicationLayer_DataType;
+
+void Application_Init(void);
+void Application_Process(void);
+
+#endif // APPLICATION_LAYER_H
+###### END FILE ######
+
+###### FILE: code/inc/Signal_Interface_Manager.h ######
+#ifndef SIGNAL_INTERFACE_MANAGER_H
+#define SIGNAL_INTERFACE_MANAGER_H
+
+typedef enum {
+    STATE_SIGNAL_IDLE,
+    STATE_SIGNAL_READ,
+    STATE_SIGNAL_NORMALIZE,
+    STATE_SIGNAL_ERROR
+} SignalManagerStateType;
+
+typedef struct {
+    int rawInputValue;
+    int normalizedCommand;
+    int normalizedPosition;
+} SignalInterfaceManager_DataType;
+
+int SignalInterface_ReadCommand(void);
+int SignalInterface_ReadPosition(void);
+
+#endif // SIGNAL_INTERFACE_MANAGER_H
+###### END FILE ######
+
+###### FILE: code/inc/Hardware_Abstraction_Layer.h ######
+#ifndef HARDWARE_ABSTRACTION_LAYER_H
+#define HARDWARE_ABSTRACTION_LAYER_H
+
+typedef enum {
+    STATE_HAL_IDLE,
+    STATE_HAL_MOTOR_ACTIVE,
+    STATE_HAL_LED_ACTIVE,
+    STATE_HAL_ERROR
+} HAL_StateType;
+
+typedef struct {
+    int motorState;
+    int indicatorState;
+} HardwareAbstractionLayer_DataType;
+
+int Hal_SetMotorDirection(int direction);
+void Hal_StopMotor(void);
+int Hal_SetLedState(int state);
+
+#endif // HARDWARE_ABSTRACTION_LAYER_H
+###### END FILE ######
+
+###### FILE: code/inc/Electrical_Interface_Driver.h ######
+#ifndef ELECTRICAL_INTERFACE_DRIVER_H
+#define ELECTRICAL_INTERFACE_DRIVER_H
+
+typedef enum {
+    STATE_EID_IDLE,
+    STATE_EID_READ,
+    STATE_EID_WRITE,
+    STATE_EID_ERROR
+} EID_StateType;
+
+typedef struct {
+    int adcValue;
+    int gpioOutputState;
+    int inputState;
+} ElectricalInterfaceDriver_DataType;
+
+int ElectricalDriver_ReadAdc(void);
+int ElectricalDriver_ReadInput(void);
+int ElectricalDriver_SetMotor(int state);
+void ElectricalDriver_StopMotor(void);
+int ElectricalDriver_SetStatusLed(int state);
+
+#endif // ELECTRICAL_INTERFACE_DRIVER_H
+###### END FILE ######
+
+###### FILE: code/src/Application_Layer.c ######
+#include "Application_Layer.h"
+#include "Signal_Interface_Manager.h"
+#include "Hardware_Abstraction_Layer.h"
+
+static ApplicationLayer_DataType appData;
+
+void Application_Init(void) {
+    appData.requestedCommand = 0;
+    appData.currentState = STATE_IDLE;
+    appData.isCommandValid = 0;
+    appData.outputRequestState = 0;
+}
+
+void Application_Process(void) {
+    switch (appData.currentState) {
+        case STATE_IDLE:
+            appData.requestedCommand = SignalInterface_ReadCommand();
+            appData.currentState = STATE_VALIDATE;
+            break;
+        case STATE_VALIDATE:
+            if (appData.requestedCommand >= 0 && appData.requestedCommand <= 100) {
+                appData.isCommandValid = 1;
+                appData.currentState = STATE_EXECUTE;
+            } else {
+                appData.isCommandValid = 0;
+                appData.currentState = STATE_ERROR;
+            }
+            break;
+        case STATE_EXECUTE:
+            if (appData.isCommandValid) {
+                Hal_SetMotorDirection(appData.requestedCommand);
+                appData.currentState = STATE_OUTPUT;
+            } else {
+                appData.currentState = STATE_ERROR;
+            }
+            break;
+        case STATE_OUTPUT:
+            Hal_SetLedState(appData.requestedCommand);
+            appData.currentState = STATE_IDLE;
+            break;
+        case STATE_ERROR:
+            Hal_StopMotor();
+            appData.currentState = STATE_IDLE;
+            break;
+        default:
+            appData.currentState = STATE_IDLE;
+            break;
+    }
+}
+###### END FILE ######
+
+###### FILE: code/src/Signal_Interface_Manager.c ######
+#include "Signal_Interface_Manager.h"
+#include "Electrical_Interface_Driver.h"
+
+static SignalInterfaceManager_DataType signalData;
+
+int SignalInterface_ReadCommand(void) {
+    signalData.rawInputValue = ElectricalDriver_ReadInput();
+    if (signalData.rawInputValue >= 0 && signalData.rawInputValue <= 100) {
+        signalData.normalizedCommand = signalData.rawInputValue;
+        return signalData.normalizedCommand;
+    } else {
+        return -1; // Invalid command
+    }
+}
+
+int SignalInterface_ReadPosition(void) {
+    signalData.normalizedPosition = ElectricalDriver_ReadAdc();
+    return signalData.normalizedPosition;
+}
+###### END FILE ######
+
+###### FILE: code/src/Hardware_Abstraction_Layer.c ######
+#include "Hardware_Abstraction_Layer.h"
+#include "Electrical_Interface_Driver.h"
+
+static HardwareAbstractionLayer_DataType halData;
+
+int Hal_SetMotorDirection(int direction) {
+    halData.motorState = direction;
+    return ElectricalDriver_SetMotor(direction);
+}
+
+void Hal_StopMotor(void) {
+    halData.motorState = 0;
+    ElectricalDriver_StopMotor();
+}
+
+int Hal_SetLedState(int state) {
+    halData.indicatorState = state;
+    return ElectricalDriver_SetStatusLed(state);
+}
+###### END FILE ######
+
+###### FILE: code/src/Electrical_Interface_Driver.c ######
+#include "Electrical_Interface_Driver.h"
+// Stub hardware simulation variables
+static ElectricalInterfaceDriver_DataType eidData;
+
+int ElectricalDriver_ReadAdc(void) {
+    // Simulate ADC (potentiometer)
+    return eidData.adcValue;
+}
+
+int ElectricalDriver_ReadInput(void) {
+    // Simulate command input
+    return eidData.inputState;
+}
+
+int ElectricalDriver_SetMotor(int state) {
+    // Simulate motor control via GPIO/PWM
+    eidData.gpioOutputState = state;
+    return 0;
+}
+
+void ElectricalDriver_StopMotor(void) {
+    eidData.gpioOutputState = 0;
+}
+
+int ElectricalDriver_SetStatusLed(int state) {
+    // Simulate LED control
+    return 0;
+}
+###### END FILE ######
+
+###### FILE: code/src/main.c ######
+#include "Application_Layer.h"
+#include "Signal_Interface_Manager.h"
+#include "Hardware_Abstraction_Layer.h"
+#include "Electrical_Interface_Driver.h"
+
+int main(void) {
+    Application_Init();
+    while (1) {
+        Application_Process();
+        // Could use a deterministic sleep/delay here
+    }
+    return 0;
+}
+###### END FILE ######
