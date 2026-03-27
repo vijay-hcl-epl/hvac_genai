@@ -1,0 +1,224 @@
+###### FILE: code/inc/Application_Layer.h ######
+#ifndef APPLICATION_LAYER_H
+#define APPLICATION_LAYER_H
+
+typedef enum {
+    STATE_IDLE = 0,
+    STATE_VALIDATE,
+    STATE_EXECUTE,
+    STATE_OUTPUT,
+    STATE_ERROR
+} ApplicationState;
+
+void Application_Init(void);
+void Application_Process(void);
+
+#endif // APPLICATION_LAYER_H
+###### END FILE ######
+
+###### FILE: code/inc/Signal_Interface_Manager.h ######
+#ifndef SIGNAL_INTERFACE_MANAGER_H
+#define SIGNAL_INTERFACE_MANAGER_H
+
+typedef enum {
+    STATE_SIGNAL_IDLE = 0,
+    STATE_SIGNAL_READ,
+    STATE_SIGNAL_NORMALIZE,
+    STATE_SIGNAL_ERROR
+} SignalInterfaceState;
+
+int SignalInterface_ReadCommand(void);
+int SignalInterface_ReadPosition(void);
+
+#endif // SIGNAL_INTERFACE_MANAGER_H
+###### END FILE ######
+
+###### FILE: code/inc/Hardware_Abstraction_Layer.h ######
+#ifndef HARDWARE_ABSTRACTION_LAYER_H
+#define HARDWARE_ABSTRACTION_LAYER_H
+
+typedef enum {
+    STATE_HAL_IDLE = 0,
+    STATE_HAL_MOTOR_ACTIVE,
+    STATE_HAL_LED_ACTIVE,
+    STATE_HAL_ERROR
+} HalState;
+
+void Hal_SetMotorDirection(int dir);
+void Hal_StopMotor(void);
+void Hal_SetLedState(int state);
+
+#endif // HARDWARE_ABSTRACTION_LAYER_H
+###### END FILE ######
+
+###### FILE: code/inc/Electrical_Interface_Driver.h ######
+#ifndef ELECTRICAL_INTERFACE_DRIVER_H
+#define ELECTRICAL_INTERFACE_DRIVER_H
+
+typedef enum {
+    STATE_EID_IDLE = 0,
+    STATE_EID_READ,
+    STATE_EID_WRITE,
+    STATE_EID_ERROR
+} ElectricalIdState;
+
+int ElectricalDriver_ReadAdc(void);
+int ElectricalDriver_ReadInput(void);
+void ElectricalDriver_SetMotor(int active);
+void ElectricalDriver_StopMotor(void);
+void ElectricalDriver_SetStatusLed(int state);
+
+#endif // ELECTRICAL_INTERFACE_DRIVER_H
+###### END FILE ######
+
+###### FILE: code/src/Application_Layer.c ######
+#include "Application_Layer.h"
+#include "Signal_Interface_Manager.h"
+#include "Hardware_Abstraction_Layer.h"
+
+static ApplicationState app_state = STATE_IDLE;
+static int requested_command = 0;
+static int validation_status = 0;
+
+void Application_Init(void) {
+    app_state = STATE_IDLE;
+    requested_command = 0;
+    validation_status = 0;
+}
+
+void Application_Process(void) {
+    switch (app_state) {
+        case STATE_IDLE:
+            requested_command = SignalInterface_ReadCommand();
+            app_state = STATE_VALIDATE;
+            break;
+        case STATE_VALIDATE:
+            // Assume command valid if in range 0-5
+            validation_status = (requested_command >= 0 && requested_command <= 5);
+            app_state = validation_status ? STATE_EXECUTE : STATE_ERROR;
+            break;
+        case STATE_EXECUTE:
+            Hal_SetMotorDirection(requested_command);
+            app_state = STATE_OUTPUT;
+            break;
+        case STATE_OUTPUT:
+            Hal_SetLedState(requested_command);
+            app_state = STATE_IDLE;
+            break;
+        case STATE_ERROR:
+            Hal_SetLedState(-1);
+            app_state = STATE_IDLE;
+            break;
+        default:
+            app_state = STATE_ERROR;
+            break;
+    }
+}
+###### END FILE ######
+
+###### FILE: code/src/Signal_Interface_Manager.c ######
+#include "Signal_Interface_Manager.h"
+#include "Electrical_Interface_Driver.h"
+
+static SignalInterfaceState signal_state = STATE_SIGNAL_IDLE;
+static int raw_input_value = 0;
+static int norm_command_value = 0;
+
+int SignalInterface_ReadCommand(void) {
+    signal_state = STATE_SIGNAL_READ;
+    raw_input_value = ElectricalDriver_ReadInput();
+    signal_state = STATE_SIGNAL_NORMALIZE;
+    // normalize: assume raw input 0-5 maps directly
+    norm_command_value = raw_input_value;
+    signal_state = STATE_SIGNAL_IDLE;
+    return norm_command_value;
+}
+
+int SignalInterface_ReadPosition(void) {
+    return ElectricalDriver_ReadAdc();
+}
+###### END FILE ######
+
+###### FILE: code/src/Hardware_Abstraction_Layer.c ######
+#include "Hardware_Abstraction_Layer.h"
+#include "Electrical_Interface_Driver.h"
+
+static HalState hal_state = STATE_HAL_IDLE;
+
+void Hal_SetMotorDirection(int dir) {
+    hal_state = STATE_HAL_MOTOR_ACTIVE;
+    ElectricalDriver_SetMotor(dir);
+    hal_state = STATE_HAL_IDLE;
+}
+
+void Hal_StopMotor(void) {
+    hal_state = STATE_HAL_MOTOR_ACTIVE;
+    ElectricalDriver_StopMotor();
+    hal_state = STATE_HAL_IDLE;
+}
+
+void Hal_SetLedState(int state) {
+    hal_state = STATE_HAL_LED_ACTIVE;
+    ElectricalDriver_SetStatusLed(state);
+    hal_state = STATE_HAL_IDLE;
+}
+###### END FILE ######
+
+###### FILE: code/src/Electrical_Interface_Driver.c ######
+#include "Electrical_Interface_Driver.h"
+
+static ElectricalIdState eid_state = STATE_EID_IDLE;
+static int adc_sample_value = 0;
+static int gpio_output_state = 0;
+static int input_state = 0;
+
+int ElectricalDriver_ReadAdc(void) {
+    eid_state = STATE_EID_READ;
+    // TODO: Replace with actual ADC HW read
+    adc_sample_value = 0;
+    eid_state = STATE_EID_IDLE;
+    return adc_sample_value;
+}
+
+int ElectricalDriver_ReadInput(void) {
+    eid_state = STATE_EID_READ;
+    // TODO: Replace with digital command input read
+    input_state = 0;
+    eid_state = STATE_EID_IDLE;
+    return input_state;
+}
+
+void ElectricalDriver_SetMotor(int active) {
+    eid_state = STATE_EID_WRITE;
+    // TODO: Replace with actual GPIO control
+    gpio_output_state = active;
+    eid_state = STATE_EID_IDLE;
+}
+
+void ElectricalDriver_StopMotor(void) {
+    eid_state = STATE_EID_WRITE;
+    // TODO: Replace with actual GPIO to stop
+    gpio_output_state = 0;
+    eid_state = STATE_EID_IDLE;
+}
+
+void ElectricalDriver_SetStatusLed(int state) {
+    eid_state = STATE_EID_WRITE;
+    // TODO: Replace with actual status LED control
+    eid_state = STATE_EID_IDLE;
+}
+###### END FILE ######
+
+###### FILE: code/src/main.c ######
+#include "Application_Layer.h"
+
+int main(void)
+{
+    Application_Init();
+    while(1)
+    {
+        Application_Process();
+    }
+    return 0;
+}
+###### END FILE ######
