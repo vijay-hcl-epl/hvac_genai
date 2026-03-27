@@ -1,0 +1,122 @@
+###### FILE: code/inc/Application_Layer.h ######
+#ifndef APPLICATION_LAYER_H
+#define APPLICATION_LAYER_H
+
+// Data structures for command processing, state, validation
+
+typedef enum {
+    APP_STATE_IDLE = 0,
+    APP_STATE_COMMAND_RECEIVED,
+    APP_STATE_VALIDATING,
+    APP_STATE_EXECUTING,
+    APP_STATE_OUTPUT_TRIGGERED,
+    APP_STATE_ERROR
+} AppState_t;
+
+typedef struct {
+    int command;
+    int validated;
+    int output_pending;
+} AppCommand_t;
+
+// Application Layer interface
+void ApplicationLayer_Init(void);
+void ApplicationLayer_Process(void);
+void ApplicationLayer_ReceiveCommand(int cmd);
+AppState_t ApplicationLayer_GetState(void);
+
+#endif // APPLICATION_LAYER_H
+###### END FILE ######
+
+###### FILE: code/src/Application_Layer.c ######
+#include "Application_Layer.h"
+
+static AppState_t appState = APP_STATE_IDLE;
+static AppCommand_t appCmd = {0};
+
+void ApplicationLayer_Init(void) {
+    appState = APP_STATE_IDLE;
+    appCmd.command = 0;
+    appCmd.validated = 0;
+    appCmd.output_pending = 0;
+}
+
+void ApplicationLayer_ReceiveCommand(int cmd) {
+    if (appState == APP_STATE_IDLE) {
+        appCmd.command = cmd;
+        appState = APP_STATE_COMMAND_RECEIVED;
+    }
+}
+
+// Internal validation (simple example; expand as needed)
+static int validateCommand(int cmd) {
+    // Accept positive commands only
+    return (cmd > 0) ? 1 : 0;
+}
+
+void ApplicationLayer_Process(void) {
+    switch (appState) {
+        case APP_STATE_IDLE:
+            // Waiting for command
+            break;
+
+        case APP_STATE_COMMAND_RECEIVED:
+            if (validateCommand(appCmd.command)) {
+                appCmd.validated = 1;
+                appState = APP_STATE_VALIDATING;
+            } else {
+                appState = APP_STATE_ERROR;
+            }
+            break;
+
+        case APP_STATE_VALIDATING:
+            // After validation, process
+            if (appCmd.validated) {
+                appState = APP_STATE_EXECUTING;
+            } else {
+                appState = APP_STATE_ERROR;
+            }
+            break;
+
+        case APP_STATE_EXECUTING:
+            // Execute logic
+            appCmd.output_pending = 1;
+            appState = APP_STATE_OUTPUT_TRIGGERED;
+            break;
+
+        case APP_STATE_OUTPUT_TRIGGERED:
+            // Trigger output (for now, reset)
+            appCmd.output_pending = 0;
+            appState = APP_STATE_IDLE;
+            break;
+
+        case APP_STATE_ERROR:
+            // Handle error
+            ApplicationLayer_Init();
+            break;
+    }
+}
+
+AppState_t ApplicationLayer_GetState(void) {
+    return appState;
+}
+###### END FILE ######
+
+###### FILE: code/src/main.c ######
+#include "Application_Layer.h"
+#include <stdio.h>
+
+int main(void) {
+    ApplicationLayer_Init();
+
+    // Example command loop
+    for (int i = 0; i < 3; ++i) {
+        ApplicationLayer_ReceiveCommand(i + 1);
+        while (ApplicationLayer_GetState() != APP_STATE_IDLE && ApplicationLayer_GetState() != APP_STATE_ERROR) {
+            ApplicationLayer_Process();
+        }
+        printf("Cycle %d complete. Final state: %d\n", i + 1, ApplicationLayer_GetState());
+    }
+    return 0;
+}
+###### END FILE ######
