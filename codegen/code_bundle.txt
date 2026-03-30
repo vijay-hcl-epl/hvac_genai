@@ -1,0 +1,308 @@
+###### FILE: code/inc/ApplicationLayer.h ######
+#ifndef APPLICATIONLAYER_H
+#define APPLICATIONLAYER_H
+
+typedef enum {
+    WAIT_FOR_COMMAND,
+    VALIDATE_COMMAND,
+    ISSUE_TO_SIGNAL_MANAGER,
+    IDLE
+} AppLayerState_t;
+
+typedef struct {
+    char uart_cmd_buffer[16];
+    int cmd_valid;
+    int target_position;
+    AppLayerState_t state;
+} ApplicationLayer_t;
+
+void AppLayer_Init(ApplicationLayer_t* instance);
+void AppLayer_Run(ApplicationLayer_t* instance);
+
+#endif // APPLICATIONLAYER_H
+###### END FILE ######
+
+###### FILE: code/src/ApplicationLayer.c ######
+#include "ApplicationLayer.h"
+#include "SignalInterfaceManager.h"
+
+void AppLayer_Init(ApplicationLayer_t* instance) {
+    instance->state = WAIT_FOR_COMMAND;
+    instance->cmd_valid = 0;
+    instance->target_position = 0;
+    // clear uart_cmd_buffer
+    for(int i = 0; i < 16; ++i) instance->uart_cmd_buffer[i] = 0;
+}
+
+void AppLayer_Run(ApplicationLayer_t* instance) {
+    switch(instance->state) {
+        case WAIT_FOR_COMMAND:
+            // Poll or get UART input (abstract)
+            // simulate_uart_receive(instance->uart_cmd_buffer, &instance->cmd_valid);
+            if(instance->cmd_valid) {
+                instance->state = VALIDATE_COMMAND;
+            }
+            break;
+        case VALIDATE_COMMAND:
+            // Assume simple numeric command, e.g., ASCII to int
+            if(instance->uart_cmd_buffer[0] >= '0' && instance->uart_cmd_buffer[0] <= '9') {
+                instance->target_position = instance->uart_cmd_buffer[0] - '0';
+                instance->state = ISSUE_TO_SIGNAL_MANAGER;
+            } else {
+                // Invalid input, discard
+                instance->cmd_valid = 0;
+                instance->state = IDLE;
+            }
+            break;
+        case ISSUE_TO_SIGNAL_MANAGER:
+            // Pass to Signal Manager (abstract)
+            // SignalInterfaceManager_ReceiveCommand(instance->target_position);
+            instance->cmd_valid = 0; // Consumed
+            instance->state = IDLE;
+            break;
+        case IDLE:
+            // Remain idle until next input
+            instance->state = WAIT_FOR_COMMAND;
+            break;
+        default:
+            instance->state = WAIT_FOR_COMMAND;
+            break;
+    }
+}
+###### END FILE ######
+
+###### FILE: code/inc/SignalInterfaceManager.h ######
+#ifndef SIGNALINTERFACEMANAGER_H
+#define SIGNALINTERFACEMANAGER_H
+
+typedef enum {
+    FSM_IDLE,
+    FSM_PARSING,
+    FSM_DISPATCH,
+    FSM_COMPLETE
+} SigIfState_t;
+
+typedef struct {
+    int cmd;
+    int routed_action;
+    int status_flag;
+    SigIfState_t state;
+} SignalInterfaceManager_t;
+
+void SignalIf_Init(SignalInterfaceManager_t* instance);
+void SignalIf_Run(SignalInterfaceManager_t* instance);
+void SignalIf_ReceiveCommand(SignalInterfaceManager_t* instance, int cmd);
+
+#endif // SIGNALINTERFACEMANAGER_H
+###### END FILE ######
+
+###### FILE: code/src/SignalInterfaceManager.c ######
+#include "SignalInterfaceManager.h"
+#include "HardwareAbstractionLayer.h"
+
+void SignalIf_Init(SignalInterfaceManager_t* instance) {
+    instance->cmd = -1;
+    instance->routed_action = 0;
+    instance->status_flag = 0;
+    instance->state = FSM_IDLE;
+}
+
+void SignalIf_ReceiveCommand(SignalInterfaceManager_t* instance, int cmd) {
+    instance->cmd = cmd;
+    instance->state = FSM_PARSING;
+}
+
+void SignalIf_Run(SignalInterfaceManager_t* instance) {
+    switch(instance->state) {
+        case FSM_IDLE:
+            // Wait for cmd
+            break;
+        case FSM_PARSING:
+            // Map cmd to action
+            if(instance->cmd >= 0 && instance->cmd <= 9) {
+                instance->routed_action = instance->cmd; // Example mapping
+                instance->state = FSM_DISPATCH;
+            } else {
+                instance->state = FSM_COMPLETE; // Discard/unmapped
+            }
+            break;
+        case FSM_DISPATCH:
+            // HardwareAbstractionLayer_ProcessAction(instance->routed_action);
+            instance->state = FSM_COMPLETE;
+            break;
+        case FSM_COMPLETE:
+            // Reset for next
+            instance->cmd = -1;
+            instance->state = FSM_IDLE;
+            break;
+        default:
+            instance->state = FSM_IDLE;
+            break;
+    }
+}
+###### END FILE ######
+
+###### FILE: code/inc/HardwareAbstractionLayer.h ######
+#ifndef HARDWAREABSTRACTIONLAYER_H
+#define HARDWAREABSTRACTIONLAYER_H
+
+typedef enum {
+    HW_IDLE,
+    HW_IO_REQUEST,
+    HW_UPDATING,
+    HW_COMPLETE
+} HALState_t;
+
+typedef struct {
+    int adc_value;
+    int gpio_status;
+    int uart_status;
+    int led_status;
+    HALState_t state;
+} HardwareAbstractionLayer_t;
+
+void HAL_Init(HardwareAbstractionLayer_t* instance);
+void HAL_Run(HardwareAbstractionLayer_t* instance);
+void HAL_ProcessAction(HardwareAbstractionLayer_t* instance, int action);
+
+#endif // HARDWAREABSTRACTIONLAYER_H
+###### END FILE ######
+
+###### FILE: code/src/HardwareAbstractionLayer.c ######
+#include "HardwareAbstractionLayer.h"
+#include "ElectricalInterfaceDriver.h"
+
+void HAL_Init(HardwareAbstractionLayer_t* instance) {
+    instance->adc_value = 0;
+    instance->gpio_status = 0;
+    instance->uart_status = 0;
+    instance->led_status = 0;
+    instance->state = HW_IDLE;
+}
+
+void HAL_ProcessAction(HardwareAbstractionLayer_t* instance, int action) {
+    // Example: decide what hardware op to process (abstract)
+    instance->state = HW_IO_REQUEST;
+    // set dummy values for illustration
+    instance->adc_value = action * 10;
+    instance->gpio_status = 1;
+    instance->led_status = 1;
+    instance->state = HW_COMPLETE;
+}
+
+void HAL_Run(HardwareAbstractionLayer_t* instance) {
+    switch(instance->state) {
+        case HW_IDLE:
+            // Await cmd
+            break;
+        case HW_IO_REQUEST:
+            // HAL perform operation (interact with ElectricalDriver)
+            // ElectricalInterfaceDriver_PerformIO();
+            instance->state = HW_UPDATING;
+            break;
+        case HW_UPDATING:
+            // Update status, check completion
+            instance->state = HW_COMPLETE;
+            break;
+        case HW_COMPLETE:
+            // Finalize, return to IDLE
+            instance->state = HW_IDLE;
+            break;
+        default:
+            instance->state = HW_IDLE;
+            break;
+    }
+}
+###### END FILE ######
+
+###### FILE: code/inc/ElectricalInterfaceDriver.h ######
+#ifndef ELECTRICALINTERFACEDRIVER_H
+#define ELECTRICALINTERFACEDRIVER_H
+
+typedef enum {
+    ELEC_IDLE,
+    ELEC_OP,
+    ELEC_DONE
+} ElecState_t;
+
+typedef struct {
+    int motor_status;
+    int adc_status;
+    int led_status;
+    ElecState_t state;
+} ElectricalInterfaceDriver_t;
+
+void ElecDrv_Init(ElectricalInterfaceDriver_t* instance);
+void ElecDrv_PerformIO(ElectricalInterfaceDriver_t* instance);
+
+#endif // ELECTRICALINTERFACEDRIVER_H
+###### END FILE ######
+
+###### FILE: code/src/ElectricalInterfaceDriver.c ######
+#include "ElectricalInterfaceDriver.h"
+
+void ElecDrv_Init(ElectricalInterfaceDriver_t* instance) {
+    instance->motor_status = 0;
+    instance->adc_status = 0;
+    instance->led_status = 0;
+    instance->state = ELEC_IDLE;
+}
+
+void ElecDrv_PerformIO(ElectricalInterfaceDriver_t* instance) {
+    switch(instance->state) {
+        case ELEC_IDLE:
+            // Wait for io request
+            break;
+        case ELEC_OP:
+            // Perform direct hw op (register/poll/etc)
+            // If error, set all to safe default
+            instance->state = ELEC_DONE;
+            break;
+        case ELEC_DONE:
+            // Transaction done
+            instance->state = ELEC_IDLE;
+            break;
+        default:
+            instance->state = ELEC_IDLE;
+            break;
+    }
+}
+###### END FILE ######
+
+###### FILE: code/src/main.c ######
+#include "ApplicationLayer.h"
+#include "SignalInterfaceManager.h"
+#include "HardwareAbstractionLayer.h"
+#include "ElectricalInterfaceDriver.h"
+
+int main(void) {
+    ApplicationLayer_t app_layer;
+    SignalInterfaceManager_t sig_if;
+    HardwareAbstractionLayer_t hal;
+    ElectricalInterfaceDriver_t elec_drv;
+
+    AppLayer_Init(&app_layer);
+    SignalIf_Init(&sig_if);
+    HAL_Init(&hal);
+    ElecDrv_Init(&elec_drv);
+
+    while (1) {
+        AppLayer_Run(&app_layer);
+        // Pass command to signal manager
+        if (app_layer.cmd_valid) {
+            SignalIf_ReceiveCommand(&sig_if, app_layer.target_position);
+        }
+        SignalIf_Run(&sig_if);
+        // For demo: if action routed, process in HAL
+        if (sig_if.state == FSM_DISPATCH) {
+            HAL_ProcessAction(&hal, sig_if.routed_action);
+        }
+        HAL_Run(&hal);
+        // For demo: let HAL trigger electrical op
+        if (hal.state == HW_IO_REQUEST) {
+            ElecDrv_PerformIO(&elec_drv);
+        }
+    }
+    return 0;
+}
+###### END FILE ######
