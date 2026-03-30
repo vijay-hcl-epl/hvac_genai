@@ -1,16 +1,18 @@
 #include "Electrical_Interface_Driver.h"
 
-void ElectricalInterface_Init(ElectricalInterface_Data_t *eid) {
-    eid->currentState = EID_STATE_IDLE;
-    eid->ledState = 0;
+void EID_MoveMotor(ElectricalInterfaceDriver_t* eid) {
+    eid->state = EID_STATE_MOVE;
+    // Simulated: move motor
 }
 
-void ElectricalInterface_Drive(ElectricalInterface_Data_t *eid, uint8_t signal) {
-    eid->currentState = EID_STATE_SIGNAL_DRIVE;
-    eid->ledState = signal;
+void EID_UpdateLED(ElectricalInterfaceDriver_t* eid) {
+    eid->state = EID_STATE_INDICATE;
+    // Simulated: update LEDs
 }
 
-void ElectricalInterface_Capture(ElectricalInterface_Data_t *eid) {
-    eid->currentState = EID_STATE_FEEDBACK_CAPTURE;
-    // Hardware signal capture logic here
+void EID_CheckFault(ElectricalInterfaceDriver_t* eid) {
+    // Simulated: check for faults
+    if (0) { // Placeholder for fault
+        eid->state = EID_STATE_ERROR;
+    }
 }

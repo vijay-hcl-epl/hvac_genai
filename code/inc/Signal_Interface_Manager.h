@@ -1,21 +1,21 @@
 #ifndef SIGNAL_INTERFACE_MANAGER_H
 #define SIGNAL_INTERFACE_MANAGER_H
 
-#include <stdint.h>
-
 typedef enum {
-    SIM_STATE_WAIT,
+    SIM_STATE_IDLE,
+    SIM_STATE_SAMPLING,
     SIM_STATE_VALIDATING,
-    SIM_STATE_DISPATCH
-} SignalInterface_State_e;
+    SIM_STATE_ERROR
+} SimState_t;
 
 typedef struct {
-    uint8_t currentState;
-    uint16_t positionBuffer;
-    uint8_t positionValid;
-} SignalInterface_Data_t;
+    int adc_buffer;
+    int calibration_constant;
+    SimState_t state;
+} SignalInterfaceManager_t;
 
-void SignalInterface_Init(SignalInterface_Data_t *sim);
-void SignalInterface_Dispatch(SignalInterface_Data_t *sim, const ApplicationLayer_Data_t *al);
+void SIM_Init(SignalInterfaceManager_t* sim);
+void SIM_SampleADC(SignalInterfaceManager_t* sim);
+void SIM_ValidateADC(SignalInterfaceManager_t* sim);
 
-#endif // SIGNAL_INTERFACE_MANAGER_H
+#endif

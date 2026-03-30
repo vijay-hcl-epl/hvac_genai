@@ -1,19 +1,15 @@
 #include "Hardware_Abstraction_Layer.h"
 
-void HardwareAbstraction_Init(HardwareAbstraction_Data_t *hal) {
-    hal->currentState = HAL_STATE_IDLE;
-    hal->adcValue = 0;
-    hal->motorActive = 0;
+void HAL_Init(HardwareAbstractionLayer_t* hal) {
+    hal->io_status = 0;
+    hal->error_flag = 0;
+    hal->health_flag = 1;
+    hal->state = HAL_STATE_INIT;
 }
 
-void HardwareAbstraction_Actuate(HardwareAbstraction_Data_t *hal, uint16_t position) {
-    hal->motorActive = 1;
-    hal->currentState = HAL_STATE_ACTUATE;
-    // Actuation logic to move to 'position' would be here
-}
-
-void HardwareAbstraction_UpdateFeedback(HardwareAbstraction_Data_t *hal) {
-    // Read feedback
-    hal->adcValue = 0; // Replace with hardware ADC read
-    hal->currentState = HAL_STATE_FEEDBACK;
+void HAL_Monitor(HardwareAbstractionLayer_t* hal) {
+    if (hal->state != HAL_STATE_READY) {
+        // Simulated: hardware initialization logic
+        hal->state = HAL_STATE_READY;
+    }
 }

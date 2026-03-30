@@ -1,21 +1,22 @@
 #ifndef ELECTRICAL_INTERFACE_DRIVER_H
 #define ELECTRICAL_INTERFACE_DRIVER_H
 
-#include <stdint.h>
-
 typedef enum {
     EID_STATE_IDLE,
-    EID_STATE_SIGNAL_DRIVE,
-    EID_STATE_FEEDBACK_CAPTURE
-} ElectricalInterface_State_e;
+    EID_STATE_MOVE,
+    EID_STATE_INDICATE,
+    EID_STATE_ERROR
+} EidState_t;
 
 typedef struct {
-    uint8_t currentState;
-    uint8_t ledState;
-} ElectricalInterface_Data_t;
+    int motor_state;
+    int led_state;
+    int fault_flag;
+    EidState_t state;
+} ElectricalInterfaceDriver_t;
 
-void ElectricalInterface_Init(ElectricalInterface_Data_t *eid);
-void ElectricalInterface_Drive(ElectricalInterface_Data_t *eid, uint8_t signal);
-void ElectricalInterface_Capture(ElectricalInterface_Data_t *eid);
+void EID_MoveMotor(ElectricalInterfaceDriver_t* eid);
+void EID_UpdateLED(ElectricalInterfaceDriver_t* eid);
+void EID_CheckFault(ElectricalInterfaceDriver_t* eid);
 
-#endif // ELECTRICAL_INTERFACE_DRIVER_H
+#endif
