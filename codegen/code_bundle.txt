@@ -1,243 +1,213 @@
-###### FILE: code/inc/Application_Layer.h ######
-#ifndef APPLICATION_LAYER_H
-#define APPLICATION_LAYER_H
-
-#include <stdint.h>
-
-typedef enum {
-    AL_STATE_IDLE,
-    AL_STATE_COMMAND_RECEIVED,
-    AL_STATE_POSITION_VALIDATION,
-    AL_STATE_REQUEST_ISSUED
-} ApplicationLayer_State_e;
-
-typedef struct {
-    uint8_t currentState;
-    uint8_t validCommand;
-    uint16_t targetPosition;
-} ApplicationLayer_Data_t;
-
-void ApplicationLayer_Init(ApplicationLayer_Data_t *al);
-void ApplicationLayer_ProcessCommand(ApplicationLayer_Data_t *al, uint16_t uart_cmd);
-
-#endif // APPLICATION_LAYER_H
-###### END FILE ######
-
-###### FILE: code/src/Application_Layer.c ######
-#include "Application_Layer.h"
-
-void ApplicationLayer_Init(ApplicationLayer_Data_t *al) {
-    al->currentState = AL_STATE_IDLE;
-    al->validCommand = 0;
-    al->targetPosition = 0;
-}
-
-void ApplicationLayer_ProcessCommand(ApplicationLayer_Data_t *al, uint16_t uart_cmd) {
-    switch (al->currentState) {
-        case AL_STATE_IDLE:
-            // Receive UART command
-            al->targetPosition = uart_cmd;
-            al->currentState = AL_STATE_COMMAND_RECEIVED;
-            break;
-        case AL_STATE_COMMAND_RECEIVED:
-            // Validate position
-            if (uart_cmd >= 0 && uart_cmd <= 1000) {
-                al->validCommand = 1;
-            } else {
-                al->validCommand = 0;
-            }
-            al->currentState = AL_STATE_POSITION_VALIDATION;
-            break;
-        case AL_STATE_POSITION_VALIDATION:
-            if (al->validCommand) {
-                al->currentState = AL_STATE_REQUEST_ISSUED;
-            } else {
-                // Ignore invalid
-                al->currentState = AL_STATE_IDLE;
-            }
-            break;
-        case AL_STATE_REQUEST_ISSUED:
-            // Would trigger next module
-            al->currentState = AL_STATE_IDLE;
-            break;
-        default:
-            al->currentState = AL_STATE_IDLE;
-            break;
-    }
-}
-###### END FILE ######
-
-###### FILE: code/inc/Signal_Interface_Manager.h ######
-#ifndef SIGNAL_INTERFACE_MANAGER_H
-#define SIGNAL_INTERFACE_MANAGER_H
-
-#include <stdint.h>
-
-typedef enum {
-    SIM_STATE_WAIT,
-    SIM_STATE_VALIDATING,
-    SIM_STATE_DISPATCH
-} SignalInterface_State_e;
-
-typedef struct {
-    uint8_t currentState;
-    uint16_t positionBuffer;
-    uint8_t positionValid;
-} SignalInterface_Data_t;
-
-void SignalInterface_Init(SignalInterface_Data_t *sim);
-void SignalInterface_Dispatch(SignalInterface_Data_t *sim, const ApplicationLayer_Data_t *al);
-
-#endif // SIGNAL_INTERFACE_MANAGER_H
-###### END FILE ######
-
-###### FILE: code/src/Signal_Interface_Manager.c ######
-#include "Signal_Interface_Manager.h"
-#include "Application_Layer.h"
-
-void SignalInterface_Init(SignalInterface_Data_t *sim) {
-    sim->currentState = SIM_STATE_WAIT;
-    sim->positionBuffer = 0;
-    sim->positionValid = 0;
-}
-
-void SignalInterface_Dispatch(SignalInterface_Data_t *sim, const ApplicationLayer_Data_t *al) {
-    switch (sim->currentState) {
-        case SIM_STATE_WAIT:
-            if (al->validCommand) {
-                sim->positionBuffer = al->targetPosition;
-                sim->positionValid = 1;
-                sim->currentState = SIM_STATE_DISPATCH;
-            }
-            break;
-        case SIM_STATE_DISPATCH:
-            // Would trigger HAL
-            sim->positionValid = 0;
-            sim->currentState = SIM_STATE_WAIT;
-            break;
-        default:
-            sim->currentState = SIM_STATE_WAIT;
-            break;
-    }
-}
-###### END FILE ######
-
-###### FILE: code/inc/Hardware_Abstraction_Layer.h ######
+###### FILE: code/inc/hardware_abstraction_layer.h ######
 #ifndef HARDWARE_ABSTRACTION_LAYER_H
 #define HARDWARE_ABSTRACTION_LAYER_H
 
-#include <stdint.h>
+#include "main.h"
 
-typedef enum {
-    HAL_STATE_IDLE,
-    HAL_STATE_ACTUATE,
-    HAL_STATE_FEEDBACK
-} HardwareAbstraction_State_e;
+// API parameter wrappers and peripheral access
 
 typedef struct {
-    uint8_t currentState;
-    uint16_t adcValue;
-    uint8_t motorActive;
-} HardwareAbstraction_Data_t;
+    ADC_HandleTypeDef* hadc;
+    UART_HandleTypeDef* huart;
+    TIM_HandleTypeDef* htim_pwm;
+    GPIO_TypeDef* gpio_port_motor;
+    uint16_t gpio_pin_motor_dir1;
+    uint16_t gpio_pin_motor_dir2;
+    GPIO_TypeDef* gpio_port_led;
+    uint16_t gpio_pins_led[6];
+} HAL_PeripheralConfig;
 
-void HardwareAbstraction_Init(HardwareAbstraction_Data_t *hal);
-void HardwareAbstraction_Actuate(HardwareAbstraction_Data_t *hal, uint16_t position);
-void HardwareAbstraction_UpdateFeedback(HardwareAbstraction_Data_t *hal);
+// Hardware Access Functions
+void HAL_InitPeripherals(const HAL_PeripheralConfig* config);
+int HAL_SetMotorPosition(int position);
+int HAL_ReadFlapPosition(void);
+void HAL_SetLED(uint8_t led_idx, uint8_t state);
+void HAL_AllLEDOff(void);
 
 #endif // HARDWARE_ABSTRACTION_LAYER_H
 ###### END FILE ######
 
-###### FILE: code/src/Hardware_Abstraction_Layer.c ######
-#include "Hardware_Abstraction_Layer.h"
+###### FILE: code/src/hardware_abstraction_layer.c ######
+#include "hardware_abstraction_layer.h"
 
-void HardwareAbstraction_Init(HardwareAbstraction_Data_t *hal) {
-    hal->currentState = HAL_STATE_IDLE;
-    hal->adcValue = 0;
-    hal->motorActive = 0;
+static HAL_PeripheralConfig g_hal_config;
+
+void HAL_InitPeripherals(const HAL_PeripheralConfig* config) {
+    g_hal_config = *config;
+    // Initialization handled by STM32CubeMX, ensure config pointers are set
 }
 
-void HardwareAbstraction_Actuate(HardwareAbstraction_Data_t *hal, uint16_t position) {
-    hal->motorActive = 1;
-    hal->currentState = HAL_STATE_ACTUATE;
-    // Actuation logic to move to 'position' would be here
+int HAL_SetMotorPosition(int position) {
+    // Dummy implementation: Map position to PWM duty or GPIO
+    // Actual mapping handled by higher level
+    return 0; // Always return success for stub
 }
 
-void HardwareAbstraction_UpdateFeedback(HardwareAbstraction_Data_t *hal) {
-    // Read feedback
-    hal->adcValue = 0; // Replace with hardware ADC read
-    hal->currentState = HAL_STATE_FEEDBACK;
+int HAL_ReadFlapPosition(void) {
+    // Read ADC, return value
+    uint32_t value = 0;
+    if (HAL_ADC_PollForConversion(g_hal_config.hadc, 10) == HAL_OK) {
+        value = HAL_ADC_GetValue(g_hal_config.hadc);
+    }
+    return (int)value;
+}
+
+void HAL_SetLED(uint8_t led_idx, uint8_t state) {
+    if (led_idx < 6) {
+        HAL_GPIO_WritePin(g_hal_config.gpio_port_led, g_hal_config.gpio_pins_led[led_idx], state ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    }
+}
+
+void HAL_AllLEDOff(void) {
+    for (int i = 0; i < 6; ++i) {
+        HAL_SetLED(i, 0);
+    }
 }
 ###### END FILE ######
 
-###### FILE: code/inc/Electrical_Interface_Driver.h ######
+###### FILE: code/inc/electrical_interface_driver.h ######
 #ifndef ELECTRICAL_INTERFACE_DRIVER_H
 #define ELECTRICAL_INTERFACE_DRIVER_H
 
-#include <stdint.h>
+#include "hardware_abstraction_layer.h"
 
 typedef enum {
-    EID_STATE_IDLE,
-    EID_STATE_SIGNAL_DRIVE,
-    EID_STATE_FEEDBACK_CAPTURE
-} ElectricalInterface_State_e;
+    DRIVER_IDLE,
+    DRIVER_ACTION,
+    DRIVER_COMPLETE
+} DriverState_t;
 
-typedef struct {
-    uint8_t currentState;
-    uint8_t ledState;
-} ElectricalInterface_Data_t;
-
-void ElectricalInterface_Init(ElectricalInterface_Data_t *eid);
-void ElectricalInterface_Drive(ElectricalInterface_Data_t *eid, uint8_t signal);
-void ElectricalInterface_Capture(ElectricalInterface_Data_t *eid);
+void EID_PerformOperation(int32_t target_position);
+void EID_StopMotor(void);
 
 #endif // ELECTRICAL_INTERFACE_DRIVER_H
 ###### END FILE ######
 
-###### FILE: code/src/Electrical_Interface_Driver.c ######
-#include "Electrical_Interface_Driver.h"
+###### FILE: code/src/electrical_interface_driver.c ######
+#include "electrical_interface_driver.h"
 
-void ElectricalInterface_Init(ElectricalInterface_Data_t *eid) {
-    eid->currentState = EID_STATE_IDLE;
-    eid->ledState = 0;
+static DriverState_t eid_state = DRIVER_IDLE;
+static int32_t current_target = -1;
+
+void EID_PerformOperation(int32_t target_position) {
+    eid_state = DRIVER_ACTION;
+    current_target = target_position;
+    // Set hardware signals (stub)
+    HAL_SetMotorPosition(target_position);
+    eid_state = DRIVER_COMPLETE;
 }
 
-void ElectricalInterface_Drive(ElectricalInterface_Data_t *eid, uint8_t signal) {
-    eid->currentState = EID_STATE_SIGNAL_DRIVE;
-    eid->ledState = signal;
+void EID_StopMotor(void) {
+    // Stop motor output
+    HAL_SetMotorPosition(-1);
+}
+###### END FILE ######
+
+###### FILE: code/inc/application_layer.h ######
+#ifndef APPLICATION_LAYER_H
+#define APPLICATION_LAYER_H
+
+#include "main.h"
+#include "signal_interface_manager.h"
+
+typedef enum {
+    APP_IDLE,
+    APP_PROCESS_COMMAND,
+    APP_FEEDBACK,
+    APP_ERROR
+} AppState_t;
+
+void APP_ProcessUARTCommand(uint8_t cmd);
+void APP_Update(void);
+
+#endif // APPLICATION_LAYER_H
+###### END FILE ######
+
+###### FILE: code/src/application_layer.c ######
+#include "application_layer.h"
+#include "hardware_abstraction_layer.h"
+#include "signal_interface_manager.h"
+
+static uint8_t uart_rx_buffer;
+static int position_command;
+static AppState_t app_state = APP_IDLE;
+
+void APP_ProcessUARTCommand(uint8_t cmd) {
+    if (cmd <= 5) {
+        position_command = cmd;
+        app_state = APP_PROCESS_COMMAND;
+    } else {
+        app_state = APP_ERROR;
+    }
 }
 
-void ElectricalInterface_Capture(ElectricalInterface_Data_t *eid) {
-    eid->currentState = EID_STATE_FEEDBACK_CAPTURE;
-    // Hardware signal capture logic here
+void APP_Update(void) {
+    switch (app_state) {
+        case APP_IDLE:
+            // In real app: check UART
+            break;
+        case APP_PROCESS_COMMAND:
+            SIM_SetTargetPosition(position_command);
+            app_state = APP_FEEDBACK;
+            break;
+        case APP_FEEDBACK:
+            HAL_AllLEDOff();
+            HAL_SetLED(position_command, 1);
+            app_state = APP_IDLE;
+            break;
+        case APP_ERROR:
+            // Invalid command, safe fallback
+            HAL_AllLEDOff();
+            app_state = APP_IDLE;
+            break;
+        default:
+            app_state = APP_IDLE;
+            break;
+    }
+}
+###### END FILE ######
+
+###### FILE: code/inc/signal_interface_manager.h ######
+#ifndef SIGNAL_INTERFACE_MANAGER_H
+#define SIGNAL_INTERFACE_MANAGER_H
+
+#include "hardware_abstraction_layer.h"
+#include "electrical_interface_driver.h"
+
+void SIM_SetTargetPosition(int position);
+
+#endif // SIGNAL_INTERFACE_MANAGER_H
+###### END FILE ######
+
+###### FILE: code/src/signal_interface_manager.c ######
+#include "signal_interface_manager.h"
+#include "hardware_abstraction_layer.h"
+
+static int target_position = 0;
+
+void SIM_SetTargetPosition(int position) {
+    if (position >= 0 && position <= 5) {
+        target_position = position;
+        EID_PerformOperation(target_position);
+    } // Out of range commands handled upstream
 }
 ###### END FILE ######
 
 ###### FILE: code/src/main.c ######
-#include "Application_Layer.h"
-#include "Signal_Interface_Manager.h"
-#include "Hardware_Abstraction_Layer.h"
-#include "Electrical_Interface_Driver.h"
+#include "main.h"
+#include "application_layer.h"
 
-static ApplicationLayer_Data_t application_layer;
-static SignalInterface_Data_t signal_manager;
-static HardwareAbstraction_Data_t hal;
-static ElectricalInterface_Data_t eid;
+int main(void)
+{
+    // STM32 HAL and peripherals init normally generated by CubeMX
+    // Custom initialization ...
 
-int main(void) {
-    ApplicationLayer_Init(&application_layer);
-    SignalInterface_Init(&signal_manager);
-    HardwareAbstraction_Init(&hal);
-    ElectricalInterface_Init(&eid);
-
-    while (1) {
-        uint16_t uart_cmd = 0; // UART stub
-        ApplicationLayer_ProcessCommand(&application_layer, uart_cmd);
-        SignalInterface_Dispatch(&signal_manager, &application_layer);
-        HardwareAbstraction_Actuate(&hal, signal_manager.positionBuffer);
-        HardwareAbstraction_UpdateFeedback(&hal);
-        ElectricalInterface_Drive(&eid, hal.motorActive);
-        ElectricalInterface_Capture(&eid);
+    while (1)
+    {
+        APP_Update();
+        // Here would be UART polling or event-based handler
     }
+    // Should never reach here
     return 0;
 }
 ###### END FILE ######
