@@ -1,0 +1,228 @@
+###### FILE: code/inc/ApplicationLayer.h ######
+#ifndef APPLICATION_LAYER_H
+#define APPLICATION_LAYER_H
+#include <stdint.h>
+typedef enum {
+    APP_STATE_IDLE,
+    APP_STATE_WAITING_FOR_COMMAND,
+    APP_STATE_MOVING_TO_POSITION,
+    APP_STATE_TARGET_REACHED,
+    APP_STATE_ERROR_HANDLING
+} AppState;
+typedef struct {
+    uint8_t current_position;
+    uint8_t target_position;
+    uint8_t error_flag;
+} AppLayerData;
+void ApplicationLayer_Init(void);
+void ApplicationLayer_Task(void);
+void ApplicationLayer_OnCommand(uint8_t pos);
+#endif // APPLICATION_LAYER_H
+###### END FILE ######
+
+###### FILE: code/src/ApplicationLayer.c ######
+#include "ApplicationLayer.h"
+#include "SignalIfManager.h"
+static AppLayerData appData;
+static AppState appState;
+void ApplicationLayer_Init(void)
+{
+    appData.current_position = 0U;
+    appData.target_position = 0U;
+    appData.error_flag = 0U;
+    appState = APP_STATE_IDLE;
+}
+void ApplicationLayer_Task(void)
+{
+    switch(appState)
+    {
+        case APP_STATE_IDLE:
+            // Wait for command
+            break;
+        case APP_STATE_WAITING_FOR_COMMAND:
+            // Set target, command movement
+            appState = APP_STATE_MOVING_TO_POSITION;
+            break;
+        case APP_STATE_MOVING_TO_POSITION:
+            if (SignalIfManager_GetPosition() == appData.target_position)
+            {
+                appState = APP_STATE_TARGET_REACHED;
+            }
+            break;
+        case APP_STATE_TARGET_REACHED:
+            SignalIfManager_StopMotor();
+            appState = APP_STATE_IDLE;
+            break;
+        case APP_STATE_ERROR_HANDLING:
+            SignalIfManager_StopMotor();
+            break;
+        default:
+            break;
+    }
+}
+void ApplicationLayer_OnCommand(uint8_t pos)
+{
+    if(pos <= 5U)
+    {
+        appData.target_position = pos;
+        appState = APP_STATE_WAITING_FOR_COMMAND;
+    }
+    else
+    {
+        appData.error_flag = 1U;
+        appState = APP_STATE_ERROR_HANDLING;
+    }
+}
+###### END FILE ######
+
+###### FILE: code/inc/SignalIfManager.h ######
+#ifndef SIGNAL_IF_MANAGER_H
+#define SIGNAL_IF_MANAGER_H
+#include <stdint.h>
+typedef enum {
+    SIG_OK,
+    SIG_ADC_OUT_OF_RANGE
+} SignalStatus;
+void SignalIfManager_Init(void);
+uint8_t SignalIfManager_GetPosition(void);
+SignalStatus SignalIfManager_Update(uint16_t adc_value);
+void SignalIfManager_SetLED(uint8_t pos);
+void SignalIfManager_StopMotor(void);
+#endif // SIGNAL_IF_MANAGER_H
+###### END FILE ######
+
+###### FILE: code/src/SignalIfManager.c ######
+#include "SignalIfManager.h"
+#include "HAL.h"
+// Example ADC mapping table
+static const uint16_t adc_ranges[6][2] = {
+    {0, 100}, {101, 600}, {601, 1200}, {1201, 1800}, {1801, 2400}, {2401, 3000}
+};
+static uint8_t last_position = 0U;
+SignalStatus SignalIfManager_Update(uint16_t adc_value)
+{
+    for(uint8_t i=0; i<6; i++) {
+        if(adc_value >= adc_ranges[i][0] && adc_value <= adc_ranges[i][1]) {
+            last_position = i;
+            SignalIfManager_SetLED(i);
+            return SIG_OK;
+        }
+    }
+    return SIG_ADC_OUT_OF_RANGE;
+}
+void SignalIfManager_Init(void)
+{
+    last_position = 0U;
+}
+uint8_t SignalIfManager_GetPosition(void)
+{
+    return last_position;
+}
+void SignalIfManager_SetLED(uint8_t pos)
+{
+    HAL_SetGreenLED(pos);
+}
+void SignalIfManager_StopMotor(void)
+{
+    HAL_StopMotor();
+}
+###### END FILE ######
+
+###### FILE: code/inc/HAL.h ######
+#ifndef HAL_H
+#define HAL_H
+#include <stdint.h>
+void HAL_Init(void);
+uint16_t HAL_GetADC(void);
+void HAL_SetGreenLED(uint8_t pos);
+void HAL_StopMotor(void);
+void HAL_MoveMotor(uint8_t direction);
+void HAL_UARTSend(uint8_t data);
+uint8_t HAL_UARTReceive(void);
+#endif // HAL_H
+###### END FILE ######
+
+###### FILE: code/src/HAL.c ######
+#include "HAL.h"
+#include "ElectricalIfDriver.h"
+void HAL_Init(void)
+{
+    ElectricalIfDriver_Init();
+}
+uint16_t HAL_GetADC(void)
+{
+    return ElectricalIfDriver_ReadADC();
+}
+void HAL_SetGreenLED(uint8_t pos)
+{
+    ElectricalIfDriver_SetGreenLED(pos);
+}
+void HAL_StopMotor(void)
+{
+    ElectricalIfDriver_StopMotor();
+}
+void HAL_MoveMotor(uint8_t direction)
+{
+    ElectricalIfDriver_MoveMotor(direction);
+}
+void HAL_UARTSend(uint8_t data)
+{
+    ElectricalIfDriver_UARTSend(data);
+}
+uint8_t HAL_UARTReceive(void)
+{
+    return ElectricalIfDriver_UARTReceive();
+}
+###### END FILE ######
+
+###### FILE: code/inc/ElectricalIfDriver.h ######
+#ifndef ELECTRICAL_IF_DRIVER_H
+#define ELECTRICAL_IF_DRIVER_H
+#include <stdint.h>
+void ElectricalIfDriver_Init(void);
+uint16_t ElectricalIfDriver_ReadADC(void);
+void ElectricalIfDriver_SetGreenLED(uint8_t pos);
+void ElectricalIfDriver_StopMotor(void);
+void ElectricalIfDriver_MoveMotor(uint8_t direction);
+void ElectricalIfDriver_UARTSend(uint8_t data);
+uint8_t ElectricalIfDriver_UARTReceive(void);
+#endif // ELECTRICAL_IF_DRIVER_H
+###### END FILE ######
+
+###### FILE: code/src/ElectricalIfDriver.c ######
+#include "ElectricalIfDriver.h"
+// Stub implementations for hardware IO
+void ElectricalIfDriver_Init(void) {}
+uint16_t ElectricalIfDriver_ReadADC(void) { return 0U; }
+void ElectricalIfDriver_SetGreenLED(uint8_t pos) { (void)pos; }
+void ElectricalIfDriver_StopMotor(void) {}
+void ElectricalIfDriver_MoveMotor(uint8_t direction) { (void)direction; }
+void ElectricalIfDriver_UARTSend(uint8_t data) { (void)data; }
+uint8_t ElectricalIfDriver_UARTReceive(void) { return 0U; }
+###### END FILE ######
+
+###### FILE: code/src/main.c ######
+#include "ApplicationLayer.h"
+#include "SignalIfManager.h"
+#include "HAL.h"
+int main(void)
+{
+    HAL_Init();
+    SignalIfManager_Init();
+    ApplicationLayer_Init();
+    // Main deterministic loop
+    while(1)
+    {
+        uint16_t adc = HAL_GetADC();
+        if(SignalIfManager_Update(adc) == SIG_OK) {
+            ApplicationLayer_Task();
+        }
+        // Example UART receive (polling)
+        uint8_t command = HAL_UARTReceive();
+        if(command <= 5U) {
+            ApplicationLayer_OnCommand(command);
+        }
+    }
+    return 0;
+}
+###### END FILE ######
