@@ -1,0 +1,291 @@
+###### FILE: code/inc/application_layer.h ######
+#ifndef APPLICATION_LAYER_H
+#define APPLICATION_LAYER_H
+
+#include <stdint.h>
+typedef enum {
+    APP_STATE_IDLE,
+    APP_STATE_MOVING,
+    APP_STATE_MONITORING,
+    APP_STATE_ERRORHANDLING
+} app_state_t;
+
+typedef struct {
+    char command_buffer[32];
+    app_state_t state;
+    uint16_t feedback_data;
+} ApplicationLayer;
+
+void app_init(ApplicationLayer* app);
+void app_process_command(ApplicationLayer* app, const char* cmd);
+void app_update_state(ApplicationLayer* app);
+void app_handle_error(ApplicationLayer* app);
+
+#endif // APPLICATION_LAYER_H
+###### END FILE ######
+
+###### FILE: code/src/application_layer.c ######
+#include "application_layer.h"
+#include <string.h>
+
+void app_init(ApplicationLayer* app) {
+    memset(app->command_buffer, 0, sizeof(app->command_buffer));
+    app->state = APP_STATE_IDLE;
+    app->feedback_data = 0;
+}
+
+void app_process_command(ApplicationLayer* app, const char* cmd) {
+    strncpy(app->command_buffer, cmd, sizeof(app->command_buffer) - 1);
+    // Parsing and state update logic here
+    // For example: if recognized, set state to MOVING, etc.
+    // else: set state to ERRORHANDLING
+}
+
+void app_update_state(ApplicationLayer* app) {
+    switch(app->state) {
+        case APP_STATE_IDLE:
+            // Wait for command
+            break;
+        case APP_STATE_MOVING:
+            // Process moving logic
+            app->state = APP_STATE_MONITORING;
+            break;
+        case APP_STATE_MONITORING:
+            // Monitor feedback, decide if needs to move to Idle or ErrorHandling
+            break;
+        case APP_STATE_ERRORHANDLING:
+            app_handle_error(app);
+            break;
+        default:
+            break;
+    }
+}
+
+void app_handle_error(ApplicationLayer* app) {
+    // Error handling logic
+    app->state = APP_STATE_IDLE;
+}
+###### END FILE ######
+
+###### FILE: code/inc/signal_interface_manager.h ######
+#ifndef SIGNAL_INTERFACE_MANAGER_H
+#define SIGNAL_INTERFACE_MANAGER_H
+
+typedef enum {
+    SIG_STATE_IDLE,
+    SIG_STATE_ACTIVE,
+    SIG_STATE_WAIT_FOR_ACK,
+    SIG_STATE_ERROR
+} sig_state_t;
+
+typedef struct {
+    char command_queue[8][32];
+    uint8_t queue_head;
+    uint8_t queue_tail;
+    uint8_t filter_flags;
+    sig_state_t state;
+} SignalInterfaceManager;
+
+void sim_init(SignalInterfaceManager* sim);
+void sim_receive_command(SignalInterfaceManager* sim, const char* cmd);
+void sim_translate_and_forward(SignalInterfaceManager* sim);
+void sim_validate_input(SignalInterfaceManager* sim);
+void sim_handle_error(SignalInterfaceManager* sim);
+
+#endif // SIGNAL_INTERFACE_MANAGER_H
+###### END FILE ######
+
+###### FILE: code/src/signal_interface_manager.c ######
+#include "signal_interface_manager.h"
+#include <string.h>
+
+void sim_init(SignalInterfaceManager* sim) {
+    memset(sim->command_queue, 0, sizeof(sim->command_queue));
+    sim->queue_head = 0;
+    sim->queue_tail = 0;
+    sim->filter_flags = 0;
+    sim->state = SIG_STATE_IDLE;
+}
+
+void sim_receive_command(SignalInterfaceManager* sim, const char* cmd) {
+    if ((sim->queue_tail + 1) % 8 != sim->queue_head) {
+        strncpy(sim->command_queue[sim->queue_tail], cmd, 31);
+        sim->command_queue[sim->queue_tail][31] = '\0';
+        sim->queue_tail = (sim->queue_tail + 1) % 8;
+        sim->state = SIG_STATE_ACTIVE;
+    } else {
+        sim->state = SIG_STATE_ERROR;
+    }
+}
+
+void sim_translate_and_forward(SignalInterfaceManager* sim) {
+    if (sim->queue_head != sim->queue_tail) {
+        // Simulate translation
+        sim->queue_head = (sim->queue_head + 1) % 8;
+        sim->state = SIG_STATE_WAIT_FOR_ACK;
+    }
+}
+
+void sim_validate_input(SignalInterfaceManager* sim) {
+    // Basic validation
+    if (sim->filter_flags) {
+        sim->state = SIG_STATE_ERROR;
+    }
+}
+
+void sim_handle_error(SignalInterfaceManager* sim) {
+    // Handle error, flush queue
+    sim->queue_head = sim->queue_tail;
+    sim->state = SIG_STATE_IDLE;
+}
+###### END FILE ######
+
+###### FILE: code/inc/hardware_abstraction_layer.h ######
+#ifndef HARDWARE_ABSTRACTION_LAYER_H
+#define HARDWARE_ABSTRACTION_LAYER_H
+
+#include <stdint.h>
+typedef enum {
+    HAL_STATE_IDLE,
+    HAL_STATE_READING_ADC,
+    HAL_STATE_MAPPING,
+    HAL_STATE_PERIPHERAL_CONTROL,
+    HAL_STATE_ERROR
+} hal_state_t;
+
+typedef struct {
+    uint16_t adc_value;
+} PeripheralADCs;
+
+typedef struct {
+    PeripheralADCs adc;
+    hal_state_t state;
+} HardwareAbstractionLayer;
+
+void hal_init(HardwareAbstractionLayer* hal);
+uint16_t hal_read_adc(HardwareAbstractionLayer* hal);
+void hal_control_motor(HardwareAbstractionLayer* hal, int dir, int enable);
+void hal_handle_error(HardwareAbstractionLayer* hal);
+
+#endif // HARDWARE_ABSTRACTION_LAYER_H
+###### END FILE ######
+
+###### FILE: code/src/hardware_abstraction_layer.c ######
+#include "hardware_abstraction_layer.h"
+
+void hal_init(HardwareAbstractionLayer* hal) {
+    hal->adc.adc_value = 0;
+    hal->state = HAL_STATE_IDLE;
+}
+
+uint16_t hal_read_adc(HardwareAbstractionLayer* hal) {
+    // Simulate ADC read
+    hal->state = HAL_STATE_READING_ADC;
+    hal->adc.adc_value = 512; // fake value
+    hal->state = HAL_STATE_MAPPING;
+    return hal->adc.adc_value;
+}
+
+void hal_control_motor(HardwareAbstractionLayer* hal, int dir, int enable) {
+    // Simulate motor control
+    hal->state = HAL_STATE_PERIPHERAL_CONTROL;
+}
+
+void hal_handle_error(HardwareAbstractionLayer* hal) {
+    hal->state = HAL_STATE_ERROR;
+}
+###### END FILE ######
+
+###### FILE: code/inc/electrical_interface_driver.h ######
+#ifndef ELECTRICAL_INTERFACE_DRIVER_H
+#define ELECTRICAL_INTERFACE_DRIVER_H
+
+#include <stdint.h>
+typedef enum {
+    EID_STATE_IDLE,
+    EID_STATE_MOTORDRIVE,
+    EID_STATE_ADCREAD,
+    EID_STATE_LEDCONTROL
+} eid_state_t;
+
+typedef struct {
+    uint8_t gpio_reg;
+    uint16_t adc_register;
+} ElectricalAbstraction;
+
+typedef struct {
+    ElectricalAbstraction hw;
+    eid_state_t state;
+} ElectricalInterfaceDriver;
+
+void eid_init(ElectricalInterfaceDriver* eid);
+void eid_drive_motor(ElectricalInterfaceDriver* eid, int enable);
+uint16_t eid_adc_read(ElectricalInterfaceDriver* eid);
+void eid_control_led(ElectricalInterfaceDriver* eid, int on);
+void eid_handle_error(ElectricalInterfaceDriver* eid);
+
+#endif // ELECTRICAL_INTERFACE_DRIVER_H
+###### END FILE ######
+
+###### FILE: code/src/electrical_interface_driver.c ######
+#include "electrical_interface_driver.h"
+
+void eid_init(ElectricalInterfaceDriver* eid) {
+    eid->hw.gpio_reg = 0;
+    eid->hw.adc_register = 0;
+    eid->state = EID_STATE_IDLE;
+}
+
+void eid_drive_motor(ElectricalInterfaceDriver* eid, int enable) {
+    // Simulate motor control
+    eid->hw.gpio_reg = (enable) ? 1 : 0;
+    eid->state = EID_STATE_MOTORDRIVE;
+}
+
+uint16_t eid_adc_read(ElectricalInterfaceDriver* eid) {
+    // Simulate ADC
+    eid->hw.adc_register = 500; // Fake ADC
+    eid->state = EID_STATE_ADCREAD;
+    return eid->hw.adc_register;
+}
+
+void eid_control_led(ElectricalInterfaceDriver* eid, int on) {
+    // Simulate LED control
+    if (on) { eid->hw.gpio_reg = 1; }
+    else { eid->hw.gpio_reg = 0; }
+    eid->state = EID_STATE_LEDCONTROL;
+}
+
+void eid_handle_error(ElectricalInterfaceDriver* eid) {
+    eid->state = EID_STATE_IDLE;
+}
+###### END FILE ######
+
+###### FILE: code/src/main.c ######
+#include "application_layer.h"
+#include "signal_interface_manager.h"
+#include "hardware_abstraction_layer.h"
+#include "electrical_interface_driver.h"
+
+int main(void) {
+    ApplicationLayer app;
+    SignalInterfaceManager sim;
+    HardwareAbstractionLayer hal;
+    ElectricalInterfaceDriver eid;
+
+    app_init(&app);
+    sim_init(&sim);
+    hal_init(&hal);
+    eid_init(&eid);
+
+    while (1) {
+        // Core application deterministic loop
+        app_update_state(&app);
+        sim_translate_and_forward(&sim);
+        hal_read_adc(&hal);
+        eid_adc_read(&eid);
+        // Extend logic as per system requirements
+    }
+    return 0;
+}
+###### END FILE ######
