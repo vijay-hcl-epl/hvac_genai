@@ -1,0 +1,246 @@
+###### FILE: code/inc/Application_Layer.h ######
+#ifndef APPLICATION_LAYER_H
+#define APPLICATION_LAYER_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// State Machine
+typedef enum {
+    APP_WAIT_FOR_COMMAND,
+    APP_PROCESS_COMMAND
+} AppState_t;
+
+// Command buffer and state
+typedef struct {
+    uint8_t cmd;
+    bool cmd_ready;
+} ApplicationLayer_Data_t;
+
+void ApplicationLayer_Init(ApplicationLayer_Data_t *data);
+void ApplicationLayer_Process(ApplicationLayer_Data_t *data);
+
+#endif // APPLICATION_LAYER_H
+###### END FILE ######
+
+###### FILE: code/src/Application_Layer.c ######
+#include "Application_Layer.h"
+#include "Signal_Interface_Manager.h"
+
+void ApplicationLayer_Init(ApplicationLayer_Data_t *data) {
+    data->cmd = 0;
+    data->cmd_ready = false;
+}
+
+void ApplicationLayer_Process(ApplicationLayer_Data_t *data) {
+    if (data->cmd_ready) {
+        // Decode and validate command
+        if (SignalInterfaceManager_ValidateCommand(data->cmd)) {
+            // Relay command to hardware layer
+            SignalInterfaceManager_RelayCommand(data->cmd);
+        }
+        // Clear buffer
+        data->cmd_ready = false;
+    }
+}
+###### END FILE ######
+
+###### FILE: code/inc/Signal_Interface_Manager.h ######
+#ifndef SIGNAL_INTERFACE_MANAGER_H
+#define SIGNAL_INTERFACE_MANAGER_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// State Machine
+typedef enum {
+    SIM_IDLE,
+    SIM_PARSE_UART,
+    SIM_VALIDATE,
+    SIM_RELAY_COMMAND
+} SignalIfState_t;
+
+// UART parser/command verification buffer
+#define SIM_CMD_BUF_SIZE 1
+typedef struct {
+    uint8_t buf[SIM_CMD_BUF_SIZE];
+    bool valid;
+    SignalIfState_t state;
+} SignalInterfaceManager_Data_t;
+
+void SignalInterfaceManager_Init(SignalInterfaceManager_Data_t *data);
+void SignalInterfaceManager_UARTInterrupt(SignalInterfaceManager_Data_t *data, uint8_t rx);
+bool SignalInterfaceManager_ValidateCommand(uint8_t cmd);
+void SignalInterfaceManager_RelayCommand(uint8_t cmd);
+
+#endif // SIGNAL_INTERFACE_MANAGER_H
+###### END FILE ######
+
+###### FILE: code/src/Signal_Interface_Manager.c ######
+#include "Signal_Interface_Manager.h"
+#include "Hardware_Abstraction_Layer.h"
+
+void SignalInterfaceManager_Init(SignalInterfaceManager_Data_t *data) {
+    data->buf[0] = 0;
+    data->valid = false;
+    data->state = SIM_IDLE;
+}
+
+void SignalInterfaceManager_UARTInterrupt(SignalInterfaceManager_Data_t *data, uint8_t rx) {
+    data->buf[0] = rx;
+    data->state = SIM_PARSE_UART;
+}
+
+bool SignalInterfaceManager_ValidateCommand(uint8_t cmd) {
+    // Only 0-5 valid
+    if (cmd <= 5) {
+        return true;
+    }
+    return false;
+}
+
+void SignalInterfaceManager_RelayCommand(uint8_t cmd) {
+    HardwareAbstractionLayer_ReceiveCommand(cmd);
+}
+###### END FILE ######
+
+###### FILE: code/inc/Hardware_Abstraction_Layer.h ######
+#ifndef HARDWARE_ABSTRACTION_LAYER_H
+#define HARDWARE_ABSTRACTION_LAYER_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// State Machine
+typedef enum {
+    HAL_INIT,
+    HAL_READY,
+    HAL_OPERATIONAL
+} HalState_t;
+
+// Abstraction for hardware devices
+typedef struct {
+    uint16_t adc_value;
+    uint8_t gpio_state;
+    uint8_t led_status;
+    HalState_t state;
+} HardwareAbstractionLayer_Data_t;
+
+void HardwareAbstractionLayer_Init(HardwareAbstractionLayer_Data_t *data);
+void HardwareAbstractionLayer_Periodic(HardwareAbstractionLayer_Data_t *data);
+void HardwareAbstractionLayer_ReceiveCommand(uint8_t cmd);
+
+#endif // HARDWARE_ABSTRACTION_LAYER_H
+###### END FILE ######
+
+###### FILE: code/src/Hardware_Abstraction_Layer.c ######
+#include "Hardware_Abstraction_Layer.h"
+#include "Electrical_Interface_Driver.h"
+
+void HardwareAbstractionLayer_Init(HardwareAbstractionLayer_Data_t *data) {
+    data->adc_value = 0;
+    data->gpio_state = 0;
+    data->led_status = 0;
+    data->state = HAL_INIT;
+}
+
+void HardwareAbstractionLayer_Periodic(HardwareAbstractionLayer_Data_t *data) {
+    // Periodic sensor read and status update
+    data->adc_value = ElectricalInterfaceDriver_ReadADC();
+    data->gpio_state = ElectricalInterfaceDriver_ReadGPIO();
+    data->led_status = ElectricalInterfaceDriver_GetLEDStatus();
+}
+
+void HardwareAbstractionLayer_ReceiveCommand(uint8_t cmd) {
+    // Forward to low-level
+    ElectricalInterfaceDriver_DriveMotorTo(cmd);
+}
+###### END FILE ######
+
+###### FILE: code/inc/Electrical_Interface_Driver.h ######
+#ifndef ELECTRICAL_INTERFACE_DRIVER_H
+#define ELECTRICAL_INTERFACE_DRIVER_H
+
+#include <stdint.h>
+
+// State Machine
+typedef enum {
+    EID_RESET,
+    EID_DRIVE_MOTOR,
+    EID_READ_FEEDBACK,
+    EID_IDLE
+} EidState_t;
+
+void ElectricalInterfaceDriver_Init(void);
+void ElectricalInterfaceDriver_DriveMotorTo(uint8_t pos);
+uint16_t ElectricalInterfaceDriver_ReadADC(void);
+uint8_t ElectricalInterfaceDriver_ReadGPIO(void);
+uint8_t ElectricalInterfaceDriver_GetLEDStatus(void);
+
+#endif // ELECTRICAL_INTERFACE_DRIVER_H
+###### END FILE ######
+
+###### FILE: code/src/Electrical_Interface_Driver.c ######
+#include "Electrical_Interface_Driver.h"
+
+static EidState_t eid_state = EID_RESET;
+
+void ElectricalInterfaceDriver_Init(void) {
+    eid_state = EID_RESET;
+    // Init hardware (ADC, PWM, GPIO, Motor, LEDs)
+}
+
+void ElectricalInterfaceDriver_DriveMotorTo(uint8_t pos) {
+    eid_state = EID_DRIVE_MOTOR;
+    // Actuate DC motor based on position
+    eid_state = EID_READ_FEEDBACK;
+    // Read and process feedback (ADC)
+    eid_state = EID_IDLE;
+}
+
+uint16_t ElectricalInterfaceDriver_ReadADC(void) {
+    // Stub: Return ADC value
+    return 0;
+}
+
+uint8_t ElectricalInterfaceDriver_ReadGPIO(void) {
+    // Stub: Return GPIO state
+    return 0;
+}
+
+uint8_t ElectricalInterfaceDriver_GetLEDStatus(void) {
+    // Stub: Return LEDs status
+    return 0;
+}
+###### END FILE ######
+
+###### FILE: code/src/main.c ######
+#include "Application_Layer.h"
+#include "Signal_Interface_Manager.h"
+#include "Hardware_Abstraction_Layer.h"
+#include "Electrical_Interface_Driver.h"
+
+static ApplicationLayer_Data_t app_data;
+static SignalInterfaceManager_Data_t sim_data;
+static HardwareAbstractionLayer_Data_t hal_data;
+
+int main(void)
+{
+    ElectricalInterfaceDriver_Init();
+    HardwareAbstractionLayer_Init(&hal_data);
+    SignalInterfaceManager_Init(&sim_data);
+    ApplicationLayer_Init(&app_data);
+
+    while (1)
+    {
+        // Simulate UART RX
+        // If UART interrupt: SignalInterfaceManager_UARTInterrupt(&sim_data, RxByte);
+
+        // App logic
+        ApplicationLayer_Process(&app_data);
+        HardwareAbstractionLayer_Periodic(&hal_data);
+        // (Other tasks)
+    }
+    return 0;
+}
+###### END FILE ######
