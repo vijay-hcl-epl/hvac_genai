@@ -1,0 +1,230 @@
+###### FILE: code/inc/Application_Layer.h ######
+#ifndef APPLICATION_LAYER_H
+#define APPLICATION_LAYER_H
+
+// Command queue and status structure
+#define CMD_QUEUE_SIZE 4
+
+typedef enum {
+    APP_STATE_IDLE,
+    APP_STATE_EXECUTE,
+    APP_STATE_MONITOR
+} AppState_t;
+
+typedef struct {
+    int queue[CMD_QUEUE_SIZE];
+    int head;
+    int tail;
+    int status;
+} CommandQueue_t;
+
+void ApplicationLayer_Init(CommandQueue_t* q);
+void ApplicationLayer_Process(CommandQueue_t* q);
+
+#endif // APPLICATION_LAYER_H
+###### END FILE ######
+
+###### FILE: code/inc/Signal_Interface_Manager.h ######
+#ifndef SIGNAL_INTERFACE_MANAGER_H
+#define SIGNAL_INTERFACE_MANAGER_H
+
+#define SIGNAL_BUF_SIZE 8
+
+typedef enum {
+    SIM_STATE_ROUTING,
+    SIM_STATE_VALIDATION,
+    SIM_STATE_IDLE
+} SimState_t;
+
+typedef struct {
+    int rx_buf[SIGNAL_BUF_SIZE];
+    int tx_buf[SIGNAL_BUF_SIZE];
+    int valid_flag;
+} SignalBuffer_t;
+
+void SignalInterfaceManager_Init(SignalBuffer_t* s);
+void SignalInterfaceManager_Process(SignalBuffer_t* s);
+
+#endif // SIGNAL_INTERFACE_MANAGER_H
+###### END FILE ######
+
+###### FILE: code/inc/Hardware_Abstraction_Layer.h ######
+#ifndef HARDWARE_ABSTRACTION_LAYER_H
+#define HARDWARE_ABSTRACTION_LAYER_H
+
+typedef enum {
+    HAL_STATE_READY,
+    HAL_STATE_BUSY,
+    HAL_STATE_IDLE
+} HalState_t;
+
+typedef struct {
+    int handle_table[8];
+    int logic_map[8];
+} HalHandle_t;
+
+void HardwareAbstractionLayer_Init(HalHandle_t* h);
+int HardwareAbstractionLayer_Command(HalHandle_t* h, int logic_cmd);
+
+#endif // HARDWARE_ABSTRACTION_LAYER_H
+###### END FILE ######
+
+###### FILE: code/inc/Electrical_Interface_Driver.h ######
+#ifndef ELECTRICAL_INTERFACE_DRIVER_H
+#define ELECTRICAL_INTERFACE_DRIVER_H
+
+typedef enum {
+    EID_STATE_INIT,
+    EID_STATE_ACTIVE,
+    EID_STATE_FAULT
+} EidState_t;
+
+typedef struct {
+    int reg_table[8];
+    int status_reg[8];
+} EidHandle_t;
+
+void ElectricalInterfaceDriver_Init(EidHandle_t* e);
+int ElectricalInterfaceDriver_Actuate(EidHandle_t* e, int pin, int val);
+int ElectricalInterfaceDriver_Read(EidHandle_t* e, int pin);
+
+#endif // ELECTRICAL_INTERFACE_DRIVER_H
+###### END FILE ######
+
+###### FILE: code/src/Application_Layer.c ######
+#include "Application_Layer.h"
+
+void ApplicationLayer_Init(CommandQueue_t* q) {
+    q->head = 0;
+    q->tail = 0;
+    q->status = 0;
+}
+
+void ApplicationLayer_Process(CommandQueue_t* q) {
+    static AppState_t state = APP_STATE_IDLE;
+    switch(state) {
+        case APP_STATE_IDLE:
+            // Check for commands
+            if(q->head != q->tail) {
+                state = APP_STATE_EXECUTE;
+            }
+            break;
+        case APP_STATE_EXECUTE:
+            // Consume a command (simulate execution)
+            q->status = q->queue[q->tail];
+            q->tail = (q->tail + 1) % CMD_QUEUE_SIZE;
+            state = APP_STATE_MONITOR;
+            break;
+        case APP_STATE_MONITOR:
+            // Monitor status
+            // In real code, would update status, check subsystem
+            state = APP_STATE_IDLE;
+            break;
+    }
+}
+###### END FILE ######
+
+###### FILE: code/src/Signal_Interface_Manager.c ######
+#include "Signal_Interface_Manager.h"
+
+void SignalInterfaceManager_Init(SignalBuffer_t* s) {
+    s->valid_flag = 0;
+    // Zero RX and TX bufs
+    for(int i=0; i<SIGNAL_BUF_SIZE; ++i) {
+        s->rx_buf[i] = 0;
+        s->tx_buf[i] = 0;
+    }
+}
+
+void SignalInterfaceManager_Process(SignalBuffer_t* s) {
+    static SimState_t sim_state = SIM_STATE_IDLE;
+    // In a real application: examine buffer, validate, etc.
+    switch(sim_state) {
+        case SIM_STATE_IDLE:
+            sim_state = SIM_STATE_VALIDATION;
+            break;
+        case SIM_STATE_VALIDATION:
+            // Pretend all input valid
+            s->valid_flag = 1;
+            sim_state = SIM_STATE_ROUTING;
+            break;
+        case SIM_STATE_ROUTING:
+            // Route data, then return to idle
+            sim_state = SIM_STATE_IDLE;
+            break;
+    }
+}
+###### END FILE ######
+
+###### FILE: code/src/Hardware_Abstraction_Layer.c ######
+#include "Hardware_Abstraction_Layer.h"
+
+void HardwareAbstractionLayer_Init(HalHandle_t* h) {
+    for(int i=0; i<8; ++i) {
+        h->handle_table[i]=0;
+        h->logic_map[i]=0;
+    }
+}
+
+int HardwareAbstractionLayer_Command(HalHandle_t* h, int logic_cmd) {
+    // Translate, perform hardware action; dummy implementation
+    return 0;
+}
+###### END FILE ######
+
+###### FILE: code/src/Electrical_Interface_Driver.c ######
+#include "Electrical_Interface_Driver.h"
+
+void ElectricalInterfaceDriver_Init(EidHandle_t* e) {
+    for(int i=0;i<8;++i) {
+        e->reg_table[i]=0;
+        e->status_reg[i]=0;
+    }
+}
+
+int ElectricalInterfaceDriver_Actuate(EidHandle_t* e, int pin, int val) {
+    // Set/clear hardware pins
+    if(pin<8) {
+        e->reg_table[pin] = val;
+        return 0;
+    }
+    return -1; // Error
+}
+
+int ElectricalInterfaceDriver_Read(EidHandle_t* e, int pin) {
+    if(pin<8) {
+        return e->status_reg[pin];
+    }
+    return -1; // Error
+}
+###### END FILE ######
+
+###### FILE: code/src/main.c ######
+#include "Application_Layer.h"
+#include "Signal_Interface_Manager.h"
+#include "Hardware_Abstraction_Layer.h"
+#include "Electrical_Interface_Driver.h"
+
+static CommandQueue_t app_q;
+static SignalBuffer_t sim_buf;
+static HalHandle_t hal_table;
+static EidHandle_t eid_table;
+
+void system_init(void) {
+    ApplicationLayer_Init(&app_q);
+    SignalInterfaceManager_Init(&sim_buf);
+    HardwareAbstractionLayer_Init(&hal_table);
+    ElectricalInterfaceDriver_Init(&eid_table);
+}
+
+int main(void) {
+    system_init();
+    while(1) {
+        // Typical embedded superloop
+        SignalInterfaceManager_Process(&sim_buf);
+        ApplicationLayer_Process(&app_q);
+        // Further integration/states omitted for brevity
+    }
+    return 0;
+}
+###### END FILE ######
