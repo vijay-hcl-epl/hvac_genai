@@ -1,0 +1,239 @@
+=======================
+SOFTWARE LOW-LEVEL DESIGN (SWE.3)
+HVAC FLAP ACTUATOR
+=======================
+
+Note: This document details the low-level design of software units in strict accordance with the defined architecture. No new software units, system-level features, or scheduling mechanisms were introduced. All design elements are MISRA-style embedded C compliant, static only (no dynamic allocation).
+
+-----------------------------------------------------------------------------
+Software Unit: Command Handler (UART Processor)
+-----------------------------------------------------------------------------
+1. Responsibilities
+   - Handles UART RX for target position commands, invokes command validation, filters out-of-range/invalid input, and signals busy state.
+   - Does not handle hardware resource init or scheduling.
+
+2. Internal Data Design
+   - UART RX buffer[1]: unsigned 8-bit
+   - Command in-progress flag: boolean
+   - Invalid command counter: unsigned 8-bit (optional, static, for error tracking)
+
+3. State Machine
+   - States: IDLE (waiting RX), BUSY (command being processed)
+   - Events: UART RX complete, valid command detected, invalid command detected, handler signals "busy"
+   - Transitions: IDLE→BUSY on valid command, BUSY→IDLE after command finish, IDLE remains if invalid command
+
+4. Algorithms & Control Flow
+   - On UART RX interrupt or poll: read byte. If not in "busy", check if value within allowed position range. If valid, signal to Position Manager and set "busy". If invalid, increment error counter; remain in IDLE.
+
+5. Interfaces (APIs)
+   Provided:
+     - validate_and_dispatch(uint8_t cmd): returns ACCEPTED/IGNORED/BUSY
+   Required:
+     - UART_read_byte()
+     - PositionManager_command(uint8_t pos)
+
+6. Error Handling
+   - Silently ignore invalid input (per SWE-REQ-032).
+   - Do not enter or clear busy unless command fully handled.
+
+7. Resource & Timing Considerations
+   - Invoked on UART RX or equivalent event loop
+   - WCET per command: <<1 ms
+   - Always re-entrant for idle RX; blocked for "busy" state
+
+8. Traceability
+   - SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-017, SWE-REQ-026, SWE-REQ-032
+
+-----------------------------------------------------------------------------
+Software Unit: Position Manager
+-----------------------------------------------------------------------------
+1. Responsibilities
+   - Handles position mapping (ADC→logical), command gating, position update/config,
+   - Issues move requests to Flap Control; blocks commands when "busy" per design.
+   - Does not handle physical movement, only logical coordination.
+
+2. Internal Data Design
+   - CurrentPosition: uint8_t (0-5)
+   - TargetPosition: uint8_t (0-5)
+   - isBusy: boolean
+   - PositionTable[6]: ADC value mapping (static const)
+
+3. State Machine
+   - States: IDLE, WAIT_FOR_MOVE, BUSY
+   - Events: New valid command, move finished, ADC update, busy set/clear
+   - Transitions: IDLE→WAIT, WAIT→BUSY on move-req, BUSY→IDLE when done
+
+4. Algorithms & Control Flow
+   - On new command from Command Handler: Check isBusy==false, check range, set TargetPosition, flag as busy, notify FlapControl
+   - Debounce or ignore redundant/duplicate commands
+
+5. Interfaces (APIs)
+   Provided:
+     - PositionManager_command(uint8_t pos): returns ACCEPTED/BUSY
+     - get_CurrentPosition(): returns uint8_t
+   Required:
+     - FlapControl_request(uint8_t target)
+     - PositionFeedback_get()
+
+6. Error Handling
+   - Ignores out-of-range and "busy" commands
+   - Resets isBusy after error or normal completion
+
+7. Resource & Timing Considerations
+   - Only one operation in progress
+   - Memory footprint: PositionTable[6] + flags
+   - Not re-entrant
+
+8. Traceability
+   - SWE-REQ-003, SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-028
+
+-----------------------------------------------------------------------------
+Software Unit: Flap Control Logic
+-----------------------------------------------------------------------------
+1. Responsibilities
+   - Coordinates flap movement state, commands Motor Driver, checks limits/errors, ensures single motion at a time. No corrective actions except stop/ignore.
+
+2. Internal Data Design
+   - CurrentState: enum {IDLE, MOVING, TARGET_REACHED, ERROR}
+   - LastError: uint8_t/enum (optional, static only)
+
+3. State Machine
+   - States: IDLE, MOVING, TARGET_REACHED, ERROR
+   - Events: Command received, position reached, error detected
+   - Transitions: per command/state model—see requirements section 4
+
+4. Algorithms & Control Flow
+   - On move request: Check current vs. target, calculate direction, enable motor, poll Position Feedback. If error detected or on completion, send stop, update state.
+
+5. Interfaces (APIs)
+   Provided:
+     - FlapControl_request(uint8_t target)
+     - stop()
+   Required:
+     - MotorDriver_start(uint8_t dir)
+     - MotorDriver_stop()
+     - PositionFeedback_get()
+
+6. Error Handling
+   - Send stop to Motor Driver on error or completion
+   - No retries or advanced recovery
+
+7. Resource & Timing Considerations
+   - One move at a time
+   - Not re-entrant
+   - Per-move WCET: <200 ms typical
+
+8. Traceability
+   - SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-008, SWE-REQ-025, SWE-REQ-031, SWE-REQ-043
+
+-----------------------------------------------------------------------------
+Software Unit: Motor Driver Abstraction
+-----------------------------------------------------------------------------
+1. Responsibilities
+   - Maps move/start/stop commands to hardware: GPIO for direction, PWM for enable, ensures OFF at startup
+
+2. Internal Data Design
+   - MotorState: {ON, OFF}
+   - Direction: {OPEN, CLOSE}
+   - PWMValue: uint8_t (static only)
+
+3. State Machine
+   - States: ON, OFF
+   - Events: Start, Stop
+   - Transitions: direct mapping; none if started while already ON
+
+4. Algorithms & Control Flow
+   - On start: Set GPIO direction, PWM enable=ON
+   - On stop: PWM=OFF
+   - On boot: PWM=OFF
+
+5. Interfaces (APIs)
+   Provided:
+     - MotorDriver_start(dir)
+     - MotorDriver_stop()
+   Required:
+     - None (abstracts hardware)
+
+6. Error Handling
+   - Always force OFF in error or on start
+   - Ignores redundant OFF/ON requests
+
+7. Resource & Timing Considerations
+   - Maps directly to hardware
+   - Not re-entrant for ON/OFF
+   - WCET: <<1 ms
+
+8. Traceability
+   - SWE-REQ-006, SWE-REQ-007, SWE-REQ-008, SWE-REQ-009, SWE-REQ-011, SWE-REQ-020
+
+-----------------------------------------------------------------------------
+Software Unit: Position Feedback Acquisition
+-----------------------------------------------------------------------------
+1. Responsibilities
+   - Reads ADC, calibrates mapped value to logic position, error-check for out-of-range, only static calibration
+
+2. Internal Data Design
+   - ADCValue: uint16_t
+   - LastPosition: uint8_t (0-5)
+   - ValidRange: [Low, High] (static const)
+   - CalibTable[6]: uint16_t (static const)
+
+3. State Machine
+   - None (combinatorial function); update on request
+
+4. Algorithms & Control Flow
+   - On request: Read ADC, lookup/match against CalibTable, range-check, output logical position else flag error
+
+5. Interfaces (APIs)
+   Provided:
+     - PositionFeedback_get(): returns (uint8_t pos, status_t ok)
+   Required:
+     - ADC_read()
+
+6. Error Handling
+   - If out-of-range, report status=error, current position invalid
+
+7. Resource & Timing Considerations
+   - Invoked as needed by logic
+   - WCET <<1 ms per call
+   - Always state-free/static
+
+8. Traceability
+   - SWE-REQ-013, SWE-REQ-014, SWE-REQ-029
+
+-----------------------------------------------------------------------------
+Software Unit: Status Indicator Controller
+-----------------------------------------------------------------------------
+1. Responsibilities
+   - Updates power/status/green position LEDs, only one green LED active at a time, reflects last known valid position
+
+2. Internal Data Design
+   - LEDState: {ON, OFF} per channel
+   - LastKnownPos: uint8_t (0-5)
+
+3. State Machine
+   - None (table-driven output set)
+
+4. Algorithms & Control Flow
+   - On position/status update: turn ON corresponding LED, all others OFF; on power ON, power/status LED ON
+
+5. Interfaces (APIs)
+   Provided:
+     - StatusLED_set(uint8_t pos)
+     - PowerLED_on()
+   Required:
+     - None (hardware mapping only)
+
+6. Error Handling
+   - Fail-safe: on error, no green LEDs ON, status LED blinking (if HW supported)
+   - No diagnostics or network outputs
+
+7. Resource & Timing Considerations
+   - WCET: <<1 ms
+   - Not re-entrant (per call)
+
+8. Traceability
+   - SWE-REQ-015, SWE-REQ-016
+
+-----------------------------------------------------------------------------
+END OF LLD
