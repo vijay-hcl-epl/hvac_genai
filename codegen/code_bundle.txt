@@ -1,0 +1,313 @@
+###### FILE: code/inc/Application_Layer.h ######
+#ifndef APPLICATION_LAYER_H
+#define APPLICATION_LAYER_H
+
+#include <stdint.h>
+typedef enum {
+    APP_STATE_IDLE,
+    APP_STATE_CMD_PROCESSING,
+    APP_STATE_INVOKE_POSITION
+} ApplicationLayerState_t;
+
+typedef struct {
+    char uart_cmd_buffer[32];
+    uint8_t uart_cmd_parser_state;
+    uint16_t target_flap_position;
+    ApplicationLayerState_t state;
+} ApplicationLayerContext_t;
+
+void ApplicationLayer_Init(ApplicationLayerContext_t* ctx);
+void ApplicationLayer_Task(ApplicationLayerContext_t* ctx);
+int ApplicationLayer_ParseUARTInput(ApplicationLayerContext_t* ctx, const char* uart_in);
+
+#endif // APPLICATION_LAYER_H
+###### END FILE ######
+
+###### FILE: code/src/Application_Layer.c ######
+#include "Application_Layer.h"
+#include "Signal_Interface_Manager.h"
+#include <string.h>
+
+void ApplicationLayer_Init(ApplicationLayerContext_t* ctx) {
+    memset(ctx, 0, sizeof(ApplicationLayerContext_t));
+    ctx->state = APP_STATE_IDLE;
+}
+
+void ApplicationLayer_Task(ApplicationLayerContext_t* ctx) {
+    switch(ctx->state) {
+        case APP_STATE_IDLE:
+            // Wait for UART command, simulated by external call to ParseUARTInput.
+            break;
+        case APP_STATE_CMD_PROCESSING:
+            // Command already parsed, process command
+            SignalInterfaceManager_SetTargetPosition(ctx->target_flap_position);
+            ctx->state = APP_STATE_INVOKE_POSITION;
+            break;
+        case APP_STATE_INVOKE_POSITION:
+            // Wait for flap to reach commanded position
+            // (Actual feedback loop left to lower layers)
+            ctx->state = APP_STATE_IDLE;
+            break;
+        default:
+            ctx->state = APP_STATE_IDLE;
+            break;
+    }
+}
+
+// Returns 0 for valid, -1 for invalid command
+int ApplicationLayer_ParseUARTInput(ApplicationLayerContext_t* ctx, const char* uart_in) {
+    if (!uart_in) return -1;
+    // Expected format: "SETPOS <val>\n"
+    if (strncmp(uart_in, "SETPOS ", 7) == 0) {
+        int pos = atoi(&uart_in[7]);
+        if (pos >= 0 && pos <= 1000) { // restrict valid position range
+            ctx->target_flap_position = (uint16_t)pos;
+            ctx->state = APP_STATE_CMD_PROCESSING;
+            return 0;
+        }
+    }
+    // Ignore invalid/malformed
+    ctx->state = APP_STATE_IDLE;
+    return -1;
+}
+###### END FILE ######
+
+###### FILE: code/inc/Signal_Interface_Manager.h ######
+#ifndef SIGNAL_INTERFACE_MANAGER_H
+#define SIGNAL_INTERFACE_MANAGER_H
+
+#include <stdint.h>
+typedef enum {
+    SIGIF_STATE_IDLE,
+    SIGIF_STATE_CONVERTING,
+    SIGIF_STATE_FORWARD
+} SignalInterfaceState_t;
+
+typedef struct {
+    uint16_t target_position_input;
+    uint16_t digital_position;
+    uint8_t status_flags;
+    SignalInterfaceState_t state;
+} SignalInterfaceContext_t;
+
+void SignalInterfaceManager_Init(SignalInterfaceContext_t* ctx);
+void SignalInterfaceManager_Task(SignalInterfaceContext_t* ctx);
+void SignalInterfaceManager_SetTargetPosition(uint16_t target_pos);
+
+#endif // SIGNAL_INTERFACE_MANAGER_H
+###### END FILE ######
+
+###### FILE: code/src/Signal_Interface_Manager.c ######
+#include "Signal_Interface_Manager.h"
+#include "Hardware_Abstraction_Layer.h"
+#include <string.h>
+
+static SignalInterfaceContext_t* p_ctx = 0;
+
+void SignalInterfaceManager_Init(SignalInterfaceContext_t* ctx) {
+    memset(ctx, 0, sizeof(SignalInterfaceContext_t));
+    ctx->state = SIGIF_STATE_IDLE;
+    p_ctx = ctx;
+}
+
+// Simulate external call to set position
+void SignalInterfaceManager_SetTargetPosition(uint16_t target_pos) {
+    if (p_ctx) {
+        p_ctx->target_position_input = target_pos;
+        p_ctx->state = SIGIF_STATE_CONVERTING;
+    }
+}
+
+void SignalInterfaceManager_Task(SignalInterfaceContext_t* ctx) {
+    switch(ctx->state) {
+        case SIGIF_STATE_IDLE: /* wait for input */ break;
+        case SIGIF_STATE_CONVERTING:
+            // Simple scale (identity); extend for actual scaling rules as needed
+            ctx->digital_position = ctx->target_position_input;
+            ctx->state = SIGIF_STATE_FORWARD;
+            break;
+        case SIGIF_STATE_FORWARD:
+            if(HardwareAbstractionLayer_SendPosition(ctx->digital_position) == 0)
+                ctx->state = SIGIF_STATE_IDLE;
+            else // on error
+                ctx->state = SIGIF_STATE_IDLE;
+            break;
+        default:
+            ctx->state = SIGIF_STATE_IDLE;
+            break;
+    }
+}
+###### END FILE ######
+
+###### FILE: code/inc/Hardware_Abstraction_Layer.h ######
+#ifndef HARDWARE_ABSTRACTION_LAYER_H
+#define HARDWARE_ABSTRACTION_LAYER_H
+
+#include <stdint.h>
+typedef enum {
+    HAL_STATE_IDLE,
+    HAL_STATE_ADC_SAMPLING,
+    HAL_STATE_UPDATE_OUTPUT
+} HALState_t;
+
+typedef struct {
+    uint16_t adc_buffer;
+    uint16_t current_position;
+    HALState_t state;
+} HALContext_t;
+
+void HardwareAbstractionLayer_Init(HALContext_t* ctx);
+void HardwareAbstractionLayer_Task(HALContext_t* ctx);
+int HardwareAbstractionLayer_SendPosition(uint16_t pos);
+uint16_t HardwareAbstractionLayer_GetPosition(HALContext_t* ctx);
+
+#endif // HARDWARE_ABSTRACTION_LAYER_H
+###### END FILE ######
+
+###### FILE: code/src/Hardware_Abstraction_Layer.c ######
+#include "Hardware_Abstraction_Layer.h"
+#include "Electrical_Interface_Driver.h"
+#include <string.h>
+
+static HALContext_t* p_hal_ctx = 0;
+
+void HardwareAbstractionLayer_Init(HALContext_t* ctx) {
+    memset(ctx, 0, sizeof(HALContext_t));
+    ctx->state = HAL_STATE_IDLE;
+    p_hal_ctx = ctx;
+}
+
+int HardwareAbstractionLayer_SendPosition(uint16_t pos) {
+    // Relay to driver
+    return ElectricalInterfaceDriver_SetTargetPosition(pos);
+}
+
+void HardwareAbstractionLayer_Task(HALContext_t* ctx) {
+    switch(ctx->state) {
+        case HAL_STATE_IDLE:
+            // Idle waiting for requests
+            break;
+        case HAL_STATE_ADC_SAMPLING:
+            // Simulate ADC read, here just copy
+            ctx->adc_buffer = ctx->current_position;
+            ctx->state = HAL_STATE_UPDATE_OUTPUT;
+            break;
+        case HAL_STATE_UPDATE_OUTPUT:
+            // Output position
+            ElectricalInterfaceDriver_SetTargetPosition(ctx->adc_buffer);
+            ctx->state = HAL_STATE_IDLE;
+            break;
+        default:
+            ctx->state = HAL_STATE_IDLE;
+            break;
+    }
+}
+
+uint16_t HardwareAbstractionLayer_GetPosition(HALContext_t* ctx) {
+    // Return last sampled value
+    if (!ctx) return 0;
+    return ctx->adc_buffer;
+}
+###### END FILE ######
+
+###### FILE: code/inc/Electrical_Interface_Driver.h ######
+#ifndef ELECTRICAL_INTERFACE_DRIVER_H
+#define ELECTRICAL_INTERFACE_DRIVER_H
+
+#include <stdint.h>
+typedef enum {
+    EDRV_STATE_IDLE,
+    EDRV_STATE_DRIVE,
+    EDRV_STATE_REST
+} ElectricalDriverState_t;
+
+typedef struct {
+    uint8_t motor_enable;
+    uint8_t led_selector;
+    ElectricalDriverState_t state;
+} ElectricalDriverContext_t;
+
+void ElectricalInterfaceDriver_Init(ElectricalDriverContext_t* ctx);
+void ElectricalInterfaceDriver_Task(ElectricalDriverContext_t* ctx);
+int ElectricalInterfaceDriver_SetTargetPosition(uint16_t pos);
+
+#endif // ELECTRICAL_INTERFACE_DRIVER_H
+###### END FILE ######
+
+###### FILE: code/src/Electrical_Interface_Driver.c ######
+#include "Electrical_Interface_Driver.h"
+#include <string.h>
+
+static ElectricalDriverContext_t* p_drv_ctx = 0;
+static uint16_t g_position_target = 0;
+
+void ElectricalInterfaceDriver_Init(ElectricalDriverContext_t* ctx) {
+    memset(ctx, 0, sizeof(ElectricalDriverContext_t));
+    ctx->state = EDRV_STATE_IDLE;
+    p_drv_ctx = ctx;
+}
+
+int ElectricalInterfaceDriver_SetTargetPosition(uint16_t pos) {
+    g_position_target = pos;
+    if (p_drv_ctx) {
+        p_drv_ctx->motor_enable = 1;
+        p_drv_ctx->state = EDRV_STATE_DRIVE;
+        return 0;
+    }
+    return -1;
+}
+
+void ElectricalInterfaceDriver_Task(ElectricalDriverContext_t* ctx) {
+    switch(ctx->state) {
+        case EDRV_STATE_IDLE:
+            // standby
+            break;
+        case EDRV_STATE_DRIVE:
+            // Simulate driving to target: set output, LED
+            // When done, disable motor
+            ctx->motor_enable = 0;
+            ctx->state = EDRV_STATE_REST;
+            break;
+        case EDRV_STATE_REST:
+            // Wait here, return to idle after some logic (not invented)
+            ctx->state = EDRV_STATE_IDLE;
+            break;
+        default:
+            ctx->state = EDRV_STATE_IDLE;
+            break;
+    }
+}
+###### END FILE ######
+
+###### FILE: code/src/main.c ######
+#include "Application_Layer.h"
+#include "Signal_Interface_Manager.h"
+#include "Hardware_Abstraction_Layer.h"
+#include "Electrical_Interface_Driver.h"
+
+// Static global contexts
+static ApplicationLayerContext_t app_ctx;
+static SignalInterfaceContext_t sigif_ctx;
+static HALContext_t hal_ctx;
+static ElectricalDriverContext_t edrv_ctx;
+
+// Simulate a periodic deterministic main loop
+int main(void)
+{
+    // Initialization
+    ApplicationLayer_Init(&app_ctx);
+    SignalInterfaceManager_Init(&sigif_ctx);
+    HardwareAbstractionLayer_Init(&hal_ctx);
+    ElectricalInterfaceDriver_Init(&edrv_ctx);
+
+    // Main loop
+    while (1) {
+        ApplicationLayer_Task(&app_ctx);
+        SignalInterfaceManager_Task(&sigif_ctx);
+        HardwareAbstractionLayer_Task(&hal_ctx);
+        ElectricalInterfaceDriver_Task(&edrv_ctx);
+        // Typically, add a RTOS delay/yield here; omitted (no invented functionality)
+    }
+    return 0;
+}
+###### END FILE ######
