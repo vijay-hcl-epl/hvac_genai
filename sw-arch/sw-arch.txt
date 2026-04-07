@@ -1,0 +1,127 @@
+========================
+SOFTWARE ARCHITECTURE (SWE.2)
+HVAC FLAP ACTUATOR
+========================
+
+1. ARCHITECTURE STYLE SELECTION
+------------------------------
+Candidate Styles:
+- Monolithic
+- Layered
+- Component-based
+
+Evaluation Criteria:
+- System Complexity: Simple state-driven behavior, limited hardware peripherals, no advanced error handling/control
+- HW Interaction: Direct, one-to-one (no sharing or multiplexing)
+- Testability: Direct test-injection (UART) & observable outputs (LEDs)
+- Maintainability: Mostly static logic, configuration via software constants
+- ASPICE L3 compatibility: Clear allocation of responsibilities needed
+
+Style Analyses:
+A) Monolithic: Acceptable for simple apps, but reduces clarity and modularity for ASPICE.
+B) Component-based: Adds unnecessary coupling and indirection; limited benefit given lack of independently-replaceable features/behaviors at this scale.
+C) Layered: Offers logical separation (e.g. Command I/F, Flap Logic, Motor Driver, I/O Abstraction), matches natural boundary lines from SWE.1, and supports clear test points.
+
+Selected: LAYERED ARCHITECTURE
+- Layers:
+  1. Application (Flap Logic)
+  2. Command Interface (UART handler)
+  3. Hardware Abstraction (Motor Driver, ADC, LEDs)
+- Justification: Balanced modularity/testability required for ASPICE/L3; simple enough for system size; every layer's boundaries trace to clusters of SWE.1 requirements.
+- Other styles rejected for lack of clarity/structure, or unnecessary complexity.
+
+2. ARCHITECTURE DEFINITION
+-----------------------------
+
+SOFTWARE UNITS & RESPONSIBILITIES
+
+1) Command Handler (UART Processor)
+- Parses single-byte UART commands [SWE-REQ-001,002]
+- Decides/ignores command per range [SWE-REQ-002,032]
+
+2) Position Manager
+- Maintains/configures logical (0–5) position mapping [SWE-REQ-013,014,028]
+- Issues movement requests
+- Determines if command can proceed (idle, busy) [SWE-REQ-003,012]
+
+3) Flap Control Logic
+- Moves flap to target using Position Manager [SWE-REQ-005,007,024]
+- Controls state transitions (idle, moving, target reached, error)
+- Stops motor if out-of-range feedback [SWE-REQ-008,025,031,043]
+- Enforces single-command-at-a-time [SWE-REQ-003,012]
+- No corrective actions beyond stop/ignore
+
+4) Motor Driver Abstraction
+- Drives motor ON/OFF, sets direction & PWM [SWE-REQ-006,007,011,020]
+- Ensures motor OFF at startup/idle [SWE-REQ-008,009]
+
+5) Position Feedback Acquisition
+- Reads ADC, applies mapped calibration [SWE-REQ-013,029]
+- Performs error/out-of-range checks [SWE-REQ-008,031]
+
+6) Status Indicator Controller
+- Updates Status LED [SWE-REQ-015]
+- Sets one-of-N green LEDs for position [SWE-REQ-016]
+
+INTERFACES:
+- Command Handler <-> Position Manager: valid/invalid command, busy state
+- Flap Control Logic <-> Motor Driver: start/stop/dir
+- Flap Control Logic <-> Position Feedback: read current actual
+- Position Feedback <-> Position Manager: update logical position
+- Status Indicator <-> Position Manager/Feedback: current position indication
+
+Execution Model:
+No explicit execution model or scheduling policy is mandated by the requirements at this stage.
+
+3. TEXT-BASED ARCHITECTURE DIAGRAM
+-----------------------------------
+
+           +-----------------------------+
+           |      Command Handler        |
+           |     (UART Processor)        |
+           +------------+----------------+
+                        |
+               Valid Command, State
+                        v
+             +----------+--------------+
+             |     Position Manager    |
+             +----------+--------------+
+                        |
+                        v
+                 +------+------+           +----------------+
+                 | Flap Control |<-------->| Position       |
+                 |   Logic      |          | Feedback       |
+                 +------+------+           | Acquisition    |
+                        |                  +----------------+
+                        v
+                 +----------------+
+                 | Motor Driver   |
+                 +----------------+
+                        |
+                        v
+               +---------------------+
+               | Status Indicator    |
+               |   Controller       |
+               +---------------------+
+
+4. SOFTWARE UNIT TABLE
+-----------------------
+
+Software Unit              | Responsibilities                                            | Interfaces Provided         | Interfaces Used
+---------------------------|------------------------------------------------------------|-----------------------------|------------------------
+Command Handler            | Parse UART, dispatch commands, error rejection             | Command validation/result   | UART RX
+Position Manager           | Logical mapping, command gating, position config           | Pos mapping/status change   | Command Handler, Feedback
+Flap Control Logic         | State transitions, drive/request movement, one-at-a-time  | Movement requests, state    | Motor Driver, Position Feedback
+Motor Driver Abstraction   | ON/OFF, dir, enable via PWM, error ON start               | Drive motor functions       | Flap Control Logic
+Position Feedback          | ADC reading/calibration/error-check                       | Actual pos, error flag      | Position Manager
+Status Indicator Controller| LED ON/OFF, green pos, fail-safe display                  | LED output update           | Flap Logic, Feedback
+
+CONSTRAINTS
+-----------
+All units/decisions strictly trace to SWE.1 (see above for ID mapping).
+No new requirements or behaviors have been invented.
+No implementation mechanisms nor unit-level algorithms included.
+No concurrency, RTOS, or thread model applied or implied.
+No explicit safety, diagnostics, or security logic present.
+
+END OF ARCHITECTURE
