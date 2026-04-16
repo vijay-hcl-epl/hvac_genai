@@ -1,35 +1,24 @@
-#include "ApplicationLayer.h"
-#include "SignalInterfaceManager.h"
-#include "HardwareAbstractionLayer.h"
-#include "ElectricalInterfaceDriver.h"
+#include "feedback_sensing_unit.h"
+#include "user_input_handling_unit.h"
+#include "control_logic_unit.h"
+#include "output_indication_unit.h"
 
 int main(void) {
-    ApplicationLayer_t app_layer;
-    SignalInterfaceManager_t sig_if;
-    HardwareAbstractionLayer_t hal;
-    ElectricalInterfaceDriver_t elec_drv;
-
-    AppLayer_Init(&app_layer);
-    SignalIf_Init(&sig_if);
-    HAL_Init(&hal);
-    ElecDrv_Init(&elec_drv);
+    // Initialize module state variables
+    FeedbackSensingUnitData feedback_sensing_unit_data = {0};
+    UserInputHandlingUnitData user_input_handling_unit_data = {0};
+    ControlLogicUnitData control_logic_unit_data = {0};
+    OutputIndicationUnitData output_indication_unit_data = {0};
 
     while (1) {
-        AppLayer_Run(&app_layer);
-        // Pass command to signal manager
-        if (app_layer.cmd_valid) {
-            SignalIf_ReceiveCommand(&sig_if, app_layer.target_position);
-        }
-        SignalIf_Run(&sig_if);
-        // For demo: if action routed, process in HAL
-        if (sig_if.state == FSM_DISPATCH) {
-            HAL_ProcessAction(&hal, sig_if.routed_action);
-        }
-        HAL_Run(&hal);
-        // For demo: let HAL trigger electrical op
-        if (hal.state == HW_IO_REQUEST) {
-            ElecDrv_PerformIO(&elec_drv);
-        }
+        feedback_sensing_unit_resp_0(&feedback_sensing_unit_data);
+        user_input_handling_unit_resp_0(&user_input_handling_unit_data);
+        user_input_handling_unit_resp_1(&user_input_handling_unit_data);
+        control_logic_unit_resp_0(&control_logic_unit_data);
+        control_logic_unit_resp_1(&control_logic_unit_data);
+        control_logic_unit_resp_2(&control_logic_unit_data);
+        output_indication_unit_resp_0(&output_indication_unit_data);
+        output_indication_unit_resp_1(&output_indication_unit_data);
     }
-    return 0;
+    return 0; // never reached
 }
