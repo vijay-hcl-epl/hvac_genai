@@ -1,0 +1,308 @@
+###### FILE: code/inc/motor_flap_actuation_and_positioning_unit.h ######
+#ifndef MOTOR_FLAP_ACTUATION_AND_POSITIONING_UNIT_H
+#define MOTOR_FLAP_ACTUATION_AND_POSITIONING_UNIT_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// Internal Data Design
+typedef enum {
+    MOTOR_STATE_OFF,
+    MOTOR_STATE_ON_CW,
+    MOTOR_STATE_ON_CCW,
+    MOTOR_STATE_ERROR
+} MotorState_e;
+
+typedef enum {
+    FLAP_STATE_MOVE,
+    FLAP_STATE_STOP,
+    FLAP_STATE_SWITCH_DIR,
+    FLAP_STATE_QUANTIZE,
+    FLAP_STATE_ERROR
+} FlapState_e;
+
+typedef struct {
+    uint16_t target_position;
+    MotorState_e motor_state;
+    uint8_t direction; // 0: CW, 1: CCW
+    uint16_t adc_position;
+    bool adc_valid;
+} MotorFlapData_t;
+
+// Interface function declarations
+void motor_flap_resp_1(MotorFlapData_t *data, uint16_t user_command, uint16_t adc_feedback); // Move flap to requested position
+void motor_flap_resp_2(MotorFlapData_t *data, uint16_t adc_feedback); // Stop the motor when reaches target
+void motor_flap_resp_3(MotorFlapData_t *data); // Support movement in both directions
+void motor_flap_resp_4(MotorFlapData_t *data, uint16_t adc_feedback); // Support discrete flap positions mapped by ADC
+void motor_flap_resp_5(MotorFlapData_t *data, uint16_t adc_feedback); // Stop if ADC readings out of range
+
+#endif
+###### END FILE ######
+
+###### FILE: code/inc/position_sensing_and_monitoring_unit.h ######
+#ifndef POSITION_SENSING_AND_MONITORING_UNIT_H
+#define POSITION_SENSING_AND_MONITORING_UNIT_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// Internal Data Design
+typedef struct {
+    uint16_t adc_result;
+    uint16_t filtered_position;
+    bool adc_valid;
+} PositionSensingData_t;
+
+void position_sensing_resp_1(PositionSensingData_t *data, uint16_t adc_sample); // Monitor flap position
+
+#endif
+###### END FILE ######
+
+###### FILE: code/inc/system_initialization_and_safety_unit.h ######
+#ifndef SYSTEM_INITIALIZATION_AND_SAFETY_UNIT_H
+#define SYSTEM_INITIALIZATION_AND_SAFETY_UNIT_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// Internal Data Design
+typedef struct {
+    bool init_done;
+    uint8_t led_state;
+    MotorState_e motor_state;
+} SystemInitSafetyData_t;
+
+void system_init_resp_1(SystemInitSafetyData_t *data); // System initialize peripherals
+void system_init_resp_2(SystemInitSafetyData_t *data, bool adc_valid); // Stop motor if ADC out of expected range
+
+#endif
+###### END FILE ######
+
+###### FILE: code/inc/input_command_handling_unit.h ######
+#ifndef INPUT_COMMAND_HANDLING_UNIT_H
+#define INPUT_COMMAND_HANDLING_UNIT_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// Internal Data Design
+#define UART_BUFFER_SIZE 8
+typedef struct {
+    char uart_buffer[UART_BUFFER_SIZE];
+    uint16_t flap_target;
+    bool command_valid;
+} InputCommandData_t;
+
+void input_command_resp_1(InputCommandData_t *data, const char *rx_data); // Process UART commands
+void input_command_resp_2(InputCommandData_t *data); // Handle invalid input
+
+#endif
+###### END FILE ######
+
+###### FILE: code/inc/led_status_and_feedback_unit.h ######
+#ifndef LED_STATUS_AND_FEEDBACK_UNIT_H
+#define LED_STATUS_AND_FEEDBACK_UNIT_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// Internal Data Design
+#define MAX_POSITION_LEDS 10
+typedef struct {
+    bool power_led;
+    bool position_leds[MAX_POSITION_LEDS];
+} LedStatusData_t;
+
+void led_status_resp_1(LedStatusData_t *data, bool power_on); // Indicate power
+void led_status_resp_2(LedStatusData_t *data, uint8_t position, bool valid); // Indicate flap position
+
+#endif
+###### END FILE ######
+
+###### FILE: code/src/motor_flap_actuation_and_positioning_unit.c ######
+#include "motor_flap_actuation_and_positioning_unit.h"
+
+// Move flap to requested position based on user command.
+void motor_flap_resp_1(MotorFlapData_t *data, uint16_t user_command, uint16_t adc_feedback) {
+    data->target_position = user_command;
+    if (adc_feedback < data->target_position) {
+        data->direction = 0; // CW
+        data->motor_state = MOTOR_STATE_ON_CW;
+    } else if (adc_feedback > data->target_position) {
+        data->direction = 1; // CCW
+        data->motor_state = MOTOR_STATE_ON_CCW;
+    } else {
+        data->motor_state = MOTOR_STATE_OFF;
+    }
+}
+
+// Stop the motor once flap reaches the target position.
+void motor_flap_resp_2(MotorFlapData_t *data, uint16_t adc_feedback) {
+    if (adc_feedback == data->target_position) {
+        data->motor_state = MOTOR_STATE_OFF;
+    }
+}
+
+// Support movement in clockwise and anti-clockwise directions via motor control.
+void motor_flap_resp_3(MotorFlapData_t *data) {
+    if (data->direction == 0) {
+        data->motor_state = MOTOR_STATE_ON_CW;
+    }
+    else if (data->direction == 1) {
+        data->motor_state = MOTOR_STATE_ON_CCW;
+    }
+}
+
+// Support discrete flap positions mapped by ADC values in software.
+void motor_flap_resp_4(MotorFlapData_t *data, uint16_t adc_feedback) {
+    data->adc_position = adc_feedback;
+    // Example quantization (exact mapping should be literal from LLD if specified)
+    if (adc_feedback < 100) data->adc_position = 0;
+    else if (adc_feedback < 200) data->adc_position = 1;
+    else if (adc_feedback < 300) data->adc_position = 2;
+    else if (adc_feedback < 400) data->adc_position = 3;
+    // ... add further mappings per explicit LLD if given
+}
+
+// Stop the motor if ADC readings are out of range.
+void motor_flap_resp_5(MotorFlapData_t *data, uint16_t adc_feedback) {
+    if ((adc_feedback < 0) || (adc_feedback > 1023)) { // Assuming 10-bit ADC
+        data->adc_valid = false;
+        data->motor_state = MOTOR_STATE_OFF;
+    } else {
+        data->adc_valid = true;
+    }
+}
+###### END FILE ######
+
+###### FILE: code/src/position_sensing_and_monitoring_unit.c ######
+#include "position_sensing_and_monitoring_unit.h"
+
+// Continuously monitor flap position using potentiometer feedback via ADC
+void position_sensing_resp_1(PositionSensingData_t *data, uint16_t adc_sample) {
+    data->adc_result = adc_sample;
+    // Assume direct store; filtering not detailed in LLD
+    data->filtered_position = adc_sample;
+    if (adc_sample < 0 || adc_sample > 1023) {
+        data->adc_valid = false;
+    } else {
+        data->adc_valid = true;
+    }
+}
+###### END FILE ######
+
+###### FILE: code/src/system_initialization_and_safety_unit.c ######
+#include "system_initialization_and_safety_unit.h"
+#include "motor_flap_actuation_and_positioning_unit.h"
+
+// System initializes all peripherals on power-up with motor off and sets LED outputs.
+void system_init_resp_1(SystemInitSafetyData_t *data) {
+    // Set flags, default states.
+    data->init_done = true;
+    data->led_state = 0;
+    data->motor_state = MOTOR_STATE_OFF;
+}
+
+// Stop the motor if ADC readings are out of expected range
+void system_init_resp_2(SystemInitSafetyData_t *data, bool adc_valid) {
+    if (!adc_valid) {
+        data->motor_state = MOTOR_STATE_OFF;
+    }
+}
+###### END FILE ######
+
+###### FILE: code/src/input_command_handling_unit.c ######
+#include "input_command_handling_unit.h"
+#include <string.h>
+#include <stdlib.h>
+#include <stdint.h>
+
+// Process UART commands from user
+void input_command_resp_1(InputCommandData_t *data, const char *rx_data) {
+    strncpy(data->uart_buffer, rx_data, UART_BUFFER_SIZE-1);
+    data->uart_buffer[UART_BUFFER_SIZE-1] = '\0';
+
+    // Parse numeric value and validate
+    uint16_t pos = (uint16_t)atoi(data->uart_buffer);
+
+    if (pos >= 0 && pos <= 1000) { // Example valid range, if LLD specifies explicitly use those boundaries
+        data->flap_target = pos;
+        data->command_valid = true;
+    } else {
+        data->command_valid = false;
+    }
+}
+
+// Handle invalid user input
+void input_command_resp_2(InputCommandData_t *data) {
+    if (!data->command_valid) {
+        memset(data->uart_buffer, 0, UART_BUFFER_SIZE);
+    }
+}
+###### END FILE ######
+
+###### FILE: code/src/led_status_and_feedback_unit.c ######
+#include "led_status_and_feedback_unit.h"
+#include <string.h>
+
+// Indicate power and flap position using LEDs
+void led_status_resp_1(LedStatusData_t *data, bool power_on) {
+    data->power_led = power_on;
+}
+
+// Set green LED for current flap position, all others OFF
+void led_status_resp_2(LedStatusData_t *data, uint8_t position, bool valid) {
+    memset(data->position_leds, 0, sizeof(data->position_leds));
+    if (valid && position < MAX_POSITION_LEDS) {
+        data->position_leds[position] = true;
+    }
+}
+###### END FILE ######
+
+###### FILE: code/src/main.c ######
+#include "motor_flap_actuation_and_positioning_unit.h"
+#include "position_sensing_and_monitoring_unit.h"
+#include "system_initialization_and_safety_unit.h"
+#include "input_command_handling_unit.h"
+#include "led_status_and_feedback_unit.h"
+
+int main(void)
+{
+    // Initialize all module state variables as per DOORS LLDs
+    MotorFlapData_t motor_flap = {0};
+    PositionSensingData_t position_monitor = {0};
+    SystemInitSafetyData_t system_init = {0};
+    InputCommandData_t input_command = {0};
+    LedStatusData_t led_status = {0};
+
+    // System initialization
+    system_init_resp_1(&system_init);
+
+    // Main deterministic and repeatable loop
+    while (1) {
+        // Sample position
+        position_sensing_resp_1(&position_monitor, position_monitor.adc_result);
+
+        // Handle input commands
+        input_command_resp_1(&input_command, input_command.uart_buffer);
+        input_command_resp_2(&input_command);
+
+        // Apply command to actuation logic
+        if (input_command.command_valid) {
+            motor_flap_resp_1(&motor_flap, input_command.flap_target, position_monitor.filtered_position);
+        }
+        motor_flap_resp_2(&motor_flap, position_monitor.filtered_position);
+        motor_flap_resp_3(&motor_flap);
+        motor_flap_resp_4(&motor_flap, position_monitor.filtered_position);
+        motor_flap_resp_5(&motor_flap, position_monitor.filtered_position);
+
+        // System safety: if ADC invalid, ensure motor off
+        system_init_resp_2(&system_init, position_monitor.adc_valid);
+
+        // LED status feedback
+        led_status_resp_1(&led_status, system_init.init_done);
+        led_status_resp_2(&led_status, motor_flap.adc_position, position_monitor.adc_valid);
+    }
+    return 0;
+}
+###### END FILE ######
