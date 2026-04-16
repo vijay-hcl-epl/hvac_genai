@@ -1,0 +1,291 @@
+###### FILE: code/inc/PositionRangeConfigurationUnit.h ######
+#ifndef POSITIONRANGECONFIGURATIONUNIT_H
+#define POSITIONRANGECONFIGURATIONUNIT_H
+
+typedef struct {
+    int adc_ranges[6][2]; // [min, max] for 6 positions
+} PositionRangeTable;
+
+typedef enum {
+    DefineRanges,
+    BroadcastConfig
+} PositionRangeConfigState;
+
+void PositionRangeConfigurationUnit_resp_1();
+void PositionRangeConfigurationUnit_resp_2();
+
+#endif
+###### END FILE ######
+
+###### FILE: code/src/PositionRangeConfigurationUnit.c ######
+#include "PositionRangeConfigurationUnit.h"
+
+void PositionRangeConfigurationUnit_resp_1() {
+    // Responsibility: Define the corresponding ADC value ranges for each supported discrete flap position.
+    // Input Handling: Retrieve static or startup configuration.
+    // State Handling: State = DefineRanges.
+    // Core Action: Store boundary values in PositionRangeTable.
+    // Error Handling: If out-of-bounds, use safe nominal values.
+}
+
+void PositionRangeConfigurationUnit_resp_2() {
+    // Responsibility: Communicate configuration to Control and Sensing units.
+    // Input Handling: Use PositionRangeTable as data source.
+    // State Handling: State = BroadcastConfig.
+    // Core Action: Make configuration available to other units.
+    // Error Handling: On broadcast failure, trigger re-init/fault.
+}
+###### END FILE ######
+
+###### FILE: code/inc/OutputIndicationUnit.h ######
+#ifndef OUTPUTINDICATIONUNIT_H
+#define OUTPUTINDICATIONUNIT_H
+
+typedef enum {
+    PowerOnIndication,
+    FlapPositionIndication
+} OutputIndicationState;
+
+typedef struct {
+    int led_states[7]; // [0]=Power, [1-6]=flap positions
+} OutputIndicationLedArray;
+
+void OutputIndicationUnit_resp_1();
+
+#endif
+###### END FILE ######
+
+###### FILE: code/src/OutputIndicationUnit.c ######
+#include "OutputIndicationUnit.h"
+
+void OutputIndicationUnit_resp_1() {
+    // Responsibility: Indicate the power-on status and current flap position using LEDs, ensuring only one position LED is active at a time.
+    // Input Handling: Read system state and flap position.
+    // State Handling: PowerOnIndication / FlapPositionIndication.
+    // Core Action: Drive LEDs accordingly.
+    // Error Handling: For invalid position, no LED or diagnostic flash.
+}
+###### END FILE ######
+
+###### FILE: code/inc/InitializationStartupUnit.h ######
+#ifndef INITIALIZATIONSTARTUPUNIT_H
+#define INITIALIZATIONSTARTUPUNIT_H
+
+typedef struct {
+    int adc_init_done;
+    int uart_init_done;
+    int gpio_init_done;
+    int pwm_init_done;
+    int status;
+} PeripheralInitStatus;
+
+typedef struct {
+    int motor_off_on_init;
+    int detected_flap_position_init;
+} MotorLedInitStatus;
+
+typedef enum {
+    PeripheralsInit,
+    StartupIndication
+} InitializationStartupState;
+
+void InitializationStartupUnit_resp_1();
+void InitializationStartupUnit_resp_2();
+
+#endif
+###### END FILE ######
+
+###### FILE: code/src/InitializationStartupUnit.c ######
+#include "InitializationStartupUnit.h"
+
+void InitializationStartupUnit_resp_1() {
+    // Responsibility: Initialize all connected peripherals (ADC, UART, GPIO, PWM) at power-up.
+    // Input Handling: Sequence through initialization.
+    // State Handling: PeripheralsInit.
+    // Core Action: Set ready flags.
+    // Error Handling: On init failure, retry or signal fault.
+}
+
+void InitializationStartupUnit_resp_2() {
+    // Responsibility: Ensure the motor is OFF and LEDs reflect the current detected flap position on startup.
+    // Input Handling: Check initial detected position and current status.
+    // State Handling: StartupIndication.
+    // Core Action: Motor OFF, update LEDs from sensed value.
+    // Error Handling: If position not detected, blink all LEDs.
+}
+###### END FILE ######
+
+###### FILE: code/inc/FlapPositionControlUnit.h ######
+#ifndef FLAPPOSITIONCONTROLUNIT_H
+#define FLAPPOSITIONCONTROLUNIT_H
+
+typedef enum {
+    MoveToPosition,
+    AtTarget,
+    PositionMapping,
+    Fault
+} FlapPositionControlState;
+
+typedef struct {
+    int target_position; // 1–6
+    int motor_status; // ON/OFF
+    int position_bin[6];
+    int adc_fault_flag;
+} FlapPositionControlVars;
+
+void FlapPositionControlUnit_resp_1();
+void FlapPositionControlUnit_resp_2();
+void FlapPositionControlUnit_resp_3();
+void FlapPositionControlUnit_resp_4();
+
+#endif
+###### END FILE ######
+
+###### FILE: code/src/FlapPositionControlUnit.c ######
+#include "FlapPositionControlUnit.h"
+
+void FlapPositionControlUnit_resp_1() {
+    // Responsibility: Drive flap movement to requested position as commanded by input.
+    // Input Handling: Capture command/position.
+    // State Handling: MoveToPosition.
+    // Core Action: Activate motor towards new position.
+    // Error Handling: On command miss/out-of-range, ignore/fault.
+}
+
+void FlapPositionControlUnit_resp_2() {
+    // Responsibility: Stop the DC motor once flap reaches the target position.
+    // Input Handling: Monitor current position.
+    // State Handling: AtTarget.
+    // Core Action: Stop motor when at target.
+    // Error Handling: If overrun, enter fault state.
+}
+
+void FlapPositionControlUnit_resp_3() {
+    // Responsibility: Define and support exactly six discrete flap positions.
+    // Input Handling: Map ADC values to position bins.
+    // State Handling: PositionMapping.
+    // Core Action: Use six bins. Update each on ADC read.
+    // Error Handling: ADC mapping error—default bin/fault.
+}
+
+void FlapPositionControlUnit_resp_4() {
+    // Responsibility: Stop the motor if ADC values fall outside expected ranges.
+    // Input Handling: Monitor ADC values.
+    // State Handling: Fault.
+    // Core Action: Stop motor, enter safe state.
+    // Error Handling: Out-of-bounds—stop & flag critical error.
+}
+###### END FILE ######
+
+###### FILE: code/inc/FeedbackSensingUnit.h ######
+#ifndef FEEDBACKSENSINGUNIT_H
+#define FEEDBACKSENSINGUNIT_H
+
+typedef enum {
+    MonitoringADC,
+    PositionStatusUpdate
+} FeedbackSensingState;
+
+typedef struct {
+    int adc_raw_value;
+    int position_status;
+} FeedbackSensingVars;
+
+void FeedbackSensingUnit_resp_1();
+void FeedbackSensingUnit_resp_2();
+
+#endif
+###### END FILE ######
+
+###### FILE: code/src/FeedbackSensingUnit.c ######
+#include "FeedbackSensingUnit.h"
+
+void FeedbackSensingUnit_resp_1() {
+    // Responsibility: Continuously monitor the actual flap position using potentiometer feedback through ADC.
+    // Input Handling: Read ADC value; filter if required.
+    // State Handling: MonitoringADC.
+    // Core Action: Store ADC reading.
+    // Error Handling: Out-of-range or stuck ADC—trigger fault.
+}
+
+void FeedbackSensingUnit_resp_2() {
+    // Responsibility: Provide current flap position status to control unit.
+    // Input Handling: Use monitored ADC value.
+    // State Handling: PositionStatusUpdate.
+    // Core Action: Update/expose current status.
+    // Error Handling: Null/incomplete—handle fault.
+}
+###### END FILE ######
+
+###### FILE: code/inc/InputHandlingUnit.h ######
+#ifndef INPUTHANDLINGUNIT_H
+#define INPUTHANDLINGUNIT_H
+
+typedef enum {
+    WaitForCommand,
+    CommandParse
+} InputHandlingState;
+
+typedef struct {
+    char uart_buffer[32];
+    int uart_buffer_pos;
+    int commanded_pos;
+    int error_status_flag;
+} InputHandlingVars;
+
+void InputHandlingUnit_resp_1();
+void InputHandlingUnit_resp_2();
+
+#endif
+###### END FILE ######
+
+###### FILE: code/src/InputHandlingUnit.c ######
+#include "InputHandlingUnit.h"
+
+void InputHandlingUnit_resp_1() {
+    // Responsibility: Handle commands entered by the user via UART interface to command the flap position.
+    // Input Handling: Read from UART, parse.
+    // State Handling: WaitForCommand / CommandParse.
+    // Core Action: If valid, queue command.
+    // Error Handling: On framing/packet/decode error, discard.
+}
+
+void InputHandlingUnit_resp_2() {
+    // Responsibility: Safely ignore and discard invalid UART commands without acknowledgment or error.
+    // Input Handling: Validate received data.
+    // State Handling: CommandParse.
+    // Core Action: Discard invalid or out-of-range commands.
+    // Error Handling: Increment diagnostic error count, no outputs.
+}
+###### END FILE ######
+
+###### FILE: code/src/main.c ######
+#include "InitializationStartupUnit.h"
+#include "PositionRangeConfigurationUnit.h"
+#include "OutputIndicationUnit.h"
+#include "FlapPositionControlUnit.h"
+#include "FeedbackSensingUnit.h"
+#include "InputHandlingUnit.h"
+
+int main(void) {
+    // Deterministic initialization
+    InitializationStartupUnit_resp_1();
+    InitializationStartupUnit_resp_2();
+    PositionRangeConfigurationUnit_resp_1();
+    PositionRangeConfigurationUnit_resp_2();
+    OutputIndicationUnit_resp_1();
+
+    while (1) {
+        FeedbackSensingUnit_resp_1();
+        FeedbackSensingUnit_resp_2();
+        InputHandlingUnit_resp_1();
+        InputHandlingUnit_resp_2();
+        FlapPositionControlUnit_resp_1();
+        FlapPositionControlUnit_resp_2();
+        FlapPositionControlUnit_resp_3();
+        FlapPositionControlUnit_resp_4();
+        // Add fixed order only; deterministic loop
+    }
+    return 0;
+}
+###### END FILE ######
