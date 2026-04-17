@@ -1,0 +1,117 @@
+# ASPICE SWE.4 Unit Test Plan – HVAC Flap Actuator (Branch: aprildemo-17b)
+
+This plan covers 6 units per LLD and code:
+1. Command Handler
+2. Position Control
+3. Motor Driver Interface
+4. ADC Interface
+5. LED Status Indicator
+6. Error Handling
+
+## Example Test Case (full table)
+| Test Case ID | SW-REQ Ref | Unit | Objective | Preconditions | Input | Expected Result | Pass/Fail |
+|--------------|------------|------|-----------|---------------|-------|----------------|-----------|
+| TC-CMD-001   | SWE-REQ-001,002,004,032 | Command Handler | Accept valid UART cmd | Handler inited | '3' | Stores 3, ready==true | Pass if ready/valid_cmd==3 |
+
+---
+
+## Unit 1: Command Handler
+- **Responsibilities:** UART RX, validate/ignore invalid
+- **SW-REQs:** 001, 002, 003, 004, 017, 032
+- **Test Cases:**
+  - TC-CMD-001 – Valid command accepted (0–5)
+  - TC-CMD-002 – Invalid char ignored
+  - TC-CMD-003 – Buffer overflow resets state
+  - TC-CMD-004 – Error input (framing/parity): no output, ignored
+
+## Unit 2: Position Control
+- **Responsibilities:** Track/set position, move logic
+- **SW-REQs:** 005, 006, 007, 025, 024, 028, 029, 031
+- **Test Cases:**
+  - TC-POS-001 – Accept target in range
+  - TC-POS-002 – Reject target out of range
+  - TC-POS-003 – On valid, drive movement (calls driver)
+  - TC-POS-004 – On match, stops and notifies LED
+  - TC-POS-005 – Command during busy: rejected
+
+## Unit 3: Motor Driver Interface
+- **Responsibilities:** Drive DC Motor, IO/PWM
+- **SW-REQs:** 008, 009, 019, 037, 038
+- **Test Cases:**
+  - TC-MOT-001 – Drive towards higher pos
+  - TC-MOT-002 – Drive towards lower pos
+  - TC-MOT-003 – Stop disables output
+  - TC-MOT-004 – Ignore out-of-range
+
+## Unit 4: ADC Interface
+- **Responsibilities:** Sample ADC, map position
+- **SW-REQs:** 011, 012, 013, 018, 029, 031
+- **Test Cases:**
+  - TC-ADC-001 – Valid ADC range, map position
+  - TC-ADC-002 – ADC value out of range, flags error
+
+## Unit 5: LED Status Indicator
+- **Responsibilities:** LEDs for power, position, error
+- **SW-REQs:** 014, 015, 016, 020, 029
+- **Test Cases:**
+  - TC-LED-001 – Power-on LED pattern
+  - TC-LED-002 – Position LED matches position
+  - TC-LED-003 – Error pattern if told
+
+## Unit 6: Error Handling
+- **Responsibilities:** Fault detect, safe-state
+- **SW-REQs:** 013, 026, 027, 032, 033, 034
+- **Test Cases:**
+  - TC-ERR-001 – Upon error, disables actuators
+  - TC-ERR-002 – FAULT prevents movement
+  - TC-ERR-003 – No retry/escalation
+
+---
+
+## Detailed Test Case Table (sample)
+| Test Case ID | Unit | SW-REQ | Objective | Precondition | Input | Expected Result | Pass Criteria |
+|--------------|------|--------|-----------|--------------|-------|----------------|--------------|
+| TC-CMD-001   | Command Handler | SWE-REQ-001,002,004,032 | Accept valid
+t UART | Initialized | '4' | ready==true, valid_cmd==4 | Ready==true, get_valid_command()==4 |
+| TC-POS-001   | Position Control | SWE-REQ-005 | Accept valid position | Init, idle | set_target(2) | Returns true, busy=1 | Returns true |
+| TC-POS-002   | Position Control | SWE-REQ-007 | Reject out-of-range | idle | set_target(9) | Returns false | Returns false |
+| TC-ADC-002   | ADC Interface | SWE-REQ-013 | Out-of-range ADC | ADC=99 | get_position() | valid==false | valid==false |
+
+...
+
+## Traceability Table: SW-REQ to Test Case
+| SW-REQ | Test Case(s) |
+|--------|--------------|
+| SWE-REQ-001 | TC-CMD-001 |
+| SWE-REQ-002 | TC-CMD-001, TC-CMD-002 |
+| SWE-REQ-003 | TC-CMD-001 |
+| SWE-REQ-004 | TC-CMD-004 |
+| SWE-REQ-005 | TC-POS-001 |
+| ... | ... |
+
+## Traceability Table: Unit to Test Case
+| Unit | Test Case(s) |
+|------|--------------|
+| Command Handler | TC-CMD-001,002,003,004 |
+| Position Control | TC-POS-001,002,003,004,005 |
+| ... | ... |
+
+---
+
+## Example C Unit Test Stubs
+```c
+// Example using Unity or cmocka
+#include "command_handler.h"
+void test_cmd_valid(void) {
+  command_handler_init();
+  command_handler_rx_char('2');
+  assert(command_handler_command_ready());
+  assert(get_valid_command()==2);
+}
+```
+
+---
+
+*Mocks required for ADC/GPIO/PWM/UART; no real HW; all deterministic/isolated.*
+
+*Document generated ASPICE SWE.4 Unit Test Plan matching requirements, LLD, architecture, and current code for branch aprildemo-17b.*
