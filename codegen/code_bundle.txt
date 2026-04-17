@@ -1,0 +1,242 @@
+###### FILE: code/inc/command_handler.h ######
+#ifndef COMMAND_HANDLER_H
+#define COMMAND_HANDLER_H
+#include <stdint.h>
+#include <stdbool.h>
+#define CMD_BUF_SIZE 4
+// UART RX handler. Accepts/validates commands (0-5), ignores invalid.
+void command_handler_init(void);
+// Call in main loop or from UART RX event
+void command_handler_rx_char(uint8_t ch);
+// Returns true if a valid command is available; fetch with get_valid_command().
+bool command_handler_command_ready(void);
+// Retrieves last valid position command (0-5), or -1 if none.
+int8_t get_valid_command(void);
+// Resets command handler to idle/empty.
+void command_handler_reset(void);
+#endif
+###### END FILE ######
+###### FILE: code/src/command_handler.c ######
+#include "command_handler.h"
+#include <string.h>
+static uint8_t cmd_buf[CMD_BUF_SIZE];
+static uint8_t cmd_idx = 0;
+static int8_t valid_cmd = -1; // -1 if none
+static bool ready = false;
+void command_handler_init(void) { cmd_idx = 0; valid_cmd = -1; ready = false; }
+void command_handler_rx_char(uint8_t ch)
+{
+    if (ch >= '0' && ch <= '5') {
+        // Accept position chars only
+        cmd_buf[0] = ch;
+        cmd_idx = 1;
+        valid_cmd = (int8_t)(ch - '0');
+        ready = true;
+    } else {
+        // Ignore any invalid input
+        cmd_idx = 0;
+        valid_cmd = -1;
+        ready = false;
+    }
+}
+bool command_handler_command_ready(void) { return ready; }
+int8_t get_valid_command(void) {
+    if (ready) { ready = false; return valid_cmd; }
+    return -1;
+}
+void command_handler_reset(void) { command_handler_init(); }
+###### END FILE ######
+###### FILE: code/inc/position_control.h ######
+#ifndef POSITION_CONTROL_H
+#define POSITION_CONTROL_H
+#include <stdint.h>
+#include <stdbool.h>
+// Called at power-up
+void position_control_init(void);
+// Pass new valid target position (0–5); returns true if accepted.
+bool position_control_set_target(uint8_t pos);
+// Should be called in main loop
+void position_control_execute(void);
+// Gets last known actual position (0–5)
+uint8_t position_control_get_actual(void);
+// Gets current movement state (0:IDLE 1:MOVING 2:ERROR)
+uint8_t position_control_get_state(void);
+#endif
+###### END FILE ######
+###### FILE: code/src/position_control.c ######
+#include "position_control.h"
+#include "motor_driver_if.h"
+#include "adc_interface.h"
+#include "led_status.h"
+#include "error_handling.h"
+#define FLAP_POS_MIN 0
+#define FLAP_POS_MAX 5
+static uint8_t target_pos = 0;
+static uint8_t actual_pos = 0;
+static uint8_t move_state = 0; // 0:IDLE 1:MOVING 2:ERROR
+static bool busy = false;
+void position_control_init(void) { target_pos = 0; actual_pos = 0; move_state = 0; busy = false; }
+bool position_control_set_target(uint8_t pos)
+{
+    if (busy || pos > FLAP_POS_MAX) return false;
+    target_pos = pos;
+    busy = true; move_state = 1;
+    return true;
+}
+void position_control_execute(void)
+{
+    if (!busy) return;
+    actual_pos = adc_interface_get_position();
+    if (error_handling_has_error()) {
+        busy = false; move_state = 2; return;
+    }
+    if (actual_pos == target_pos) {
+        motor_driver_if_stop();
+        led_status_update_position(actual_pos);
+        busy = false; move_state = 0;
+    } else {
+        motor_driver_if_drive(target_pos, actual_pos);
+        // Stay in MOVING until target reached
+    }
+}
+uint8_t position_control_get_actual(void) { return actual_pos; }
+uint8_t position_control_get_state(void) { return move_state; }
+###### END FILE ######
+###### FILE: code/inc/motor_driver_if.h ######
+#ifndef MOTOR_DRIVER_IF_H
+#define MOTOR_DRIVER_IF_H
+#include <stdint.h>
+void motor_driver_if_init(void);
+// Drives motor to move towards target; directions based on (target - actual)
+void motor_driver_if_drive(uint8_t target, uint8_t actual);
+// Immediately stops all drive PWM/GPIO
+void motor_driver_if_stop(void);
+#endif
+###### END FILE ######
+###### FILE: code/src/motor_driver_if.c ######
+#include "motor_driver_if.h"
+#include <stdbool.h>
+// Placeholders: GPIO/PWM macros, simulated outputs
+static int motor_enabled = 0; static int last_dir = 0;
+void motor_driver_if_init(void) { motor_enabled = 0; last_dir = 0; }
+void motor_driver_if_drive(uint8_t target, uint8_t actual)
+{
+    if (target > actual) { /* Drive one way */ motor_enabled = 1; last_dir = 1; }
+    else if (target < actual) { /* Drive opposite */ motor_enabled = 1; last_dir = -1; }
+    else { motor_driver_if_stop(); }
+    // Insert hardware actuation here
+}
+void motor_driver_if_stop(void) { motor_enabled = 0; last_dir = 0; /* Clear outputs */ }
+###### END FILE ######
+###### FILE: code/inc/adc_interface.h ######
+#ifndef ADC_INTERFACE_H
+#define ADC_INTERFACE_H
+#include <stdint.h>
+#include <stdbool.h>
+void adc_interface_init(void);
+// Samples ADC and maps to logical 0-5 position
+uint8_t adc_interface_get_position(void);
+// Returns true if latest ADC sample in valid range
+bool adc_interface_is_valid(void);
+#endif
+###### END FILE ######
+###### FILE: code/src/adc_interface.c ######
+#include "adc_interface.h"
+#define ADC_MIN_VAL 100
+#define ADC_MAX_VAL 4000
+#define ADC_POS_STEP 700 // Example mapping
+static uint16_t last_adc = 0;
+static uint8_t last_logical = 0;
+static bool valid = false;
+void adc_interface_init(void) { last_adc = 0; last_logical = 0; valid = false; }
+uint8_t adc_interface_get_position(void)
+{
+    // Simulated ADC read -- Replace with MCU ADC code
+    uint16_t sample = last_adc; // Here, add ADC HW reading
+    if (sample < ADC_MIN_VAL || sample > ADC_MAX_VAL) { valid = false; return 0; }
+    valid = true;
+    last_logical = (sample - ADC_MIN_VAL) / ADC_POS_STEP;
+    if (last_logical > 5) last_logical = 5;
+    return last_logical;
+}
+bool adc_interface_is_valid(void) { return valid; }
+###### END FILE ######
+###### FILE: code/inc/led_status.h ######
+#ifndef LED_STATUS_H
+#define LED_STATUS_H
+#include <stdint.h>
+void led_status_init(void);
+// Sets all LEDs for power-on
+void led_status_power_on(void);
+// Updates position LEDs (only one enabled at a time)
+void led_status_update_position(uint8_t pos);
+// Shows error LED pattern
+void led_status_error(void);
+#endif
+###### END FILE ######
+###### FILE: code/src/led_status.c ######
+#include "led_status.h"
+// Simulated GPIO state
+static uint8_t leds[6];
+void led_status_init(void) { for (int i = 0; i < 6; ++i) leds[i] = 0; }
+void led_status_power_on(void) { leds[0] = 1; /* Power LED ON pattern */ }
+void led_status_update_position(uint8_t pos)
+{
+    for (int i = 0; i < 6; ++i) leds[i] = 0;
+    if (pos < 6) leds[pos] = 1;
+}
+void led_status_error(void) { for (int i = 0; i < 6; ++i) leds[i] = 1; /* All on = error! */ }
+###### END FILE ######
+###### FILE: code/inc/error_handling.h ######
+#ifndef ERROR_HANDLING_H
+#define ERROR_HANDLING_H
+#include <stdint.h>
+#include <stdbool.h>
+void error_handling_init(void);
+// Report error code (0:none, 1:ADC, 2:Invalid cmd, etc)
+void error_handling_report(uint8_t code);
+bool error_handling_has_error(void);
+void error_handling_clear(void);
+#endif
+###### END FILE ######
+###### FILE: code/src/error_handling.c ######
+#include "error_handling.h"
+static uint8_t error_code = 0;
+void error_handling_init(void) { error_code = 0; }
+void error_handling_report(uint8_t code) { error_code = code; }
+bool error_handling_has_error(void) { return error_code != 0; }
+void error_handling_clear(void) { error_code = 0; }
+###### END FILE ######
+###### FILE: code/src/main.c ######
+#include "command_handler.h"
+#include "position_control.h"
+#include "motor_driver_if.h"
+#include "adc_interface.h"
+#include "led_status.h"
+#include "error_handling.h"
+#include <stdint.h>
+int main(void)
+{
+    command_handler_init();
+    position_control_init();
+    motor_driver_if_init();
+    adc_interface_init();
+    led_status_init();
+    error_handling_init();
+    led_status_power_on();
+    // Main loop stub
+    while (1)
+    {
+        // Emulate UART RX event (replace with ISR / event driven)
+        if (command_handler_command_ready())
+        {
+            int8_t cmd = get_valid_command();
+            if (cmd >= 0 && cmd <= 5)
+                position_control_set_target((uint8_t)cmd);
+        }
+        position_control_execute();
+        // Add periodic ADC sampling, error check, LED update, etc here
+    }
+    return 0;
+}
+###### END FILE ######
