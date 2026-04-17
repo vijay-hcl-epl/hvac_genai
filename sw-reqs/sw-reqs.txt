@@ -1,0 +1,85 @@
+# 1.0 Software Scope & Responsibility
+The embedded software SHALL implement flap position selection, control, feedback processing, and system indication for a single HVAC actuator in an automotive environment. The software scope is strictly limited to position control via ADC/GPIO/UART/timers, as defined by system requirements, with boundary interfaces to external hardware managed via MCU peripherals.
+
+# 2.0 Software Functional Requirements
+## 2.1 User Commands
+- SWE-REQ-001: The software SHALL accept user commands via UART to set flap position (0-5). [SYS-REQ-001, SYS-REQ-015]
+- SWE-REQ-002: The software SHALL validate and ignore commands outside the allowed range (0-5) without ACK. [SYS-REQ-015, SYS-REQ-016, SYS-REQ-017]
+- SWE-REQ-003: The software SHALL process only a single user command at any time and serially. [SYS-REQ-030]
+- SWE-REQ-004: [Implied] The software SHALL provide no diagnostic or error output on UART. [SYS-REQ-017]
+
+## 2.2 Flap Control
+- SWE-REQ-005: The software SHALL map received valid position commands to internal target position values. [SYS-REQ-006]
+- SWE-REQ-006: The software SHALL update output motor controls to initiate movement to target position. [SYS-REQ-004, SYS-REQ-005, SYS-REQ-009]
+- SWE-REQ-007: The software SHALL prevent motor actuation for positions beyond boundaries. [SYS-REQ-007]
+- SWE-REQ-008: The software SHALL apply mapped PWM/GPIO motor signals for correct direction and activation. [SYS-REQ-009, SYS-REQ-010]
+
+## 2.3 Motor Control
+- SWE-REQ-009: The software SHALL stop all motor drive outputs at power-up and after reaching the target. [SYS-REQ-008, SYS-REQ-011]
+- SWE-REQ-010: [Implied] The software SHALL not initiate any movement unless a valid position change is requested. [SYS-REQ-022, SYS-REQ-023]
+
+## 2.4 Feedback Processing
+- SWE-REQ-011: The software SHALL sample the flap position using ADC and map ADC values to logical positions. [SYS-REQ-003, SYS-REQ-012, SYS-REQ-013]
+- SWE-REQ-012: The software SHALL monitor ADC input and update last known position continuously. [SYS-REQ-014]
+- SWE-REQ-013: The software SHALL disregard position update and prevent actuation when ADC yields out-of-range value. [SYS-REQ-025, SYS-REQ-035]
+
+## 2.5 Status Indication
+- SWE-REQ-014: The software SHALL control GPIO outputs to drive a dedicated power LED at power-on. [SYS-REQ-018]
+- SWE-REQ-015: The software SHALL indicate logical flap position by activating the corresponding position LED, with only one position LED active at a time. [SYS-REQ-019]
+- SWE-REQ-016: [Implied] The software SHALL update LEDs promptly on completion of movement or state change. [SYS-REQ-019, SYS-REQ-022]
+
+# 3.0 Software Interface Requirements
+- SWE-REQ-017: The software SHALL use a UART MCU peripheral for command input. [SYS-REQ-026]
+- SWE-REQ-018: The software SHALL use an ADC MCU peripheral for flap position feedback. [SYS-REQ-027]
+- SWE-REQ-019: The software SHALL use MCU GPIO/PWM pins as control outputs to the motor driver. [SYS-REQ-028]
+- SWE-REQ-020: The software SHALL use GPIO outputs for system and position LEDs. [SYS-REQ-029]
+- SWE-REQ-021: [Implied] All interface use SHALL be abstracted to allow alternate MCU pin mapping at integration. [SYS-REQ-037]
+
+# 4.0 Software Behavioral Requirements
+- SWE-REQ-022: At power-up, the software SHALL initialize all peripherals before accepting commands. [SYS-REQ-020]
+- SWE-REQ-023: After initialization, the software SHALL read ADC and update/display the current flap position before enabling command handling. [SYS-REQ-021]
+- SWE-REQ-024: In idle, the software SHALL retain and indicate the flap’s last known position. [SYS-REQ-022]
+- SWE-REQ-025: After receiving a valid command, the software SHALL drive the motor until reaching target, then transition to a holding state. [SYS-REQ-023, SYS-REQ-008]
+- SWE-REQ-026: If an invalid command is received, the software SHALL maintain position/indications without taking action. [SYS-REQ-024]
+- SWE-REQ-027: On ADC out-of-range, the software SHALL prevent movement and ignore new commands until a valid range is restored. [SYS-REQ-025]
+- SWE-REQ-028: [Implied] The software SHALL implement position comparison logic with tolerance to avoid oscillation at boundaries. [SYS-REQ-008, SYS-REQ-041]
+
+# 5.0 Software Data & Configuration
+- SWE-REQ-029: The software SHALL maintain in-RAM variables for:
+    - Current flap position
+    - Target position
+    - Last ADC reading
+    - Position map (ADC to logical positions, all static)
+- SWE-REQ-030: The software SHALL NOT use non-volatile/RAM disk or dynamically allocate/free memory in operation. [SYS-REQ-036]
+- SWE-REQ-031: [Implied] The position map SHALL be statically defined at compile time. [SYS-REQ-006, SYS-REQ-032]
+
+# 6.0 Software Error Handling
+- SWE-REQ-032: The software SHALL ignore UART framing and parity errors in command processing; no error reporting. [SYS-REQ-017, SYS-REQ-034]
+- SWE-REQ-033: On ADC out-of-range, the software SHALL deactivate motor driver and set error indicator/event-internal state. [SYS-REQ-025, SYS-REQ-035]
+- SWE-REQ-034: [Implied] The software SHALL not perform error retries nor escalate error beyond halting movement. [SYS-REQ-035]
+
+# 7.0 Performance & Responsiveness
+- SWE-REQ-035: The software SHALL process valid position commands and initiate movement with minimal delay from UART reception (perceptible as ‘short’ to a user, but no explicit ms timing). [SYS-REQ-033]
+- SWE-REQ-036: [Implied] The software implementation SHALL be responsive to user action under typical expected load for single command at a time. [SYS-REQ-033]
+
+# 8.0 Resource Constraints
+- SWE-REQ-037: The software SHALL use only static/global/local allocation; no heap or dynamic allocation. [SYS-REQ-036]
+- SWE-REQ-038: The software SHALL operate within available RAM/Flash budget for STM32F407G-DISC1. [SYS-REQ-037]
+- SWE-REQ-039: [Implied] Code and data structures SHALL be optimized for efficiency, avoiding unnecessary buffers or copies. [SYS-REQ-036, SYS-REQ-037]
+
+# 9.0 Testability
+- SWE-REQ-040: The software SHALL support position and status verification tests via UART command inputs and observation of flaps and LED states. [SYS-REQ-040]
+- SWE-REQ-041: The software SHALL permit ADC, GPIO, and UART register-level states to be inspected in-target for verification of control logic. [SYS-REQ-041]
+- SWE-REQ-042: [Implied] Each software function SHALL be isolated and testable by unit test or simulated input, at code/module level. [SYS-REQ-039, SYS-REQ-041]
+
+# 10.0 Implied Requirements (per section, [Implied])
+- SWE-REQ-004: No UART diagnostic output.
+- SWE-REQ-010: No movement unless requested.
+- SWE-REQ-016: LED feedback immediate after position change.
+- SWE-REQ-021: Port/pin mapping abstraction.
+- SWE-REQ-028: Comparator hysteresis.
+- SWE-REQ-031: Static compile-time position table only.
+- SWE-REQ-034: No multi-step/error escalation on faults.
+- SWE-REQ-036: Responsiveness only required under normal use.
+- SWE-REQ-039: No excessive memory use.
+- SWE-REQ-042: Per-function/module testability.
