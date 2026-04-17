@@ -1,0 +1,245 @@
+# SOFTWARE LOW LEVEL DESIGN (SWE.3) – HVAC Flap Actuator
+
+## Traceable to SWE.1 and SWE.2, APRILDEMO-17B
+
+### Introduction
+This document provides the detailed Low Level Design (LLD) for each software unit of the HVAC Flap Actuator, as defined in the SWE.2 (sw-arch.txt) and tracing directly to SWE.1 (sw-reqs.txt). No architecture changes, unit additions, code generation, or scheduling are described. All structures target MISRA-compliant embedded C with only static data allocation.
+
+----
+
+## 1. Software Unit: Command Handler
+
+### 1. Responsibilities
+- Handles: Receiving UART input, basic command validation, passing only valid flap-position commands for processing.
+- Does not handle: Any diagnostic output, error escalation beyond rejection/ignore of bad commands.
+
+### 2. Internal Data Design
+- Internal buffer for command character(s) (static, fixed-size, no allocation).
+- Variable for last received command, validity flag.
+
+### 3. State Machine
+- States: IDLE, RECEIVING, VALIDATING, READY (command available or not)
+- Events: UART RX event, buffer full, parse complete, bad/ignored command
+- Transitions: On RX –> RECEIVING. On complete –> VALIDATING. If valid –> READY. If invalid –> IDLE (buffer cleared).
+
+### 4. Algorithms & Control Flow
+- Wait for UART RX event
+- Store data to buffer (up to static size)
+- On command delimiter or buffer-full: validate as position (0–5)
+- If valid, pass to Position Control; else, clear buffer
+- No output/ack for invalid input
+
+### 5. Interfaces (APIs)
+- Provided: get_valid_command(): returns latest valid position or ‘NONE’ if not available
+- Required: UART peripheral RX interface
+- Error: Only sets internal state; no reporting
+
+### 6. Error Handling
+- Ignores bad UART data, framing/parity errors; no error output (per SWE-REQ-032/004)
+- Buffer overflow resets to IDLE; no retries
+
+### 7. Resource & Timing Considerations
+- Static buffer, non-reentrant
+- Executed on UART RX event; no busy polling
+- Very short WCET (<1ms per RX)
+
+### 8. Traceability
+- SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-017, SWE-REQ-032
+
+----
+
+## 2. Software Unit: Position Control
+
+### 1. Responsibilities
+- Handles: Maintain and update requested vs actual flap position; initiate/complete commanded movements
+- Does not handle: Motor bit-level/PWM, ADC hardware access, error signaling beyond passing out-of-range to Error Handler
+
+### 2. Internal Data Design
+- Static variables for current position, target position, last command, movement state
+- Static configuration: position map (logical<->ADC), comparator window
+
+### 3. State Machine
+- States: IDLE (holding), WAIT_COMMAND, MOVING, COMPLETED, ERROR_HOLD
+- Events: valid command from Command Handler, target=actual, move done, error
+
+### 4. Algorithms & Control Flow
+- On valid command:
+    - If within range & not busy, set target position
+    - If ADC actual ≈ target (tolerance): no move, go to COMPLETED
+    - Else: activate Motor Driver IF, update movement state
+    - Track ADC until target reached (with hysteresis)
+- If out-of-range ADC: transition to ERROR_HOLD
+
+### 5. Interfaces (APIs)
+- Provided: set_target(position), get_state()
+- Required: get_current_position() from ADC IF; drive_motor(target) from Motor Driver IF; notify_LED(status)
+
+### 6. Error Handling
+- If ADC invalid or out-of-range, invokes Error Handling unit
+- Ignores new commands until prior sequence complete or error cleared
+
+### 7. Resource & Timing Considerations
+- No dynamic allocation; all control variables static
+- Not re-entrant, single-command active at a time
+- Typical WCET per event: <2 ms
+
+### 8. Traceability
+- SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-025, SWE-REQ-024, SWE-REQ-028, SWE-REQ-029, SWE-REQ-031
+
+----
+
+## 3. Software Unit: Motor Driver Interface
+
+### 1. Responsibilities
+- Handles: Drive DC motor (via MCU IO/PWM) to move flap; issue stop/drive/hold logic as control requests
+- Does not handle: High-level positioning logic or error analysis
+
+### 2. Internal Data Design
+- Static variables: command queue (max size 1–2), motor enable/disable state, current drive direction
+- Static config: motor PWM params, IO pin mapping
+
+### 3. State Machine
+- States: IDLE, DRIVING, STOPPED
+- Events: drive request, stop command, fault/event
+
+### 4. Algorithms & Control Flow
+- On drive_motor(target):
+    - Set direction and PWM according to Position Control's directive
+    - Assert/clear drive/stops via IO
+    - On stop: clear enables, set STOPPED
+
+### 5. Interfaces (APIs)
+- Provided: drive_motor(position), stop_motor()
+- Required: GPIO/PWM control access, position/stop from Position Control
+- Error: Reports hardware error up to Error Handler only
+
+### 6. Error Handling
+- On hardware error/disconnect, set STOPPED; invokes Error Handling unit
+- On out-of-range request, ignores
+
+### 7. Resource & Timing Considerations
+- All config static; no dynamic variable use
+- Not re-entrant, sequential commands
+- WCET per drive: <1 ms (API call), actuation time is physical
+
+### 8. Traceability
+- SWE-REQ-008, SWE-REQ-009, SWE-REQ-019, SWE-REQ-037, SWE-REQ-038
+
+----
+
+## 4. Software Unit: ADC Interface
+
+### 1. Responsibilities
+- Handles: Poll or receive command to sample analog flap position sensor and return mapped logical position
+- Does not handle: Mechanical/physical sensor analysis
+
+### 2. Internal Data Design
+- Static variable: last ADC result, last logical position
+- Static config: table (ADC-value <-> logical position), valid range min/max
+
+### 3. State Machine
+- States: IDLE, SAMPLING, NEW_SAMPLE
+- Events: sample request, complete, out-of-range detected
+
+### 4. Algorithms & Control Flow
+- On request:
+    - Start ADC conversion, store result
+    - Map result to logical position/bin/static table
+    - Mark new sample available
+    - If out-of-range, flag error
+
+### 5. Interfaces (APIs)
+- Provided: get_current_position(), is_valid()
+- Required: ADC peripheral access, config
+
+### 6. Error Handling
+- On out-of-range result: set error, inform Error Handler
+
+### 7. Resource & Timing Considerations
+- Static only, no allocation
+- Not re-entrant, sample-on-request or periodic
+- WCET per sample: <0.5ms (excl. ADC HW latency)
+
+### 8. Traceability
+- SWE-REQ-011, SWE-REQ-012, SWE-REQ-013, SWE-REQ-018, SWE-REQ-029, SWE-REQ-031
+
+----
+
+## 5. Software Unit: LED Status Indicator
+
+### 1. Responsibilities
+- Handles: Updates system status and position LEDs on state/command events
+- Does not handle: Any logic except direct LED mapping
+
+### 2. Internal Data Design
+- Static bitmap/variable per LED (power/state/position)
+- Static pin mapping config
+
+### 3. State Machine
+- States: IDLE, UPDATE_REQUIRED, DISPLAYING
+- Events: power-on, movement, completed
+
+### 4. Algorithms & Control Flow
+- On notify_LED(status):
+    - Update LED bitmap/state per flap position
+    - Write to GPIO outputs for new pattern
+    - Only one position LED enabled; power always on if powered
+
+### 5. Interfaces (APIs)
+- Provided: notify_LED(state)
+- Required: GPIO output access, pin config
+
+### 6. Error Handling
+- On illegal state/input, set all LEDs to error-indication pattern (defined in config)
+
+### 7. Resource & Timing Considerations
+- All data static, single bitmap per change
+- Not re-entrant, event-driven
+- WCET: <0.1ms
+
+### 8. Traceability
+- SWE-REQ-014, SWE-REQ-015, SWE-REQ-016, SWE-REQ-020, SWE-REQ-029
+
+----
+
+## 6. Software Unit: Error Handling
+
+### 1. Responsibilities
+- Handles: Detects errors (ADC out-of-range, invalid command, hardware/logic failures); forces system into known-safe idle, clears requests
+- Does not handle: Recovery/auto-retry or escalation beyond halting system
+
+### 2. Internal Data Design
+- Static variables: error flag/status
+- Static signature for last detected error code
+
+### 3. State Machine
+- States: NORMAL, FAULT
+- Events: error detected, error clear
+
+### 4. Algorithms & Control Flow
+- On error detected:
+    - Set error state, clear command/action requests
+    - Notify affected units (LEDs -> error pattern; Driver -> STOPPED)
+    - Block further movement/commands until clear
+
+### 5. Interfaces (APIs)
+- Provided: report_error(code), get_error_status()
+- Required: interfaces to all units (state, error notification)
+
+### 6. Error Handling
+- Only one level: on first error, transitions to FAULT, disables all actuators
+- No retries; must be cleared by system reset or other (not in scope)
+
+### 7. Resource & Timing Considerations
+- All static data; never re-entrant
+- Invoked by error event from any unit
+- WCET per error: <0.5ms
+
+### 8. Traceability
+- SWE-REQ-013, SWE-REQ-026, SWE-REQ-027, SWE-REQ-032, SWE-REQ-033, SWE-REQ-034
+
+----
+
+# End of SWE.3 HVAC Flap LLD
+
+*Created for branch aprildemo-17b, matching architecture and SWE.1 requirements exactly.*
