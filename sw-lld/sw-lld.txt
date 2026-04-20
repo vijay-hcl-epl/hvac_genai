@@ -1,0 +1,272 @@
+# HVAC Flap Actuator: Software Low-Level Design (SWE.3)
+_Target: MISRA-style Embedded C (No Dynamic Memory)_
+
+---
+
+## Software Unit: Command Handler Unit
+
+1. **Responsibilities**
+   - Handles: Parsing/validating UART input commands ('0'-'5'), rejects invalids, delivers valid single command tokens to Flap Control.
+   - Does not handle: Command queuing/multiple in-flight commands, UART driver-level, error signaling to network.
+
+2. **Internal Data Design**
+   - Variables: `pending_command` (uint8, 0–5 or INVALID), `command_ready` (bool), `parse_fail_count` (uint8)
+   - Config: None (uses read-only references to config/calibration data for bounds)
+   - State: Ready, CommandParsed, Invalid
+
+3. **State Machine**
+   - States: WaitingForChar → CommandParsed (valid) → WaitingForChar; WaitingForChar → InvalidReceived → WaitingForChar
+   - Events: UART RX event with ASCII [0–5], any other input.
+   - Transitions: On ASCII [0–5] and `command_ready` false, set `pending_command`, set `command_ready` true; on invalid, set state InvalidReceived, increment `parse_fail_count`.
+
+4. **Algorithms & Control Flow**
+   ```
+   Upon UART RX:
+     if received_char in ['0'-'5'] and not command_ready:
+         pending_command = received_char - '0'
+         command_ready = true
+     else:
+         ignore input (increment parse_fail_count)
+         do not alert or notify user/network
+   ```
+
+5. **Interfaces (APIs)**
+   - Provided: `get_next_command(void)` → returns int (0–5 or INVALID); `is_command_ready(void)` → bool
+   - Required: `uart_rx_handler(uint8_t byte_in)`
+   - Error reporting: Notifies "invalid" by silent discard; no explicit error API.
+
+6. **Error Handling**
+   - Ignores invalid/duplicate input, maintains internal fail counter for audit purposes only (not exposed).
+   - Never writes error codes or asserts.
+
+7. **Resource & Timing Considerations**
+   - Invoked synchronously via UART RX callback.
+   - WCET: << typical UART interrupt handler (~4μs/call)
+   - Re-entrancy: Not re-entrant; not called from multiple contexts.
+
+8. **Traceability**
+   - SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-004, SWE-REQ-038
+
+---
+
+## Software Unit: Flap Control Unit
+
+1. **Responsibilities**
+   - Handles: Receiving/validating single user commands, sequencing movement, flap state logic (idle/busy), interface to Motor Control, ingest position feedback.
+   - Does not handle: ADC sampling, actual PWM/motor signaling, error indication.
+
+2. **Internal Data Design**
+   - Variables: `flap_state` (enum: Idle, Moving, Error), `target_position`, `current_position`, `move_pending` (bool)
+   - Config/state: References mapping threshold table (from config unit)
+   - State: None (uses explicit state variable: see below)
+
+3. **State Machine**
+   - States: Idle, Moving, ActuationComplete, Error
+   - Events: CommandReady, FeedbackUpdate, MovementDone, ErrorDetected
+   - Transitions: 
+     - Idle + CommandReady → Moving (set target, enable movement)
+     - Moving + FeedbackUpdate (ADC OK, at target) → ActuationComplete
+     - Moving + FeedbackUpdate (ADC error) → Error
+     - Error → Idle (on reset)
+
+4. **Algorithms & Control Flow**
+   ```
+   On command:
+      if current_position != target_position:
+          send move request to Motor Control
+          set `flap_state` = Moving
+      else:
+          no action
+   On feedback:
+      if ADC error:
+          set flap_state = Error
+      elif current_position == target:
+          send stop to Motor Control, notify LED Indication
+          set flap_state = Idle
+   On MovementDone:
+      set flap_state = Idle
+   ```
+
+5. **Interfaces (APIs)**
+   - Provided: `request_flap_move(uint8_t pos)` (callable from Command Handler)
+   - Required: `feedback_update(uint8_t sensed_pos, errorflag)`
+   - Error reporting: Signals to LED Indication if error occurs
+
+6. **Error Handling**
+   - Transition to Error if ADC error or out-of-bounds.
+   - Movement requests when in Error/Moving state are ignored.
+
+7. **Resource & Timing Considerations**
+   - Triggered by event (command parsed, feedback update)
+   - WCET: Dominated by interface signaling (<5μs/event)
+   - Not re-entrant
+
+8. **Traceability**
+   - SWE-REQ-004, SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-008, SWE-REQ-009, SWE-REQ-017, SWE-REQ-018
+
+---
+
+## Software Unit: Motor Control Unit
+
+1. **Responsibilities**
+   - Handles: Converts movement requests into motor direction, PWM, enable/disable, enforces limits.
+   - Does not handle: Actual HW register writes, feedback sampling.
+
+2. **Internal Data Design**
+   - Variables: `motor_state` (enum: Idle, Running, Stopped), `current_pwm`, `direction`
+   - Config: Max speed/limit from config/calibration
+   - State: None (explicit state tracker)
+
+3. **State Machine**
+   - States: Idle, Running
+   - Events: MoveRequest, StopRequest
+   - Transitions: Idle → Running (on move request), Running → Idle (on stop)
+
+4. **Algorithms & Control Flow**
+   ```
+   On MoveRequest:
+     set GPIO direction (fwd/rev)
+     set PWM = config_max (if > config, clip)
+     enable output
+     set state = Running
+   On StopRequest:
+     set PWM = 0, disable output
+     set state = Idle
+   ```
+
+5. **Interfaces (APIs)**
+   - Provided: `start_motor(direction, pwm)`, `stop_motor()`
+   - Required: Config data access, called by Flap Control only
+   - Error reporting: None
+
+6. **Error Handling**
+   - If called with invalid params, holds state, does not actuate
+   - No diagnostics/retry
+
+7. **Resource & Timing Considerations**
+   - Invoked only from Flap Control
+   - WCET: Immediate (<5μs)
+   - Not re-entrant
+
+8. **Traceability**
+   - SWE-REQ-010, SWE-REQ-011, SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-035, SWE-REQ-042, SWE-REQ-043
+
+---
+
+## Software Unit: Feedback Acquisition & Processing Unit
+
+1. **Responsibilities**
+   - Handles: ADC read, logical mapping, bounds/range checks, error signal.
+   - Does not handle: Triggering sampling cycle.
+
+2. **Internal Data Design**
+   - Variables: `raw_adc_value` (uint16), `mapped_position` (uint8, 0–5), `valid_flag`
+   - Config: Mapping threshold table (read only)
+   - State: None
+
+3. **State Machine**
+   - None; flow driven by periodic or event invocation
+
+4. **Algorithms & Control Flow**
+   ```
+   On feedback request:
+     read ADC channel (provided)
+     map to logical position via threshold table
+     if out-of-range:
+         set valid_flag = false
+         notify Flap Control (error)
+     else:
+         set valid_flag = true
+         output logical position
+   ```
+
+5. **Interfaces (APIs)**
+   - Provided: `get_feedback()` → logical position, valid_flag
+   - Required: ADC read interface, config data
+   - Error reporting: Notifies Flap Control
+
+6. **Error Handling**
+   - Invalid or out-of-bounds ADC triggers error notification upstream
+
+7. **Resource & Timing Considerations**
+   - Invoked as needed (not periodic)
+   - WCET: ~3μs (nominal)
+   - Not re-entrant
+
+8. **Traceability**
+   - SWE-REQ-015, SWE-REQ-016, SWE-REQ-017, SWE-REQ-018, SWE-REQ-037
+
+---
+
+## Software Unit: LED Indication Unit
+
+1. **Responsibilities**
+   - Handles: Drives status/position LEDs, ensures exclusivity/clearing, error indication.
+   - Does not handle: Timing/sequencing, data acquisition.
+
+2. **Internal Data Design**
+   - Variables: `led_state[]` (array: 6 positions + 1 status, bool)
+   - Config: None
+   - State: None
+
+3. **State Machine**
+   - None (stateless; direct-output design)
+
+4. **Algorithms & Control Flow**
+   ```
+   On new position:
+     turn off all position LEDs
+     set on only the selected (single) position
+   On error:
+     turn off all LEDs except error/status indicator
+   ```
+
+5. **Interfaces (APIs)**
+   - Provided: `update_position_led(uint8_t pos)`, `set_error_led()`, `set_status_led(on/off)`
+   - Required: Called from Flap Control, Feedback Acquisition
+   - Error reporting: Sets LED to error-indication pattern only
+
+6. **Error Handling**
+   - Ensures all LEDs cleared in error
+   - No diagnostics propagated upstream
+
+7. **Resource & Timing Considerations**
+   - Sets GPIO
+   - WCET: <<1μs
+   - Not re-entrant
+
+8. **Traceability**
+   - SWE-REQ-019, SWE-REQ-020, SWE-REQ-021, SWE-REQ-022, SWE-REQ-034, SWE-REQ-033
+
+---
+
+## Software Unit: Configuration & Calibration Unit
+
+1. **Responsibilities**
+   - Handles: Provides static, read-only config/calibration data for mapping thresholds, limits.
+   - Does not handle: Writing, user config, in-field update.
+
+2. **Internal Data Design**
+   - Variables: Const data structs—position thresholds[6], max_pwm, etc.
+   - State: None (read-only data table)
+
+3. **State Machine**
+   - State: none (read-only)
+
+4. **Algorithms & Control Flow**
+   - None (data-only)
+
+5. **Interfaces (APIs)**
+   - Provided: `get_config_param(id)`, direct struct read access
+   - Required: None
+   - Error reporting: None
+
+6. **Error Handling**
+   - If invalid request, default to safe fallback value
+
+7. **Resource & Timing Considerations**
+   - Read access only, zero runtime cost
+   - Not re-entrant (not required)
+
+8. **Traceability**
+   - SWE-REQ-034, SWE-REQ-035, SWE-REQ-036, SWE-REQ-042, SWE-REQ-043, SWE-REQ-044
