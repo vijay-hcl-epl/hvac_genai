@@ -1,0 +1,227 @@
+###### FILE: code/inc/command_handler.h ######
+#ifndef COMMAND_HANDLER_H
+#define COMMAND_HANDLER_H
+#include <stdint.h>
+#include <stdbool.h>
+
+void uart_rx_handler(uint8_t byte_in);
+int get_next_command(void);
+bool is_command_ready(void);
+
+#endif // COMMAND_HANDLER_H
+###### END FILE ######
+###### FILE: code/src/command_handler.c ######
+#include "command_handler.h"
+#include "config_calib.h"
+#define INVALID_CMD 255
+static uint8_t pending_command = INVALID_CMD;
+static bool command_ready = false;
+static uint8_t parse_fail_count = 0;
+void uart_rx_handler(uint8_t byte_in) {
+    if (byte_in >= '0' && byte_in <= '5' && !command_ready) {
+        pending_command = byte_in - '0';
+        command_ready = true;
+    } else {
+        parse_fail_count++;
+    }
+}
+int get_next_command(void) {
+    if (command_ready) {
+        command_ready = false;
+        uint8_t cmd = pending_command;
+        pending_command = INVALID_CMD;
+        return cmd;
+    }
+    return INVALID_CMD;
+}
+bool is_command_ready(void) {
+    return command_ready;
+}
+###### END FILE ######
+###### FILE: code/inc/flap_control.h ######
+#ifndef FLAP_CONTROL_H
+#define FLAP_CONTROL_H
+#include <stdint.h>
+#include <stdbool.h>
+
+typedef enum {
+    FLAP_IDLE = 0,
+    FLAP_MOVING,
+    FLAP_ERROR
+} flap_state_t;
+
+void request_flap_move(uint8_t pos);
+void feedback_update(uint8_t sensed_pos, bool errorflag);
+
+#endif // FLAP_CONTROL_H
+###### END FILE ######
+###### FILE: code/src/flap_control.c ######
+#include "flap_control.h"
+#include "motor_control.h"
+#include "led_indication.h"
+#include "config_calib.h"
+static flap_state_t flap_state = FLAP_IDLE;
+static uint8_t target_position = 0;
+static uint8_t current_position = 0;
+static bool move_pending = false;
+void request_flap_move(uint8_t pos) {
+    if (flap_state != FLAP_IDLE) return;
+    target_position = pos;
+    if (current_position != target_position) {
+        start_motor((target_position > current_position)?1:0, get_config_param(MAX_PWM_ID));
+        flap_state = FLAP_MOVING;
+        move_pending = true;
+    }
+}
+void feedback_update(uint8_t sensed_pos, bool errorflag) {
+    if (errorflag) {
+        flap_state = FLAP_ERROR;
+        set_error_led();
+        stop_motor();
+        move_pending = false;
+        return;
+    }
+    current_position = sensed_pos;
+    if (flap_state == FLAP_MOVING) {
+        if (current_position == target_position) {
+            stop_motor();
+            flap_state = FLAP_IDLE;
+            update_position_led(current_position);
+            move_pending = false;
+        }
+    }
+}
+###### END FILE ######
+###### FILE: code/inc/motor_control.h ######
+#ifndef MOTOR_CONTROL_H
+#define MOTOR_CONTROL_H
+#include <stdint.h>
+void start_motor(uint8_t direction, uint16_t pwm);
+void stop_motor(void);
+#endif // MOTOR_CONTROL_H
+###### END FILE ######
+###### FILE: code/src/motor_control.c ######
+#include "motor_control.h"
+#include "config_calib.h"
+#define GPIO_FORWARD 0
+#define GPIO_REVERSE 1
+static uint8_t motor_state = 0;
+static uint8_t direction = 0;
+static uint16_t current_pwm = 0;
+void start_motor(uint8_t dir, uint16_t pwm) {
+    // Apply bounds check
+    if (pwm > get_config_param(MAX_PWM_ID)) {
+        pwm = get_config_param(MAX_PWM_ID);
+    }
+    direction = dir;
+    current_pwm = pwm;
+    // TODO: Set GPIOs for direction, PWM register
+    motor_state = 1;
+}
+void stop_motor(void) {
+    // TODO: Set PWM to 0, disable output
+    motor_state = 0;
+    current_pwm = 0;
+}
+###### END FILE ######
+###### FILE: code/inc/feedback_acq.h ######
+#ifndef FEEDBACK_ACQ_H
+#define FEEDBACK_ACQ_H
+#include <stdint.h>
+#include <stdbool.h>
+void update_feedback(void);
+uint8_t get_feedback(void);
+bool is_feedback_valid(void);
+#endif // FEEDBACK_ACQ_H
+###### END FILE ######
+###### FILE: code/src/feedback_acq.c ######
+#include "feedback_acq.h"
+#include "config_calib.h"
+#include "flap_control.h"
+static uint16_t raw_adc_value = 0;
+static uint8_t mapped_position = 0;
+static bool valid_flag = true;
+void update_feedback(void) {
+    // TODO: Implement ADC read
+    int adc = 0; //mocked
+    raw_adc_value = adc;
+    //Threshold mapping
+    for (int i=0;i<6;i++) {
+        if (adc < get_config_param(THRESH_0_ID+i)) {
+            mapped_position = i;
+            valid_flag = true;
+            feedback_update(mapped_position, false);
+            return;
+        }
+    }
+    valid_flag = false;
+    feedback_update(0, true);
+}
+uint8_t get_feedback(void) { return mapped_position; }
+bool is_feedback_valid(void) { return valid_flag; }
+###### END FILE ######
+###### FILE: code/inc/led_indication.h ######
+#ifndef LED_INDICATION_H
+#define LED_INDICATION_H
+#include <stdint.h>
+#include <stdbool.h>
+void update_position_led(uint8_t pos);
+void set_error_led(void);
+void set_status_led(bool on);
+#endif // LED_INDICATION_H
+###### END FILE ######
+###### FILE: code/src/led_indication.c ######
+#include "led_indication.h"
+void update_position_led(uint8_t pos) {
+    // TODO: Turn off all position LEDs; set specified
+}
+void set_error_led(void) {
+    // TODO: Implement error LED behaviour
+}
+void set_status_led(bool on) {
+    // TODO: Implement status LED control
+}
+###### END FILE ######
+###### FILE: code/inc/config_calib.h ######
+#ifndef CONFIG_CALIB_H
+#define CONFIG_CALIB_H
+#include <stdint.h>
+#define MAX_PWM_ID  6
+#define THRESH_0_ID 10
+uint16_t get_config_param(uint8_t id);
+#endif // CONFIG_CALIB_H
+###### END FILE ######
+###### FILE: code/src/config_calib.c ######
+#include "config_calib.h"
+static const uint16_t position_thresholds[6] = {200, 400, 600, 800, 1000, 4095};
+static const uint16_t max_pwm = 950;
+uint16_t get_config_param(uint8_t id) {
+    if (id == MAX_PWM_ID) return max_pwm;
+    if (id >= THRESH_0_ID && id < THRESH_0_ID+6) return position_thresholds[id-THRESH_0_ID];
+    return 0; // default safe
+}
+###### END FILE ######
+###### FILE: code/src/main.c ######
+#include "command_handler.h"
+#include "flap_control.h"
+#include "feedback_acq.h"
+#include "led_indication.h"
+#include "motor_control.h"
+#include "config_calib.h"
+int main(void) {
+    set_status_led(true);
+    update_feedback();
+    update_position_led(get_feedback());
+    while (1) {
+        if (is_command_ready()) {
+            int cmd = get_next_command();
+            if (cmd >= 0 && cmd <= 5) {
+                request_flap_move((uint8_t)cmd);
+            }
+        }
+        update_feedback();
+        // Add delay or low-power idle here
+    }
+    return 0;
+}
+###### END FILE ######
