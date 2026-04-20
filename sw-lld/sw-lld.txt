@@ -1,0 +1,226 @@
+==============================
+SWE.3 — Software Low Level Design (HVAC Flap Actuator)
+==============================
+References:
+- Architecture: sw-arch/sw-arch.txt (SHA: a8a2ebc)
+- Software Requirements: sw-reqs/sw-reqs.txt (SHA: a8a2ebc)
+- Branch: Vestas_demo_22Apr (SHA: a8a2ebc314eefbeeb568498a470a8125800d4fe2)
+
+----- BEGIN LOW LEVEL DESIGN -----
+
+====================
+Software Unit: UART Command Handler
+====================
+
+1. Responsibilities
+   - Handles receiving, parsing, and validation of UART commands.
+   - Forwards valid commands to Flap Control Logic.
+   - Ignores/filters any invalid/duplicate input.
+
+2. Internal Data Design
+   - Input receive buffer (fixed length)
+   - Parsed command variable
+   - State: Idle, AwaitCommand, CommandReceived, CommandInvalid.
+   - Config constants (command bounds: 0–5, ASCII parsing chars)
+
+3. State Machine
+   - States: Idle → AwaitCommand → CommandReceived (if valid)/CommandInvalid (if invalid) → Idle
+   - Idle: Wait for data. On RX event: AwaitCommand. Validate chars: parse to int, check range, ignore if invalid.
+   - CommandReceived: Latch parsed value, forward, reset buffer, transition back to Idle.
+   - CommandInvalid: Reset buffer, transition to Idle.
+
+4. Algorithms & Control Flow
+   - On RX: Store char to buffer if buffer not full.
+   - On term/CR: Parse buffer digits to integer. If outside [0–5], mark invalid; else, mark valid.
+   - Forward valid int to Flap Control Logic only if not busy.
+   - Discard/ignore input on overflow, invalid chars, or out-of-bounds value.
+
+5. Interfaces
+   - Provided: Valid command (int), status (bool).
+   - Required: UART RX API; system busy flag from Flap Control Logic.
+   - Error: Returns false on parse/validation failures.
+
+6. Error Handling
+   - Ignores malformed UART frames, out-of-bounds value, or busy logic (no response).
+   - No NACK/echo per SWE-REQ-004.
+
+7. Resource & Timing
+   - Invoked on RX event or polling loop.
+   - WCET: <<1ms/command typical.
+   - Non-reentrant by design; no concurrency.
+
+8. Traceability
+   - SWE-REQ-001,002,003,004,019,032
+
+====================
+Software Unit: Flap Control Logic
+====================
+
+1. Responsibilities
+   - Main decision process: receive commands, determine move, error cases, drive state.
+
+2. Internal Data Design
+   - Current position (int), target position (int).
+   - Move pending (flag), error state (flag).
+   - State: Idle, Moving, Error.
+
+3. State Machine
+   - Idle: Wait for valid command. Transition to Moving if command received.
+   - Moving: Issue drive commands until feedback equals target or Error.
+   - Error: If feedback/ADC is invalid, remain until cleared.
+
+4. Algorithms & Control Flow
+   - On command: If target ≠ current & valid, set move pending.
+   - Await position feedback; if reached or error, clear move pending.
+   - On error, set error flag; stall further commands.
+
+5. Interfaces
+   - Provided: Drive request (to Motor Control), position indicator (to LED Handler).
+   - Required: Command (from Handler), position/validity (from Feedback), error status.
+   - Error: Notifies error on invalid command or ADC status.
+
+6. Error Handling
+   - Prevents drive outside bounds. Locks state on feedback/command error. All recovery is manual (reset or new valid command).
+
+7. Resource & Timing
+   - Event-driven; executes per complete command cycle only. WCET per action: <<5ms.
+   - No re-entrancy issues (no concurrency).
+
+8. Traceability
+   - SWE-REQ-005,006,007,008,026,027,028
+
+====================
+Software Unit: Position Feedback
+====================
+
+1. Responsibilities
+   - ADC sampling, mapping, and reporting of flap position.
+
+2. Internal Data Design
+   - ADC raw buffer; mapped position int; validity flag.
+   - Mapping tables/constants (in flash/ROM).
+   - State: Valid, Invalid.
+
+3. State Machine
+   - Periodic/sample event:
+     - Sample ADC. If value within a mapped window, set Valid.
+     - Else, set Invalid.
+
+4. Algorithms & Control Flow
+   - On sample: Read ADC, compare against mapping table, output logical position/code.
+
+5. Interfaces
+   - Provided: Current position (int), validity (bool) to Flap Logic/LED Handler.
+   - Required: ADC API, configuration data.
+   - Error: Outputs invalid status if unmapped.
+
+6. Error Handling
+   - On out-of-range, disables movement and forces LEDs off.
+
+7. Resource & Timing
+   - Invoked at set interval (hardware/logic driven), <<1ms sample time.
+   - No re-entrancy (buffer static per sample).
+
+8. Traceability
+   - SWE-REQ-013,014,015,029,030,031
+
+====================
+Software Unit: Motor Control
+====================
+
+1. Responsibilities
+   - Drive H-bridge/pins per requests; apply shoot-through and bounds logic.
+
+2. Internal Data Design
+   - Direction and enable bits; output register data.
+   - Last command state; error flag.
+
+3. State Machine
+   - Actuated only per move/end request. States: MotorOff, MotorOn, Error.
+
+4. Algorithms & Control Flow
+   - On enable: Set pins for direction/enable, check shoot-through safety first.
+   - On stop: Reset/disable all out pins.
+
+5. Interfaces
+   - Provided: Output pins/motor signals.
+   - Required: GPIO/PWM API, Flap Logic reqs.
+   - Error: Returns error if both directions requested, disables all pins.
+
+6. Error Handling
+   - On shoot-through or logic error, disables output and flags error.
+
+7. Resource & Timing
+   - Only runs on move/start/end, <<1ms per action.
+   - Not re-entrant; all outputs are atomic actions.
+
+8. Traceability
+   - SWE-REQ-009,010,011,012,021,025,027,034
+
+====================
+Software Unit: LED Handler
+====================
+
+1. Responsibilities
+   - Reflects flap/system status and position via LEDs.
+
+2. Internal Data Design
+   - Indicator states per position; error/invalid state output.
+   - Output pins assigned from config.
+
+3. State Machine
+   - On status/feedback update:
+      - Illuminate only correct LED for position; else, all off if invalid/error.
+
+4. Algorithms & Control Flow
+   - On valid position: turn on corresponding LED, turn all others off.
+   - On error/invalid: turn all LEDs off.
+
+5. Interfaces
+   - Provided: Output LED drive per status/position.
+   - Required: GPIO API, Flap Logic, Position Feedback.
+   - Error: Forces all off if error or commanded so.
+
+6. Error Handling
+   - Forces all LEDs off on any status/feedback error.
+
+7. Resource & Timing
+   - Runs per state/feedback/event. Update: <<1ms typical.
+   - No concurrency or re-entrancy required.
+
+8. Traceability
+   - SWE-REQ-016,017,018,022,024,028
+
+====================
+Software Unit: Configuration/Data Store
+====================
+
+1. Responsibilities
+   - Store read-only mapping/calib constants for runtime use by all modules.
+
+2. Internal Data Design
+   - Const table of ADC-to-position mapping; calibration values; pin assignments; bounds.
+
+3. State Machine
+   - None: Pure read-only data store.
+
+4. Algorithms & Control Flow
+   - None (no logic or mutable state).
+
+5. Interfaces
+   - Provided: Const access functions/macros.
+   - Required: All consuming units (read-only only).
+
+6. Error Handling
+   - Not applicable (ROM).
+
+7. Resource & Timing
+   - Accessed by index/lookup only.
+   - Zero dynamic memory, zero processing time per access.
+
+8. Traceability
+   - SWE-REQ-029,030,034,035
+
+==============================
+END OF LOW LEVEL DESIGN (SWE.3)
+==============================
