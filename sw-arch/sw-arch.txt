@@ -1,0 +1,77 @@
+# HVAC Flap Actuator: Software Architecture
+
+## 1. Candidate Architecture Styles
+
+**Layered**: Segregates hardware abstraction, application logic, and interface handling. 
+**Component-Based**: Decomposes functionalities into independent, testable modules/interacting components.
+**Monolithic**: Implements all software logic within a single block or routine.
+
+| Style             | Complexity    | HW Interaction | Testability  | Maintainability | ASPICE L3        |
+|-------------------|--------------|---------------|--------------|----------------|------------------|
+| Layered           | Medium       | Clear         | High         | High           | Strong alignment |
+| Component-Based   | Low/Medium   | Clear         | High         | High           | Strong alignment |
+| Monolithic        | Low          | Direct        | Low/Medium   | Poor           | Weak             |
+
+**Evaluation Outcome:**
+  - All styles can realize requirements, but only Layered and Component-Based styles support explicit separation/testability per SWE-REQ-051 ("organize functionalities ... into separate, testable units").
+  - Monolithic is rejected: testability, maintainability, modularity, and ASPICE expectations (traceable, separated units) are not met.
+  - **Selected: Component-Based (logical software units, clearly separated responsibilities)** — most directly supports requirements (SWE-REQ-051, SWE-REQ-034, SWE-REQ-035).
+
+## 2. Software Architecture Definition
+
+### 2.1 Logical Units & Responsibilities
+
+1. **Command Handler Unit**
+   - Parses and validates UART input commands (SWE-REQ-001, SWE-REQ-002)
+   - Rejects/ignores invalid commands (SWE-REQ-003, SWE-REQ-009, SWE-REQ-038)
+2. **Flap Control Unit**
+   - Supervises command-to-actuation flow (SWE-REQ-004, SWE-REQ-005, SWE-REQ-006, SWE-REQ-007, SWE-REQ-008, SWE-REQ-009)
+   - Ensures single-command-at-a-time, controls actuation/hold logic
+3. **Motor Control Unit**
+   - Issues direction, PWM, enable signals (SWE-REQ-010, SWE-REQ-011, SWE-REQ-012, SWE-REQ-013)
+   - Implements idle/active transitions, motor limit logic
+4. **Feedback Acquisition & Processing Unit**
+   - Reads ADC channel, maps data to logical flap position (SWE-REQ-015, SWE-REQ-016)
+   - Applies bounds checking, issues out-of-range logic (SWE-REQ-017, SWE-REQ-018, SWE-REQ-037)
+5. **LED Indication Unit**
+   - Drives status LED (SWE-REQ-019, SWE-REQ-020, SWE-REQ-021, SWE-REQ-022)
+6. **Configuration & Calibration Unit**
+   - Holds calibration, speed, and mapping constants (SWE-REQ-034, SWE-REQ-035, SWE-REQ-036)
+
+### 2.2 Interfaces
+- **UART Rx Handler** (input to Command Handler)
+- **Flap movement command signals** from Command Handler to Flap Control
+- **Motor driver commands** from Flap Control to Motor Control (direction, PWM, enable)
+- **Position feedback** from Feedback Acquisition to Flap Control
+- **Status indications** from Flap Control to LEDs
+- **Configuration access** (read-only) by units that need static/calibration data
+
+### 2.3 Execution Model
+"No explicit execution model or scheduling policy is mandated by the requirements at this stage."
+
+## 3. Text-Based Architecture Diagram
+
+UART_RX  →  [ Command Handler ] ──┐
+                                 v
+                 [ Flap Control Unit ]  <─  [ Feedback Acquisition & Processing ]
+                                 |
+      ┌─────────────┐            v
+      |             |     [ Motor Control Unit ]────┐
+      |             |                               |
+      |             └─────→ [ LED Indication Unit ]─┘
+      v
+[ Configuration & Calibration Unit ]  (read-only)
+
+## 4. Architecture Table Summary
+
+| Software Unit                  | Responsibilities                                                | Interfaces Provided          | Interfaces Used               |
+|-------------------------------|----------------------------------------------------------------|-----------------------------|-------------------------------|
+| Command Handler Unit           | Parse UART, validate, ignore/queue commands                    | Command signal               | UART Rx, config               |
+| Flap Control Unit              | Manage flap actuation, sequence, status, single command logic  | Control signals, status      | Command Handler, Feedback, Motor, LED, config |
+| Motor Control Unit             | PWM, direction, idle/enable transitions                        | Motor driver output          | Flap Control, config          |
+| Feedback Acquisition & Proc.   | ADC read, pos mapping, bounds checking                         | Feedback value, error        | ADC, config                   |
+| LED Indication Unit            | Drive/refresh status and flap position LEDs                    | LED outputs                  | Flap Control, config          |
+| Config & Calibration Unit      | Hold calibration, thresholds, etc. (read-only to others)      | Static/config params         | -                             |
+
+## 5. Traceability Note
+- All decomposition, interface, and unitization decisions map to explicit SWE-REQs (see numbers above); no additional functionality or implicit behavior has been added. No safety, sched, or diagnostics logic is present unless in SWE-REQ-xxx.
