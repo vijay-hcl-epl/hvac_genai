@@ -1,0 +1,185 @@
+###### FILE: code/inc/hw_abstraction.h ######
+#ifndef HW_ABSTRACTION_H
+#define HW_ABSTRACTION_H
+#include <stdint.h>
+#include <stdbool.h>
+
+void hw_init(void);
+uint16_t hw_adc_read(void);
+int hw_uart_read(uint8_t *rx); // Returns number of bytes read, 0 if none
+void hw_uart_write(const uint8_t *tx, int len);
+void hw_gpio_set(uint8_t pin);
+void hw_gpio_clear(uint8_t pin);
+void hw_pwm_set_duty(uint8_t channel, uint8_t percent); // 0-100%
+bool hw_is_initialized(void);
+
+#endif // HW_ABSTRACTION_H
+###### END FILE ######
+###### FILE: code/src/hw_abstraction.c ######
+#include "hw_abstraction.h"
+// Hardware register/config includes as per STM32F4/HAL headers
+void hw_init(void) {
+    // Initialize ADC, UART, GPIO, PWM; set initialized status.
+}
+uint16_t hw_adc_read(void) {
+    // Trigger and return one ADC channel value
+    return 0;
+}
+int hw_uart_read(uint8_t *rx) {
+    // Read byte(s) from UART, store to rx, return count
+    return 0;
+}
+void hw_uart_write(const uint8_t *tx, int len) {
+    // Transmit tx buffer of len bytes over UART
+}
+void hw_gpio_set(uint8_t pin) {
+    // Set specified GPIO pin
+}
+void hw_gpio_clear(uint8_t pin) {
+    // Clear specified GPIO pin
+}
+void hw_pwm_set_duty(uint8_t channel, uint8_t percent) {
+    // Set duty cycle for given channel
+}
+bool hw_is_initialized(void) {
+    // Return TRUE if all peripherals initialized
+    return true;
+}
+###### END FILE ######
+###### FILE: code/inc/flap_control.h ######
+#ifndef FLAP_CONTROL_H
+#define FLAP_CONTROL_H
+#include <stdint.h>
+#include <stdbool.h>
+
+typedef enum {
+    FLAP_IDLE=0,
+    FLAP_MOVING,
+    FLAP_TARGET_REACHED,
+    FLAP_FAULT
+} FlapControlState_t;
+
+void flap_control_init(void);
+void flap_control_set_target(uint8_t pos); // 0–5
+FlapControlState_t flap_control_get_status(void);
+void flap_control_clear_fault(void);
+uint8_t flap_control_get_position(void); // logical position (0-5)
+
+#endif // FLAP_CONTROL_H
+###### END FILE ######
+###### FILE: code/src/flap_control.c ######
+#include "flap_control.h"
+#include "hw_abstraction.h"
+#define FLAP_MIN_POS 0
+#define FLAP_MAX_POS 5
+static uint8_t target_pos = 0;
+static uint8_t current_pos = 0;
+static FlapControlState_t status = FLAP_IDLE;
+static bool adc_fault = false;
+void flap_control_init(void) {
+    target_pos = hw_adc_read();
+    current_pos = target_pos;
+    status = FLAP_IDLE;
+    adc_fault = false;
+}
+void flap_control_set_target(uint8_t pos) {
+    if(pos < FLAP_MIN_POS || pos > FLAP_MAX_POS) return; // ignore
+    target_pos = pos;
+    status = FLAP_MOVING;
+}
+// This should be called periodically
+void flap_control_update(void) {
+    uint16_t adc = hw_adc_read();
+    if(adc < 100 || adc > 4095) {
+        adc_fault = true;
+        status = FLAP_FAULT;
+        hw_pwm_set_duty(0,0); // stop motor
+        return;
+    }
+    current_pos = (adc - 100)/660; // normalize to 0–5
+    if(status == FLAP_MOVING) {
+        if(current_pos == target_pos) {
+            hw_pwm_set_duty(0, 0); // stop motor
+            status = FLAP_TARGET_REACHED;
+        } else {
+            uint8_t duty = 60; // nominal speed
+            hw_pwm_set_duty(0, duty); // move to pos
+        }
+    }
+}
+FlapControlState_t flap_control_get_status(void) {
+    return status;
+}
+void flap_control_clear_fault(void) {
+    adc_fault = false;
+    status = FLAP_IDLE;
+}
+uint8_t flap_control_get_position(void) {
+    return current_pos;
+}
+###### END FILE ######
+###### FILE: code/inc/led_status.h ######
+#ifndef LED_STATUS_H
+#define LED_STATUS_H
+#include <stdint.h>
+void led_status_init(void);
+void led_status_update_position(uint8_t pos); // 0–5
+void led_status_power_on(void);
+#endif // LED_STATUS_H
+###### END FILE ######
+###### FILE: code/src/led_status.c ######
+#include "led_status.h"
+#include "hw_abstraction.h"
+#define STATUS_LED_PIN 0
+static const uint8_t led_map[6] = {1,2,3,4,5,6};
+void led_status_init(void) {
+    hw_gpio_set(STATUS_LED_PIN); // Power/status LED ON
+}
+void led_status_update_position(uint8_t pos) {
+    for(uint8_t i=0;i<6;i++) hw_gpio_clear(led_map[i]);
+    if(pos < 6) hw_gpio_set(led_map[pos]);
+}
+void led_status_power_on(void) {
+    led_status_init();
+}
+###### END FILE ######
+###### FILE: code/inc/user_cmd.h ######
+#ifndef USER_CMD_H
+#define USER_CMD_H
+#include <stdint.h>
+void user_cmd_process_uart(void);
+#endif // USER_CMD_H
+###### END FILE ######
+###### FILE: code/src/user_cmd.c ######
+#include "user_cmd.h"
+#include "hw_abstraction.h"
+#include "flap_control.h"
+void user_cmd_process_uart(void) {
+    uint8_t rx;
+    if(hw_uart_read(&rx) > 0) {
+        if(rx >= '0' && rx <= '5') {
+            flap_control_set_target(rx - '0');
+        }
+    }
+}
+###### END FILE ######
+###### FILE: code/src/main.c ######
+#include "hw_abstraction.h"
+#include "flap_control.h"
+#include "user_cmd.h"
+#include "led_status.h"
+
+int main(void) {
+    hw_init();
+    flap_control_init();
+    led_status_init();
+    while(1) {
+        user_cmd_process_uart();
+        flap_control_update();
+        uint8_t pos = flap_control_get_position();
+        led_status_update_position(pos);
+        // Insert periodic delay as required
+    }
+    return 0;
+}
+###### END FILE ######
