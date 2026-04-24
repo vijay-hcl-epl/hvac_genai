@@ -1,0 +1,275 @@
+###### FILE: code/inc/uart_cmd_handler.h ######
+#ifndef UART_CMD_HANDLER_H
+#define UART_CMD_HANDLER_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#define UART_CMD_MAX_LEN 32
+
+typedef enum {
+    UART_CMD_IDLE,
+    UART_CMD_RECEIVING,
+    UART_CMD_VALIDATING,
+    UART_CMD_ERROR
+} uart_cmd_state_t;
+
+typedef struct {
+    char buffer[UART_CMD_MAX_LEN];
+    int  len;
+    bool valid;
+    int  target_position;
+    int  error_type;
+} uart_cmd_t;
+
+void uart_cmd_init(void);
+void uart_cmd_receive_char(char c);
+bool uart_cmd_issue_command(int* target_position);
+int  uart_cmd_get_last_error(void);
+
+#endif // UART_CMD_HANDLER_H
+###### END FILE ######
+###### FILE: code/inc/position_status_monitor.h ######
+#ifndef POSITION_STATUS_MONITOR_H
+#define POSITION_STATUS_MONITOR_H
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#define POS_VALID_MIN 0
+#define POS_VALID_MAX 100
+
+typedef enum {
+    POS_STATUS_NORMAL,
+    POS_STATUS_OUT_OF_RANGE
+} pos_status_t;
+
+typedef struct {
+    int  last_position;
+    bool out_of_range;
+} position_status_t;
+
+void position_status_init(void);
+int  position_status_get(void);
+pos_status_t position_status_get_status(void);
+void position_status_periodic_task(void);
+
+#endif // POSITION_STATUS_MONITOR_H
+###### END FILE ######
+###### FILE: code/inc/flap_control_logic.h ######
+#ifndef FLAP_CONTROL_LOGIC_H
+#define FLAP_CONTROL_LOGIC_H
+
+#include <stdbool.h>
+
+void flap_control_init(void);
+void flap_control_start_move(int target_pos);
+void flap_control_stop(void);
+bool flap_control_is_safe(void);
+bool flap_control_is_at_target(void);
+bool flap_control_is_fault(void);
+
+#endif // FLAP_CONTROL_LOGIC_H
+###### END FILE ######
+###### FILE: code/inc/led_status_handler.h ######
+#ifndef LED_STATUS_HANDLER_H
+#define LED_STATUS_HANDLER_H
+
+#include <stdbool.h>
+
+void led_status_init(void);
+void led_status_update(int position, bool fault);
+void led_status_error_signal(void);
+
+#endif // LED_STATUS_HANDLER_H
+###### END FILE ######
+###### FILE: code/src/uart_cmd_handler.c ######
+#include "uart_cmd_handler.h"
+#include "flap_control_logic.h"
+#include <string.h>
+
+static uart_cmd_t uart_cmd = { .buffer = {0}, .len = 0, .valid = false, .target_position = 0, .error_type = 0 };
+static uart_cmd_state_t state = UART_CMD_IDLE;
+
+void uart_cmd_init(void) {
+    memset(&uart_cmd, 0, sizeof(uart_cmd));
+    state = UART_CMD_IDLE;
+}
+
+void uart_cmd_receive_char(char c) {
+    if(state == UART_CMD_IDLE) {
+        uart_cmd.len = 0;
+        memset(uart_cmd.buffer, 0, UART_CMD_MAX_LEN);
+        state = UART_CMD_RECEIVING;
+    }
+    if(uart_cmd.len < UART_CMD_MAX_LEN-1) {
+        uart_cmd.buffer[uart_cmd.len++] = c;
+        if(c == '\n') {
+            state = UART_CMD_VALIDATING;
+        }
+    } else {
+        state = UART_CMD_ERROR;
+        uart_cmd.error_type = 1; // buffer overflow
+    }
+}
+
+bool uart_cmd_issue_command(int* target_position) {
+    if(state == UART_CMD_VALIDATING) {
+        // Example: parse number from command string "SET <pos>\n"
+        int pos = -1;
+        if(sscanf(uart_cmd.buffer, "SET %d", &pos) == 1 && pos >= POS_VALID_MIN && pos <= POS_VALID_MAX) {
+            uart_cmd.valid = true;
+            uart_cmd.target_position = pos;
+            *target_position = pos;
+            state = UART_CMD_IDLE;
+            return true;
+        } else {
+            uart_cmd.valid = false;
+            uart_cmd.error_type = 2; // invalid format or out of range
+            state = UART_CMD_ERROR;
+        }
+    }
+    return false;
+}
+
+int uart_cmd_get_last_error(void) {
+    return uart_cmd.error_type;
+}
+###### END FILE ######
+###### FILE: code/src/position_status_monitor.c ######
+#include "position_status_monitor.h"
+#include <stdlib.h>
+
+static position_status_t status = { .last_position = 0, .out_of_range = false };
+
+void position_status_init(void) {
+    status.last_position = 0;
+    status.out_of_range = false;
+}
+
+int position_status_get(void) {
+    return status.last_position;
+}
+
+pos_status_t position_status_get_status(void) {
+    return status.out_of_range ? POS_STATUS_OUT_OF_RANGE : POS_STATUS_NORMAL;
+}
+
+void position_status_periodic_task(void) {
+    // Simulate reading ADC value
+    int adc_sample = rand() % 120; // Simulate some out-of-range readings
+    status.last_position = adc_sample;
+    status.out_of_range = (adc_sample < POS_VALID_MIN || adc_sample > POS_VALID_MAX);
+}
+###### END FILE ######
+###### FILE: code/src/flap_control_logic.c ######
+#include "flap_control_logic.h"
+#include "position_status_monitor.h"
+#include <stdbool.h>
+
+static int last_target = 0;
+static bool moving = false;
+static bool safe_mode = false;
+
+void flap_control_init(void) {
+    moving = false;
+    safe_mode = false;
+    last_target = 0;
+}
+
+void flap_control_start_move(int target_pos) {
+    if(!safe_mode && position_status_get_status() == POS_STATUS_NORMAL) {
+        last_target = target_pos;
+        moving = true;
+        // Start actuation - pseudocode
+        // motor_run_to(last_target);
+    }
+}
+
+void flap_control_stop(void) {
+    moving = false;
+    // Stop motor
+}
+
+bool flap_control_is_safe(void) {
+    return !safe_mode;
+}
+
+bool flap_control_is_at_target(void) {
+    return (position_status_get() == last_target);
+}
+
+bool flap_control_is_fault(void) {
+    if(position_status_get_status() == POS_STATUS_OUT_OF_RANGE) {
+        safe_mode = true;
+        flap_control_stop();
+        return true;
+    }
+    return false;
+}
+###### END FILE ######
+###### FILE: code/src/led_status_handler.c ######
+#include "led_status_handler.h"
+#include <stdio.h>
+
+void led_status_init(void) {
+    // Initialize all LEDs
+}
+
+void led_status_update(int position, bool fault) {
+    // Simulate LED signaling
+    if(fault) {
+        led_status_error_signal();
+        return;
+    }
+    int led_idx = position / 25;
+    printf("LED %d ON (others OFF)\n", led_idx);
+}
+
+void led_status_error_signal(void) {
+    printf("ERROR: LED ERROR SIGNAL\n");
+}
+###### END FILE ######
+###### FILE: code/src/main.c ######
+#include "uart_cmd_handler.h"
+#include "position_status_monitor.h"
+#include "flap_control_logic.h"
+#include "led_status_handler.h"
+#include <stdio.h>
+
+int main(void) {
+    uart_cmd_init();
+    position_status_init();
+    flap_control_init();
+    led_status_init();
+
+    // Simple simulated main loop
+    while (1) {
+        position_status_periodic_task();
+        int position = position_status_get();
+        bool fault = (position_status_get_status() == POS_STATUS_OUT_OF_RANGE);
+        led_status_update(position, fault);
+        if (fault) {
+            flap_control_is_fault();
+        }
+        // Simulate receiving UART
+        // Example: uart_cmd_receive_char('S');
+        //         uart_cmd_receive_char('E');
+        //         uart_cmd_receive_char('T');
+        //         uart_cmd_receive_char(' ');
+        //         uart_cmd_receive_char('9');
+        //         uart_cmd_receive_char('0');
+        //         uart_cmd_receive_char('\n');
+        // int target;
+        // if (uart_cmd_issue_command(&target)) {
+        //     flap_control_start_move(target);
+        // }
+        // if (flap_control_is_at_target()) {
+        //     flap_control_stop();
+        // }
+        break;
+    }
+
+    return 0;
+}
+###### END FILE ######
