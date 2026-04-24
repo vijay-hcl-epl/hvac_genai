@@ -1,0 +1,244 @@
+###### FILE: code/inc/command_interface.h ######
+#ifndef COMMAND_INTERFACE_H
+#define COMMAND_INTERFACE_H
+#include <stdint.h>
+#include <stdbool.h>
+
+// Called to process UART RX event, parse, validate, and send to control.
+void CI_ProcessUartInput(const char *rx_buf, uint8_t len);
+
+// For use by main to initialize the interface.
+void CI_Init(void);
+
+#endif // COMMAND_INTERFACE_H
+###### END FILE ######
+###### FILE: code/src/command_interface.c ######
+#include "command_interface.h"
+#include "position_control.h"
+#include <stdlib.h>
+#include <string.h>
+
+#define FLAP_POS_MIN 0
+#define FLAP_POS_MAX 5
+
+static int ci_last_cmd = -1;
+
+void CI_Init(void) {
+    ci_last_cmd = -1;
+}
+
+// Parse UART RX buffer for a single numeric command.
+void CI_ProcessUartInput(const char *rx_buf, uint8_t len) {
+    if(len==0 || !rx_buf) return;
+    // Accepts 1 or 2 char (position 0-5)
+    char tmp[4] = {0};
+    if (len >= (sizeof(tmp))) return;
+    strncpy(tmp, rx_buf, len);
+    char *endptr;
+    long val = strtol(tmp, &endptr, 10);
+    if (endptr == tmp || *endptr != '\0') return; // not a pure number
+    if (val < FLAP_POS_MIN || val > FLAP_POS_MAX) return;
+    ci_last_cmd = (int)val;
+    PC_NewCommand(ci_last_cmd); // Pass to position control
+}
+###### END FILE ######
+###### FILE: code/inc/position_control.h ######
+#ifndef POSITION_CONTROL_H
+#define POSITION_CONTROL_H
+#include <stdint.h>
+
+void PC_Init(void);
+void PC_NewCommand(int target_position);
+void PC_LoopTask(void); // Called from main loop
+
+#endif // POSITION_CONTROL_H
+###### END FILE ######
+###### FILE: code/src/position_control.c ######
+#include "position_control.h"
+#include "sensing.h"
+#include "hardware_abstraction.h"
+#include <stdbool.h>
+#include <stdint.h>
+
+static int pc_target = -1;
+static bool pc_moving = false;
+
+void PC_Init(void) {
+    pc_target = -1;
+    pc_moving = false;
+}
+
+void PC_NewCommand(int target_position) {
+    pc_target = target_position;
+    pc_moving = true;
+}
+
+void PC_LoopTask(void) {
+    int curr_pos;
+    bool valid = SENS_GetCurrentPosition(&curr_pos);
+    if (!valid) {
+        HA_StopMotor();
+        pc_moving = false;
+        return;
+    }
+    if (!pc_moving || pc_target < 0) return;
+    if (curr_pos == pc_target) {
+        HA_StopMotor();
+        pc_moving = false;
+    } else if (curr_pos < pc_target) {
+        HA_StartMotor(true); // CW
+    } else {
+        HA_StartMotor(false); // CCW
+    }
+}
+###### END FILE ######
+###### FILE: code/inc/sensing.h ######
+#ifndef SENSING_H
+#define SENSING_H
+#include <stdint.h>
+#include <stdbool.h>
+
+void SENS_Init(void);
+bool SENS_GetCurrentPosition(int *out_position);
+void SENS_PeriodicSample(void);
+
+#endif // SENSING_H
+###### END FILE ######
+###### FILE: code/src/sensing.c ######
+#include "sensing.h"
+#include "hardware_abstraction.h"
+#include <stdint.h>
+
+#define FLAP_POS_MIN_ADC 0
+#define FLAP_POS_MAX_ADC 4095
+#define ADC_THRESHOLDS {0, 682, 1364, 2046, 2728, 3410, 4095}
+static const int adc_bounds[7] = ADC_THRESHOLDS;
+#define LOGICAL_POS_COUNT 6
+
+static int latest_pos = -1;
+static bool valid = false;
+
+void SENS_Init(void) {
+    latest_pos = -1;
+    valid = false;
+}
+
+bool SENS_GetCurrentPosition(int *out_position) {
+    if (!valid || out_position == NULL) return false;
+    *out_position = latest_pos;
+    return true;
+}
+
+void SENS_PeriodicSample(void) {
+    int adc_val = HA_SampleADC();
+    valid = false;
+    for (int i = 0; i < LOGICAL_POS_COUNT; ++i) {
+        if (adc_val >= adc_bounds[i] && adc_val <= adc_bounds[i + 1]) {
+            latest_pos = i;
+            valid = true;
+            break;
+        }
+    }
+}
+###### END FILE ######
+###### FILE: code/inc/feedback.h ######
+#ifndef FEEDBACK_H
+#define FEEDBACK_H
+#include <stdint.h>
+
+void FB_Init(void);
+void FB_UpdatePositionLED(int pos);
+void FB_SetPowerLED(int on);
+
+#endif // FEEDBACK_H
+###### END FILE ######
+###### FILE: code/src/feedback.c ######
+#include "feedback.h"
+#include "hardware_abstraction.h"
+
+#define POS_LED_COUNT 6
+static const int pos_led_map[POS_LED_COUNT] = {0, 1, 2, 3, 4, 5}; // abstract indices
+#define POWER_LED_IDX 6
+
+void FB_Init(void) {
+    HA_SetLED(POWER_LED_IDX, 1);
+    FB_UpdatePositionLED(0);
+}
+
+void FB_UpdatePositionLED(int pos) {
+    for (int i = 0; i < POS_LED_COUNT; ++i)
+        HA_SetLED(pos_led_map[i], (i == pos) ? 1 : 0);
+}
+
+void FB_SetPowerLED(int on) {
+    HA_SetLED(POWER_LED_IDX, on ? 1 : 0);
+}
+###### END FILE ######
+###### FILE: code/inc/hardware_abstraction.h ######
+#ifndef HARDWARE_ABSTRACTION_H
+#define HARDWARE_ABSTRACTION_H
+#include <stdint.h>
+#include <stdbool.h>
+
+void HA_Init(void);
+int HA_SampleADC(void);
+void HA_StartMotor(bool clockwise); // true = CW, false = CCW
+void HA_StopMotor(void);
+void HA_SetLED(int index, int value); // 1=on, 0=off
+
+#endif // HARDWARE_ABSTRACTION_H
+###### END FILE ######
+###### FILE: code/src/hardware_abstraction.c ######
+#include "hardware_abstraction.h"
+#include "stm32f4xx_hal.h" // STM32 HAL (assume CubeMX generated)
+
+// Hardware handles, GPIO assignment etc. guaranteed to be setup in CubeMX
+void HA_Init(void) {}
+
+int HA_SampleADC(void) {
+    // Placeholder for HAL_ADC_PollForConversion + HAL_ADC_GetValue
+    return 0; // Replace with actual ADC reading
+}
+
+void HA_StartMotor(bool clockwise) {
+    // GPIO + PWM for L298N: set direction pins accordingly
+    if (clockwise) {
+        // Set GPIO pin CW, Clear CCW
+    } else {
+        // Set GPIO pin CCW, Clear CW
+    }
+    // Enable PWM to enable motor
+}
+
+void HA_StopMotor(void) {
+    // Disable PWM for motor
+}
+
+void HA_SetLED(int index, int value) {
+    // Map logical index to actual GPIO and set/reset accordingly
+}
+###### END FILE ######
+###### FILE: code/src/main.c ######
+#include "command_interface.h"
+#include "position_control.h"
+#include "sensing.h"
+#include "feedback.h"
+#include "hardware_abstraction.h"
+#include <string.h>
+
+int main(void) {
+    HA_Init();
+    SENS_Init();
+    FB_Init();
+    CI_Init();
+    PC_Init();
+    while (1) {
+        // Periodically sample position
+        SENS_PeriodicSample();
+        // Main control actuation loop
+        PC_LoopTask();
+        // Feedback LEDs can be updated here or by callback (not implemented in this stub)
+    }
+    return 0;
+}
+###### END FILE ######
