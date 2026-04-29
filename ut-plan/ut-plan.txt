@@ -1,0 +1,159 @@
+# ASPICE SWE.4 Unit Test Plan
+# HVAC Flap Actuator — Branch: Vestas_Demo_29Apr
+
+This document defines the SWE.4 unit test plan for the HVAC flap actuator project, ensuring all software units (per LLD and code bundle) have rigorous and traceable unit test coverage.
+
+---
+
+## List of Software Units
+
+1. Initialization/Coordinator
+2. Command Handler
+3. Feedback Acquisition
+4. Motor Controller
+5. Indication Manager
+
+---
+
+# Unit Test Cases: By Software Unit
+
+## 1. Initialization/Coordinator
+**Responsibilities:** Handles system startup, HW peripheral init, loop logic, state transitions (INIT, IDLE, MOVING, INVALID_FEEDBACK), orchestrates other modules.
+**Allocated SW-REQ IDs:** 022, 023, 024, 025, 026, 027, 034, 035, 038
+
+| TC ID | SW-REQ | Objective | Preconditions | Input | Expected Result | Pass/Fail Criteria |
+|-------|--------|-----------|---------------|-------|-----------------|-------------------|
+| 1.1 | 022,023 | Verify system_init() powers up peripherals, sets state, motor OFF | None | Call system_init() | All sub-modules initialized, motor_stop called | All driver calls invoked in order, state correct |
+| 1.2 | 024 | LEDs indicate current pos on init | Feedback valid | Call system_init() | indication_update called with correct arguments | correct pos LED ON |
+| 1.3 | 025,027 | main_loop ignores invalid UART/input | Valid or invalid UART/ADC | Simulate polling | System state remains as per LLD | No movement on invalid |
+| 1.4 | 026 | main_loop triggers indication_update on pos change | Feedback valid | New position | LED updated | call to indication_update with updated pos |
+| 1.5 | 034,035 | main_loop recovers from invalid feedback after valid ADC | Previously invalid | Simulate valid ADC after bad | System returns to IDLE | test orchestrated transition |
+
+**Isolation:** Mock Command Handler, Feedback Acquisition, Motor Controller, Indication Manager, HAL (no real HW)
+
+
+## 2. Command Handler
+**Responsibilities:** UART command extraction, validation; decoding numeric ASCII [0-5]; signals OK, INVALID, EMPTY.
+**Allocated SW-REQ IDs:** 001, 002, 003, 017, 025, 027, 033
+
+| TC ID | SW-REQ | Objective | Preconditions | Input | Expected Result | Pass/Fail Criteria |
+|-------|--------|-----------|---------------|-------|-----------------|-------------------|
+| 2.1 | 001,017 | Valid single UART chars are mapped [0–5] | UART input ready | ASCII '0'-'5' | Result is CMD_PARSE_OK and correct value | cmd_out==num, status==OK |
+| 2.2 | 002 | UART input out of range; not in [0–5] | UART input | ASCII '9' etc | CMD_PARSE_INVALID | status==INVALID |
+| 2.3 | 003,033 | Malformed input ignored | UART input | non-ASCII, symbols | CMD_PARSE_INVALID | status==INVALID |
+| 2.4 | 027 | No data—empty path | None | No input | CMD_PARSE_EMPTY | status==EMPTY |
+
+**Isolation:** Mock UART driver
+
+
+## 3. Feedback Acquisition
+**Responsibilities:** Read ADC, map to discrete positions (0-5), detect range errors
+**Allocated SW-REQ IDs:** 011, 012, 029, 030, 018, 024, 032
+
+| TC ID | SW-REQ | Objective | Preconditions | Input | Expected Result | Pass/Fail Criteria |
+|-------|--------|-----------|---------------|-------|-----------------|-------------------|
+| 3.1 | 011,012,018 | In-range ADC maps to correct pos | None | ADC in defined ranges | Correct pos, valid_out true | pos_out==ID, valid==1 |
+| 3.2 | 012,032 | ADC out of defined range | None | ADC below 0 or above 4095 | valid_out false | status==invalid |
+| 3.3 | 029,030 | No config alteration at runtime | runtime | Try to modify ADC table | Table unchanged | config immutable |
+
+**Isolation:** Mock ADC read
+
+
+## 4. Motor Controller
+**Responsibilities:** Set OFF, enforce direction, enable PWM, HW safety, stop motor
+**Allocated SW-REQ IDs:** 004, 005, 006, 007, 008, 009, 010, 019
+
+| TC ID | SW-REQ | Objective | Preconditions | Input | Expected Result | Pass/Fail Criteria |
+|-------|--------|-----------|---------------|-------|-----------------|-------------------|
+| 4.1 | 004,007,019 | Move: current < target (CW) | Valid pos | current=2, target=4 | Set CW, enable PWM | correct GPIO/driver calls |
+| 4.2 | 004,007,019 | Move: current > target (CCW) | Valid pos | current=4, target=2 | Set CCW, enable PWM | correct GPIO/driver calls |
+| 4.3 | 008,009 | At-target, OFF on init/stop | - | current==target | PWM disable, OFF | motor_hw_disable_pwm called |
+| 4.4 | 010 | Stop on invalid feedback | - | valid==false | PWM disable, OFF | motor_hw_disable_pwm called |
+
+**Isolation:** Mock all outputs—no HW
+
+
+## 5. Indication Manager
+**Responsibilities:** Map pos to LEDs, manage last_shown_pos, power LED drive
+**Allocated SW-REQ IDs:** 013, 014, 015, 020, 024, 026, 036
+
+| TC ID | SW-REQ | Objective | Preconditions | Input | Expected Result | Pass/Fail Criteria |
+|-------|--------|-----------|---------------|-------|-----------------|-------------------|
+| 5.1 | 013,020 | Status LED always ON | - | any pos/valid | LED API ON | power_led ON always |
+| 5.2 | 014,015,026 | Correct LED for detected pos | valid pos | 0-5 | one LED ON, others OFF | correct output pins |
+| 5.3 | 026 | Detected change triggers update | last=3, input=4 | indication_update(4,1) | last_shown_pos updated, LED4 ON |
+| 5.4 | 014 | Invalid pos: all OFF but status | valid==0 | - | Only status LED ON | only pwr_led ON |
+
+**Isolation:** Mock LED driver functions
+
+
+---
+
+# Traceability Tables
+
+## 1. SW-REQ to Test Case
+| SW-REQ | Test Cases |
+|--------|------------|
+|001|2.1|
+|002|2.2|
+|003|2.3|
+|004|4.1,4.2|
+|005|4.1,4.2|
+|006|4.3|
+|007|4.1,4.2|
+|008|4.3|
+|009|4.3|
+|010|4.4|
+|011|3.1|
+|012|3.1,3.2|
+|013|5.1|
+|014|5.2,5.4|
+|015|5.2|
+|017|2.1|
+|018|3.1,3.2|
+|019|4.1,4.2|
+|020|5.1|
+|022|1.1|
+|023|1.1|
+|024|1.2,3.1,5.2|
+|025|1.3,2.1|
+|026|1.4,5.2,5.3|
+|027|1.3,2.4|
+|029|3.3|
+|030|3.3|
+|032|3.2|
+|033|2.3|
+|034|1.5|
+|035|1.5|
+|036|5.1|
+|038|1.5|
+
+## 2. Software Unit to Test Case
+| Software Unit | Test Cases |
+|---------------|------------|
+| Initialization/Coordinator | 1.1–1.5 |
+| Command Handler           | 2.1–2.4 |
+| Feedback Acquisition      | 3.1–3.3 |
+| Motor Controller         | 4.1–4.4 |
+| Indication Manager       | 5.1–5.4 |
+
+---
+
+# Optional Example: C Test Stub Sketch
+```c
+#include "unity.h"
+#include "command_handler.h"
+void test_command_handler_valid(void) {
+    // Replace uart_receive() for test
+    extern int __wrap_uart_receive(uint8_t* c);
+    // simulate UART returns ASCII '2'
+    __wrap_uart_receive = [](uint8_t* c) { *c = '2'; return 1; };
+    uint8_t out;
+    TEST_ASSERT_EQUAL(CMD_PARSE_OK, command_handler_poll(&out));
+    TEST_ASSERT_EQUAL(2, out);
+}
+```
+
+All other modules may be handled similarly using mocks for ADC, GPIO, PWM and verifying calls/params per the plan above.
+
+# End of Document
