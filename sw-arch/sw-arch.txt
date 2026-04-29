@@ -1,0 +1,113 @@
+# HVAC Flap Actuator Software Architecture (SWE.2)
+# Branch: Vestas_Demo_29Apr
+# Trace: SWE.1 (sw-reqs.txt) and SYS.1 (sys-reqs.txt)
+
+================================================================
+ARCHITECTURE STYLE SELECTION
+================================================================
+
+## Candidate Styles Considered
+
+1. **Layered**: Physically and logically separate user interface (UART), control logic, and hardware-access layers.
+2. **Component-Based**: Distinct modules for command handling, motor control, feedback acquisition, and indication.
+3. **Monolithic**: All logic as a single block; minimal layering.
+
+## Evaluation against System/Software Context
+
+- **System Complexity**: Low. Single actuator, one user, single command interface, direct hardware control. [SWE-REQ-037, SWE-REQ-038, SYS-REQ-036]
+- **HW Interaction Needs**: High, but only simple, direct control (UART, ADC, GPIO, PWM). [SWE-REQ-017, SWE-REQ-018, SWE-REQ-019]
+- **Testability**: Mandated to separate main features for test/maintenance. [SWE-REQ-041, SYS-REQ-045]
+- **Maintainability**: Partitioning by functionality is preferred. [SYS-REQ-045]
+- **ASPICE L3**: Requires explicit interfaces and clear separation; component-based or layered is preferred over monolithic for traceability and maintainability.
+
+## Selection and Justification
+
+- **Selected Style:** Component-Based (logical modules for Command Handling, Feedback Processing, Motor Control, Indication, Initialization/Coordination)
+    - *Reason:* Enables separation of concerns, clear interface points, traceable to requirements, easy to test critical sub-functions individually (UART handler, motor actuation, feedback logic, LED control).
+- **Rejected:**
+    - *Layered* — suitable but less optimal; no bidirectional protocol stack or data abstraction layers are needed for this simple prototype.
+    - *Monolithic* — rejected due to testability/maintainability needs and ASPICE traceability.
+
+================================================================
+ARCHITECTURE DEFINITION
+================================================================
+
+# Software Units & Responsibilities
+
+1. **Command Handler**
+    - Receives UART data; checks validity; emits target position.
+    - IGNOREs invalid/malformed input.
+    - [SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-017]
+
+2. **Feedback Acquisition**
+    - Samples ADC; maps ADC range to discrete positions; validates feedback.
+    - Emits: current position; validity indication.
+    - [SWE-REQ-011, SWE-REQ-012, SWE-REQ-029, SWE-REQ-030, SWE-REQ-018]
+
+3. **Motor Controller**
+    - Interprets target and current positions to command motor move/stop; uses GPIO+PWM.
+    - Ensures "OFF at init" and "stop on error/at-target".
+    - [SWE-REQ-007, SWE-REQ-008, SWE-REQ-009, SWE-REQ-010, SWE-REQ-019, SWE-REQ-022, SWE-REQ-023]
+
+4. **Indication Manager**
+    - Drives one position LED (green), one power LED; reflects detected position, not commanded.
+    - [SWE-REQ-013, SWE-REQ-014, SWE-REQ-015, SWE-REQ-024, SWE-REQ-025, SWE-REQ-026, SWE-REQ-020]
+
+5. **Initialization/Coordinator**
+    - Runs startup:
+        - Initializes all hardware.
+        - Samples position/sets LEDs/ensures motor is OFF.
+    - Coordinates perpetual loop:
+        - Processes UART input; refreshes position; updates outputs.
+    - [SWE-REQ-022, SWE-REQ-023, SWE-REQ-024, SWE-REQ-025, SWE-REQ-026, SWE-REQ-027, SWE-REQ-034, SWE-REQ-035]
+
+
+# Interfaces Between Units
+- All interfaces are local/internal (function call/data pass within MCU context), as no external software/ECU exists.
+- Hardware interaction abstracts only to functional level: e.g., Motor Controller does not expose PWM details, only logical actions.
+
+# Execution Model
+- **SWE.1 mandates polling/reactive logic only.**
+- **Statement:** No explicit execution model or scheduling policy is mandated by the requirements at this stage.
+- Typical MCU loop: Initialization, then perpetual event/command-driven polling of inputs and feedback, updating hardware as needed.
+
+================================================================
+SOFTWARE ARCHITECTURE DIAGRAM (TEXTUAL)
+================================================================
+
+[Initialization/Coordinator]
+  |   |           |               |
+  |   +---> [Command Handler] ----+
+  |                 |             |
+  |    [Feedback Acquisition]     |
+  |                 |             |
+  |       [Motor Controller]      |
+  |                 |             |
+  |       [Indication Manager]    |
+  +-------------------------------+
+
+Legend: Vertical data/control flow is logical, not strictly sequential; modules called as needed within perpetual loop by Coordinator.
+
+================================================================
+SOFTWARE UNIT TABLE
+================================================================
+
+| Software Unit           | Responsibilities                                                                 | Interfaces Provided   | Interfaces Used                |
+|------------------------|----------------------------------------------------------------------------------|----------------------|-------------------------------|
+| Initialization/Coordinator | System startup; main loop control; orchestrates all modules                  | System init/loop     | All modules                    |
+| Command Handler        | Decode UART; validate/interpret user commands                                     | Target position out  | UART, Coordinator              |
+| Feedback Acquisition   | ADC sample; map/validate position                                                 | Current pos/status   | ADC, Coordinator               |
+| Motor Controller       | Control motor direction/on/off via GPIO/PWM; enforce stop-at-target/safety-off    | Motor control        | GPIO, PWM, Coordinator, Feedback |
+| Indication Manager     | Drive position LEDs, power LED as per feedback                                    | LED status           | GPIO, Feedback, Coordinator    |
+
+================================================================
+CONSTRAINTS, TRACEABILITY, and COMPLIANCE
+================================================================
+- All units are mapped directly to SWE.1 requirements; no additional or omitted functionality.
+- No alteration, extension, or enhancement beyond requirements.
+- No safety, diagnostics, or cyber features exist (not required).
+- No timing/concurrency/control mechanism is assumed beyond that demanded explicitly in SWE.1/SYS.1.
+- No implementation decisions (RTOS, ISR, code structure) beyond what is required by interface/trace to requirements.
+
+---
+End of SWE.2 Architecture Document (Vestas_Demo_29Apr) [Generated by hv-ag-arch-git-ft Agent]
