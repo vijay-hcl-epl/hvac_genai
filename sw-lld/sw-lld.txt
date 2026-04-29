@@ -1,0 +1,219 @@
+# SWE.3 Low-Level Design (LLD)
+# HVAC Flap Actuator – Vestas_Demo_29Apr
+# Traceable to: sw-reqs.txt (SWE.1), sw-arch.txt (SWE.2)
+
+==================
+Software Unit: Initialization/Coordinator
+==================
+1. Responsibilities
+   - Handles: system power-up, all HW peripheral init (UART, ADC, GPIO, PWM), perpetual loop, system state tracking, orchestrating module invocation per architecture.
+   - Does not handle: direct hardware logic (delegates to sub-units).
+
+2. Internal Data Design
+   - Enum: SystemState { INIT, IDLE, MOVING, INVALID_FEEDBACK }
+   - Struct: SystemStatus { SystemState state; uint8_t target_pos; uint8_t current_pos; bool position_valid; }
+   - Peripheral handles: pointers to UART, ADC, PWM, GPIO objects (opaque to LLD).
+   - Static const: startup configs, ADC mapping table, UART baud, pin table.
+
+3. State Machine
+   - State: INIT → [ADC OK] → IDLE
+              [ADC bad] → INVALID_FEEDBACK
+            IDLE → [user cmd valid && != pos && pos valid] → MOVING
+            MOVING → [at target] → IDLE
+            MOVING → [ADC bad] → INVALID_FEEDBACK
+            INVALID_FEEDBACK → [ADC OK, valid] → IDLE
+   - All state transitions explicit, none are time-triggered or interrupt-triggered by design; event-driven only as invoked by loop.
+
+4. Algorithms & Control Flow
+   - On startup: Init all peripherals, ensure motor OFF, read position, set LEDs.
+   - In loop:
+        - Get position from Feedback Acquisition
+        - If ADC invalid: set INVALID_FEEDBACK, motor OFF, update LEDs
+        - Else: process UART from Command Handler
+        - If valid command && != current && position OK: update state, set target, invoke Motor Controller
+        - Always pass new status to Indication Manager
+   - All function invocations are blocking, direct call style (no async, no deferred execution).
+
+5. Interfaces (APIs)
+   - Provided: system_init(), main_loop()
+   - Required: All other sub-unit APIs (see below)
+   - Params: all state/config data via pointers as needed
+   - Error: returns via explicit status enums or void.
+
+6. Error Handling
+   - Explicit state INVALID_FEEDBACK disables all actuation; invertible once ADC returns valid.
+
+7. Resource & Timing Considerations
+   - No concurrency; no re-entrancy; called once per startup or loop.
+   - WCET: << 1ms per call (not verified; system requirement: "human observable")
+
+8. Traceability
+   - SWE-REQ-022, 023, 024, 025, 026, 027, 034, 035, 038
+
+
+==================
+Software Unit: Command Handler
+==================
+1. Responsibilities
+   - Handles: getting UART input, extracting/validating single-byte command, mapping to discrete command.
+   - Does not handle: actuation, feedback, indication, low-level UART config.
+
+2. Internal Data Design
+   - Buffer: static uint8_t rx_buffer, len 1–2
+   - Enum: CmdParseStatus { OK, INVALID, EMPTY }
+   - Static: valid_positions[6] = {0,1,2,3,4,5}
+
+3. State Machine
+   - State: none (stateless, pure functions: input→output)
+   - Flow: get data (UART), check if value in valid range array, else INVALID.
+
+4. Algorithms & Control Flow
+   - If UART rx ready:
+        - read into rx_buffer (non-blocking)
+        - parse: ASCII→value
+        - compare against valid_positions[]
+          - OK: deliver value, status OK
+          - Fail: status INVALID
+        - On empty: status EMPTY
+   - Never produces error/upstream
+
+5. Interfaces (APIs)
+   - Provided: command_handler_poll(uint8_t* cmd_out)
+   - Required: UART driver functions (opaque)
+   - Params: pointer to output buffer
+   - Returns: CmdParseStatus
+   - Error: INVALID or EMPTY status only; no exception/interrupt up.
+
+6. Error Handling
+   - Ignores malformed input; if non-ASCII or out-of-range, reports INVALID.
+
+7. Resource & Timing Considerations
+   - Called: every Coordinator loop.
+   - WCET: << 1ms.
+   - Not re-entrant.
+
+8. Traceability
+   - SWE-REQ-001, 002, 003, 017, 025, 027, 033
+
+
+==================
+Software Unit: Feedback Acquisition
+==================
+1. Responsibilities
+   - Handles: sampling ADC, mapping ADC to position, validating feedback.
+   - Does not handle: actuation, command parsing, LED, motor.
+
+2. Internal Data Design
+   - uint16_t latest_adc;
+   - bool valid_feedback;
+   - uint8_t mapped_position;
+   - Static const struct: adc_position_table[6] = {start, end}
+
+3. State Machine
+   - State: none; stateless except for last sample/internal flags
+
+4. Algorithms & Control Flow
+   - On call:
+        - Read raw from ADC
+        - For each mapping range (0–5):
+            - If raw in [start,end]: set mapped_position, valid_feedback=true
+        - Else: valid_feedback=false
+   - Always returns mapped_position (if valid)
+
+5. Interfaces (APIs)
+   - Provided: feedback_acquire(uint8_t* pos_out, bool* valid_out)
+   - Required: ADC driver (opaque)
+   - Params: pointers
+   - Returns: status (0=ok, 1=invalid)
+
+6. Error Handling
+   - If out-of-range, sets valid_feedback false; leaves position unchanged upstream.
+
+7. Resource & Timing Considerations
+   - Called: every Coordinator loop
+   - WCET: < 250us (assume ADC conversion time dominates, not measured)
+   - Not re-entrant
+
+8. Traceability
+   - SWE-REQ-011, 012, 029, 030, 018, 024, 032
+
+
+==================
+Software Unit: Motor Controller
+==================
+1. Responsibilities
+   - Handles: setting motor direction, enabling PWM, enforcing OFF/stop behavior; ensuring hardware safety.
+   - Does not handle: position logic, LED, UART.
+
+2. Internal Data Design
+   - Enum: MotorState { OFF, MOVING }
+   - uint8_t current_dir; // 0=CW, 1=CCW
+   - Static: GPIO pin config, PWM handle, motor polarity
+
+3. State Machine
+   - MotorState: OFF↔MOVING
+       - OFF: set by Coordinator at init, at-target, or on error
+       - MOVING: set only when valid transition (commanded, in-range)
+
+4. Algorithms & Control Flow
+   - On call (set_target):
+       - If invalid/at-target: set OFF
+       - If current<target: set dir=CW, enable PWM
+       - Else if current>target: set dir=CCW, enable PWM
+   - On stop: always set PWM duty to 0, GPIO disable
+
+5. Interfaces (APIs)
+   - Provided: motor_set(uint8_t target, uint8_t current, bool valid)
+               motor_stop()
+   - Required: GPIO/PWM driver (opaque)
+   - No returns (void), all reporting via explicit parameters
+
+6. Error Handling
+   - Always stops on invalid feedback/state; never blocks
+
+7. Resource & Timing Considerations
+   - Invoked every loop, no re-entrancy, all actions idempotent
+   - WCET: < 100us
+
+8. Traceability
+   - SWE-REQ-004, 005, 006, 007, 008, 009, 010, 019
+
+
+==================
+Software Unit: Indication Manager
+==================
+1. Responsibilities
+   - Handles: mapping current detected position to green LEDs, driving power LED
+   - Does not handle: position acquisition, actuation, UART
+
+2. Internal Data Design
+   - Static: pin map table for pos LEDs; single power_led_pin
+   - uint8_t last_shown_pos
+
+3. State Machine
+   - none (stateless except for last_shown_pos)
+   - On call: if pos changed, update LEDs, else no op
+
+4. Algorithms & Control Flow
+   - On update call:
+       - Set all pos LEDs: one ON (matching pos), rest OFF
+       - Set power LED ON
+   - If invalid ADC: all pos LEDs OFF, power LED ON
+
+5. Interfaces (APIs)
+   - Provided: indication_update(uint8_t current_pos, bool valid)
+   - Required: GPIO driver (opaque)
+   - Returns: void
+
+6. Error Handling
+   - If not valid, only power LED ON
+
+7. Resource & Timing Considerations
+   - Called every loop
+   - WCET: < 50us
+
+8. Traceability
+   - SWE-REQ-013, 014, 015, 020, 024, 026, 036
+
+
+--- END OF FILE ---
