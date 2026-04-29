@@ -1,0 +1,213 @@
+###### FILE: code/inc/input_handler.h ######
+#ifndef INPUT_HANDLER_H
+#define INPUT_HANDLER_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// API: Call on UART Rx event
+void input_handler_rx_byte(uint8_t byte);
+// API: Init handler
+void input_handler_init(void);
+// API: Test inject
+void input_handler_test_inject(uint8_t *frame, uint8_t len);
+
+#endif // INPUT_HANDLER_H
+###### END FILE ######
+###### FILE: code/inc/flap_control_logic.h ######
+#ifndef FLAP_CONTROL_LOGIC_H
+#define FLAP_CONTROL_LOGIC_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// States for logic control
+typedef enum {
+    FLAP_STATE_IDLE,
+    FLAP_STATE_MOVING,
+    FLAP_STATE_AT_TARGET,
+    FLAP_STATE_ERROR
+} flap_state_t;
+
+// API: Init logic
+void flap_control_logic_init(void);
+// API: Handle validated command
+void flap_control_on_valid_position(uint8_t position_idx);
+// API: Periodic/control task
+void flap_control_logic_task(void);
+// API: Expose status for test
+flap_state_t flap_control_get_state(void);
+uint8_t flap_control_get_position(void);
+
+#endif // FLAP_CONTROL_LOGIC_H
+###### END FILE ######
+###### FILE: code/inc/hardware_abstraction.h ######
+#ifndef HARDWARE_ABSTRACTION_H
+#define HARDWARE_ABSTRACTION_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// API: Init all hardware
+void hardware_abstraction_init(void);
+// API: Read ADC value (returns raw ADC)
+uint16_t hardware_abstraction_adc_read(void);
+// API: Set actuator/motor
+void hardware_abstraction_motor_set(bool enable);
+// API: Set flap PWM for target
+void hardware_abstraction_pwm_set(uint8_t step);
+// API: Set LED status
+void hardware_abstraction_led_set(uint8_t led_pattern);
+
+#endif // HARDWARE_ABSTRACTION_H
+###### END FILE ######
+###### FILE: code/src/input_handler.c ######
+#include "input_handler.h"
+#include "flap_control_logic.h"
+
+#define FRAME_SIZE 3
+#define POSITION_MAX 5
+static uint8_t rx_buffer[FRAME_SIZE];
+static uint8_t rx_count = 0;
+static bool command_in_progress = false;
+
+void input_handler_init(void) {
+    rx_count = 0;
+    command_in_progress = false;
+}
+
+void input_handler_rx_byte(uint8_t byte) {
+    rx_buffer[rx_count++] = byte;
+    if (rx_count == FRAME_SIZE) {
+        // Assume [START][POS][END]; Simple demo convention
+        bool valid = (rx_buffer[0] == 0xAA) && (rx_buffer[2] == 0xBB);
+        uint8_t pos = rx_buffer[1];
+        if (valid && pos < POSITION_MAX && !command_in_progress) {
+            command_in_progress = true;
+            flap_control_on_valid_position(pos);
+        }
+        rx_count = 0;
+    }
+}
+
+void input_handler_test_inject(uint8_t *frame, uint8_t len) {
+    if (len == FRAME_SIZE) {
+        for (uint8_t i = 0; i < FRAME_SIZE; ++i) {
+            input_handler_rx_byte(frame[i]);
+        }
+    }
+}
+
+void input_handler_command_complete(void) {
+    command_in_progress = false;
+}
+###### END FILE ######
+###### FILE: code/src/flap_control_logic.c ######
+#include "flap_control_logic.h"
+#include "hardware_abstraction.h"
+#include "input_handler.h"
+
+#define POSITION_MAX 5
+#define ADC_OUT_OF_RANGE 0xFFFF
+
+static uint8_t target_position = 0xFF;
+static uint8_t actual_position = 0xFF;
+static flap_state_t logic_state = FLAP_STATE_IDLE;
+static uint16_t calibration_values[POSITION_MAX] = {100, 200, 300, 400, 500};
+
+void flap_control_logic_init(void) {
+    target_position = 0xFF;
+    actual_position = 0xFF;
+    logic_state = FLAP_STATE_IDLE;
+}
+
+void flap_control_on_valid_position(uint8_t position_idx) {
+    if (logic_state == FLAP_STATE_IDLE && position_idx < POSITION_MAX) {
+        target_position = position_idx;
+        logic_state = FLAP_STATE_MOVING;
+        hardware_abstraction_motor_set(true);
+        hardware_abstraction_pwm_set(position_idx);
+    }
+}
+
+void flap_control_logic_task(void) {
+    uint16_t adc = hardware_abstraction_adc_read();
+    // Simple mapping: closest calibration
+    uint8_t closest = 0; uint16_t min_delta = 0xFFFF;
+    for (uint8_t i = 0; i < POSITION_MAX; ++i) {
+        uint16_t delta = (adc > calibration_values[i]) ? (adc - calibration_values[i]) : (calibration_values[i] - adc);
+        if (delta < min_delta) { min_delta = delta; closest = i; }
+    }
+    actual_position = closest;
+    // Error if adc out of calibration region (simulate as > 600)
+    if (adc > 600) {
+        logic_state = FLAP_STATE_ERROR;
+        hardware_abstraction_motor_set(false);
+        hardware_abstraction_led_set(0x0F);
+        input_handler_command_complete();
+        return;
+    }
+    if (logic_state == FLAP_STATE_MOVING && actual_position == target_position) {
+        hardware_abstraction_motor_set(false);
+        hardware_abstraction_led_set(1 << actual_position);
+        logic_state = FLAP_STATE_AT_TARGET;
+        input_handler_command_complete();
+    }
+}
+
+flap_state_t flap_control_get_state(void) {
+    return logic_state;
+}
+
+uint8_t flap_control_get_position(void) {
+    return actual_position;
+}
+###### END FILE ######
+###### FILE: code/src/hardware_abstraction.c ######
+#include "hardware_abstraction.h"
+#include <stdio.h>
+// Simulate hardware for demo only
+static uint16_t simulated_adc_value = 123;
+static bool motor_on = false;
+static uint8_t led_status = 0x00;
+
+void hardware_abstraction_init(void) {
+    simulated_adc_value = 123;
+    motor_on = false;
+    led_status = 0x00;
+}
+
+uint16_t hardware_abstraction_adc_read(void) {
+    // In real HW, perform proper ADC read
+    return simulated_adc_value;
+}
+
+void hardware_abstraction_motor_set(bool enable) {
+    motor_on = enable;
+}
+
+void hardware_abstraction_pwm_set(uint8_t step) {
+    // Set PWM for position (no-op in sim)
+    (void)step;
+}
+
+void hardware_abstraction_led_set(uint8_t led_pattern) {
+    led_status = led_pattern;
+}
+###### END FILE ######
+###### FILE: code/src/main.c ######
+#include "hardware_abstraction.h"
+#include "input_handler.h"
+#include "flap_control_logic.h"
+
+int main(void) {
+    hardware_abstraction_init();
+    input_handler_init();
+    flap_control_logic_init();
+    for (;;) {
+        flap_control_logic_task();
+        // Simulate UART or test input event externally
+    }
+    return 0;
+}
+###### END FILE ######
