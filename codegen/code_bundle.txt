@@ -1,0 +1,182 @@
+###### FILE: code/inc/led_indication_driver.h ######
+#ifndef LED_INDICATION_DRIVER_H
+#define LED_INDICATION_DRIVER_H
+
+#include <stdint.h>
+
+typedef enum {
+    LED_STATUS_OFF = 0,
+    LED_STATUS_ON,
+    LED_STATUS_ERROR
+} LedStatus_t;
+
+void set_led_state(LedStatus_t status);
+LedStatus_t get_led_state(void);
+void led_error_status(void);
+
+#endif // LED_INDICATION_DRIVER_H
+###### END FILE ######
+###### FILE: code/src/led_indication_driver.c ######
+#include "led_indication_driver.h"
+
+static LedStatus_t g_led_status = LED_STATUS_OFF;
+
+void set_led_state(LedStatus_t status) {
+    // Determine LED pattern based on status. Underlying hardware setting is delegated.
+    g_led_status = status;
+    // TODO: Hardware update via provided interface
+}
+
+LedStatus_t get_led_state(void) {
+    return g_led_status;
+}
+
+void led_error_status(void) {
+    set_led_state(LED_STATUS_ERROR);
+}
+###### END FILE ######
+###### FILE: code/inc/io_interface_handler.h ######
+#ifndef IO_INTERFACE_HANDLER_H
+#define IO_INTERFACE_HANDLER_H
+
+#include <stdint.h>
+
+#define ADC_INVALID_VALUE 0xFFFF
+
+uint16_t read_adc_value(void);
+void signal_event(void);
+
+#endif // IO_INTERFACE_HANDLER_H
+###### END FILE ######
+###### FILE: code/src/io_interface_handler.c ######
+#include "io_interface_handler.h"
+
+static uint16_t last_adc_value = ADC_INVALID_VALUE;
+
+uint16_t read_adc_value(void)
+{
+    // TODO: Query ADC via hardware abstraction layer and validate range
+    // Return ADC value, or ADC_INVALID_VALUE on error
+    return last_adc_value;
+}
+
+void signal_event(void)
+{
+    // TODO: Process input event; raise fault flag if needed
+}
+###### END FILE ######
+###### FILE: code/inc/flap_position_command_processor.h ######
+#ifndef FLAP_POSITION_COMMAND_PROCESSOR_H
+#define FLAP_POSITION_COMMAND_PROCESSOR_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+#define COMMAND_OK            0
+#define COMMAND_OUT_OF_RANGE  1
+#define COMMAND_INVALID       2
+
+uint8_t process_command(uint16_t cmd);
+uint8_t get_last_error(void);
+void set_target_position(uint16_t pos);
+
+#endif // FLAP_POSITION_COMMAND_PROCESSOR_H
+###### END FILE ######
+###### FILE: code/src/flap_position_command_processor.c ######
+#include "flap_position_command_processor.h"
+#include "logical_mapper.h"
+
+static uint16_t current_position = 0;
+static uint8_t last_error = COMMAND_OK;
+
+uint8_t process_command(uint16_t cmd)
+{
+    int symbolic = map_to_symbolic(cmd);
+    if(symbolic < 0) {
+        last_error = COMMAND_OUT_OF_RANGE;
+        return COMMAND_OUT_OF_RANGE;
+    }
+    set_target_position((uint16_t)symbolic);
+    last_error = COMMAND_OK;
+    return COMMAND_OK;
+}
+
+uint8_t get_last_error(void) {
+    return last_error;
+}
+
+void set_target_position(uint16_t pos) {
+    // TODO: issue position update command to application
+    current_position = pos;
+}
+###### END FILE ######
+###### FILE: code/inc/logical_mapper.h ######
+#ifndef LOGICAL_MAPPER_H
+#define LOGICAL_MAPPER_H
+
+#include <stdint.h>
+
+#define SYMBOLIC_INVALID -1
+
+typedef enum {
+    FLAP_POS_0 = 0,
+    FLAP_POS_1,
+    FLAP_POS_2,
+    FLAP_POS_3,
+    FLAP_POS_COUNT
+} FlapPosition_t;
+
+int map_to_symbolic(uint16_t raw_val);
+const FlapPosition_t* get_supported_positions(void);
+int map_error_status(void);
+
+#endif // LOGICAL_MAPPER_H
+###### END FILE ######
+###### FILE: code/src/logical_mapper.c ######
+#include "logical_mapper.h"
+
+static const uint16_t supported_raw_values[FLAP_POS_COUNT] = {0, 128, 256, 512};
+const FlapPosition_t supported_positions[FLAP_POS_COUNT] = {FLAP_POS_0, FLAP_POS_1, FLAP_POS_2, FLAP_POS_3};
+
+int map_to_symbolic(uint16_t raw_val)
+{
+    for(int i = 0; i < FLAP_POS_COUNT; ++i) {
+        if(raw_val == supported_raw_values[i])
+            return (int)supported_positions[i];
+    }
+    return SYMBOLIC_INVALID;
+}
+
+const FlapPosition_t* get_supported_positions(void) {
+    return supported_positions;
+}
+
+int map_error_status(void) {
+    return SYMBOLIC_INVALID;
+}
+###### END FILE ######
+###### FILE: code/src/main.c ######
+#include "led_indication_driver.h"
+#include "io_interface_handler.h"
+#include "flap_position_command_processor.h"
+#include "logical_mapper.h"
+
+int main(void)
+{
+    // System init
+    set_led_state(LED_STATUS_OFF);
+
+    // Main loop stub
+    while(1)
+    {
+        // Sample input (simulate call-up in place of scheduler/ISR)
+        uint16_t adc_val = read_adc_value();
+        process_command(adc_val);
+        LedStatus_t led = get_led_state();
+        (void)led;
+
+        // ...
+    }
+    return 0;
+}
+###### END FILE ######
