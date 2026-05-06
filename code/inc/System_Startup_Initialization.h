@@ -1,0 +1,6 @@
+#ifndef SYSTEM_STARTUP_INITIALIZATION_H
+#define SYSTEM_STARTUP_INITIALIZATION_H
+
+void SystemStartupInitialization_InitAll(void);
+
+#endif // SYSTEM_STARTUP_INITIALIZATION_H
