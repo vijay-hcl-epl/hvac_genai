@@ -13,6 +13,19 @@ bool command_parser_get_latest_command(uint8_t *position, bool *valid);
 
 #endif // COMMAND_PARSER_H
 ###### END FILE ######
+###### FILE: code/inc/feedback_processor.h ######
+#ifndef FEEDBACK_PROCESSOR_H
+#define FEEDBACK_PROCESSOR_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+void feedback_processor_init(void);
+void feedback_processor_update(void);
+bool feedback_processor_get_position(uint8_t *position, bool *valid);
+
+#endif // FEEDBACK_PROCESSOR_H
+###### END FILE ######
 ###### FILE: code/inc/flap_control_logic.h ######
 #ifndef FLAP_CONTROL_LOGIC_H
 #define FLAP_CONTROL_LOGIC_H
@@ -24,6 +37,20 @@ void flap_control_init(void);
 void flap_control_event(void);
 
 #endif // FLAP_CONTROL_LOGIC_H
+###### END FILE ######
+###### FILE: code/inc/led_status_handler.h ######
+#ifndef LED_STATUS_HANDLER_H
+#define LED_STATUS_HANDLER_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+void led_status_handler_init(void);
+void led_set_power_led(bool on);
+void led_set_position(uint8_t position);
+void led_indicate_error(void);
+
+#endif // LED_STATUS_HANDLER_H
 ###### END FILE ######
 ###### FILE: code/inc/motor_driver.h ######
 #ifndef MOTOR_DRIVER_H
@@ -44,33 +71,6 @@ void motor_stop(void);
 bool motor_get_status(void);
 
 #endif // MOTOR_DRIVER_H
-###### END FILE ######
-###### FILE: code/inc/feedback_processor.h ######
-#ifndef FEEDBACK_PROCESSOR_H
-#define FEEDBACK_PROCESSOR_H
-
-#include <stdint.h>
-#include <stdbool.h>
-
-void feedback_processor_init(void);
-void feedback_processor_update(void);
-bool feedback_processor_get_position(uint8_t *position, bool *valid);
-
-#endif // FEEDBACK_PROCESSOR_H
-###### END FILE ######
-###### FILE: code/inc/led_status_handler.h ######
-#ifndef LED_STATUS_HANDLER_H
-#define LED_STATUS_HANDLER_H
-
-#include <stdint.h>
-#include <stdbool.h>
-
-void led_status_handler_init(void);
-void led_set_power_led(bool on);
-void led_set_position(uint8_t position);
-void led_indicate_error(void);
-
-#endif // LED_STATUS_HANDLER_H
 ###### END FILE ######
 ###### FILE: code/inc/system_startup.h ######
 #ifndef SYSTEM_STARTUP_H
@@ -111,6 +111,64 @@ bool command_parser_get_latest_command(uint8_t *position, bool *valid) {
     if (position && valid) {
         *position = latest_command;
         *valid = command_valid;
+        return true;
+    }
+    return false;
+}
+###### END FILE ######
+###### FILE: code/src/feedback_processor.c ######
+#include "feedback_processor.h"
+#include "stm32f4xx_hal.h"
+
+#define FEEDBACK_ADC_CHANNEL ADC_CHANNEL_1
+#define FEEDBACK_ADC_HANDLE hadc1
+#define FEEDBACK_POSITIONS_COUNT 4
+#define FEEDBACK_ADC_MIN 100U
+#define FEEDBACK_ADC_MAX 3900U
+
+extern ADC_HandleTypeDef FEEDBACK_ADC_HANDLE;
+static const uint16_t position_adc_table[FEEDBACK_POSITIONS_COUNT] = {200, 1200, 2200, 3200};
+static uint8_t curr_position = 0xFF;
+static bool valid = false;
+
+void feedback_processor_init(void) {
+    curr_position = 0xFF;
+    valid = false;
+}
+
+static int16_t read_adc(void) {
+    HAL_ADC_Start(&FEEDBACK_ADC_HANDLE);
+    if (HAL_ADC_PollForConversion(&FEEDBACK_ADC_HANDLE, 10) != HAL_OK) {
+        return -1;
+    }
+    if ((FEEDBACK_ADC_HANDLE.Instance->DR < FEEDBACK_ADC_MIN) || (FEEDBACK_ADC_HANDLE.Instance->DR > FEEDBACK_ADC_MAX)) {
+        return -1;
+    }
+    return (int16_t)(FEEDBACK_ADC_HANDLE.Instance->DR);
+}
+
+void feedback_processor_update(void) {
+    int16_t adc_value = read_adc();
+    if (adc_value < 0) {
+        curr_position = 0xFF;
+        valid = false;
+        return;
+    }
+    for (uint8_t i = 0; i < FEEDBACK_POSITIONS_COUNT; ++i) {
+        if (adc_value <= (int16_t)position_adc_table[i] + 100 && adc_value >= (int16_t)position_adc_table[i] - 100) {
+            curr_position = i;
+            valid = true;
+            return;
+        }
+    }
+    curr_position = 0xFF;
+    valid = false;
+}
+
+bool feedback_processor_get_position(uint8_t *position, bool *is_valid) {
+    if (position && is_valid) {
+        *position = curr_position;
+        *is_valid = valid;
         return true;
     }
     return false;
@@ -178,6 +236,58 @@ void flap_control_event(void) {
     }
 }
 ###### END FILE ######
+###### FILE: code/src/led_status_handler.c ######
+#include "led_status_handler.h"
+#include "stm32f4xx_hal.h"
+
+#define POWER_LED_GPIO_Port GPIOB
+#define POWER_LED_Pin GPIO_PIN_0
+static const struct { GPIO_TypeDef *port; uint16_t pin; } position_leds[] = {
+    {GPIOB, GPIO_PIN_1}, {GPIOB, GPIO_PIN_2}, {GPIOB, GPIO_PIN_3}, {GPIOB, GPIO_PIN_4}
+};
+
+void led_status_handler_init(void) {
+    HAL_GPIO_WritePin(POWER_LED_GPIO_Port, POWER_LED_Pin, GPIO_PIN_SET);
+    for (uint8_t i = 0; i < sizeof(position_leds)/sizeof(position_leds[0]); ++i) {
+        HAL_GPIO_WritePin(position_leds[i].port, position_leds[i].pin, GPIO_PIN_RESET);
+    }
+}
+
+void led_set_power_led(bool on) {
+    HAL_GPIO_WritePin(POWER_LED_GPIO_Port, POWER_LED_Pin, on ? GPIO_PIN_SET : GPIO_PIN_RESET);
+}
+
+void led_set_position(uint8_t position) {
+    for (uint8_t i = 0; i < sizeof(position_leds)/sizeof(position_leds[0]); ++i) {
+        HAL_GPIO_WritePin(position_leds[i].port, position_leds[i].pin, (i == position) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    }
+}
+
+void led_indicate_error(void) {
+    // Indicate error by fast-blink or alternate pattern, simple implementation here:
+    for (uint8_t i = 0; i < sizeof(position_leds)/sizeof(position_leds[0]); ++i) {
+        HAL_GPIO_TogglePin(position_leds[i].port, position_leds[i].pin);
+    }
+}
+###### END FILE ######
+###### FILE: code/src/main.c ######
+#include "system_startup.h"
+#include "command_parser.h"
+#include "flap_control_logic.h"
+#include "feedback_processor.h"
+#include <stdint.h>
+
+int main(void) {
+    system_startup_init();
+    while (1) {
+        // Poll for UART byte (abstracted)
+        // Assume UART polling placed here, or driven externally
+        flap_control_event();
+        feedback_processor_update();
+    }
+    return 0;
+}
+###### END FILE ######
 ###### FILE: code/src/motor_driver.c ######
 #include "motor_driver.h"
 #include "stm32f4xx_hal.h"
@@ -228,98 +338,6 @@ bool motor_get_status(void) {
     return motor_enabled;
 }
 ###### END FILE ######
-###### FILE: code/src/feedback_processor.c ######
-#include "feedback_processor.h"
-#include "stm32f4xx_hal.h"
-
-#define FEEDBACK_ADC_CHANNEL ADC_CHANNEL_1
-#define FEEDBACK_ADC_HANDLE hadc1
-#define FEEDBACK_POSITIONS_COUNT 4
-#define FEEDBACK_ADC_MIN 100U
-#define FEEDBACK_ADC_MAX 3900U
-
-extern ADC_HandleTypeDef FEEDBACK_ADC_HANDLE;
-static const uint16_t position_adc_table[FEEDBACK_POSITIONS_COUNT] = {200, 1200, 2200, 3200};
-static uint8_t curr_position = 0xFF;
-static bool valid = false;
-
-void feedback_processor_init(void) {
-    curr_position = 0xFF;
-    valid = false;
-}
-
-static int16_t read_adc(void) {
-    HAL_ADC_Start(&FEEDBACK_ADC_HANDLE);
-    if (HAL_ADC_PollForConversion(&FEEDBACK_ADC_HANDLE, 10) != HAL_OK) {
-        return -1;
-    }
-    if ((FEEDBACK_ADC_HANDLE.Instance->DR < FEEDBACK_ADC_MIN) || (FEEDBACK_ADC_HANDLE.Instance->DR > FEEDBACK_ADC_MAX)) {
-        return -1;
-    }
-    return (int16_t)(FEEDBACK_ADC_HANDLE.Instance->DR);
-}
-
-void feedback_processor_update(void) {
-    int16_t adc_value = read_adc();
-    if (adc_value < 0) {
-        curr_position = 0xFF;
-        valid = false;
-        return;
-    }
-    for (uint8_t i = 0; i < FEEDBACK_POSITIONS_COUNT; ++i) {
-        if (adc_value <= (int16_t)position_adc_table[i] + 100 && adc_value >= (int16_t)position_adc_table[i] - 100) {
-            curr_position = i;
-            valid = true;
-            return;
-        }
-    }
-    curr_position = 0xFF;
-    valid = false;
-}
-
-bool feedback_processor_get_position(uint8_t *position, bool *is_valid) {
-    if (position && is_valid) {
-        *position = curr_position;
-        *is_valid = valid;
-        return true;
-    }
-    return false;
-}
-###### END FILE ######
-###### FILE: code/src/led_status_handler.c ######
-#include "led_status_handler.h"
-#include "stm32f4xx_hal.h"
-
-#define POWER_LED_GPIO_Port GPIOB
-#define POWER_LED_Pin GPIO_PIN_0
-static const struct { GPIO_TypeDef *port; uint16_t pin; } position_leds[] = {
-    {GPIOB, GPIO_PIN_1}, {GPIOB, GPIO_PIN_2}, {GPIOB, GPIO_PIN_3}, {GPIOB, GPIO_PIN_4}
-};
-
-void led_status_handler_init(void) {
-    HAL_GPIO_WritePin(POWER_LED_GPIO_Port, POWER_LED_Pin, GPIO_PIN_SET);
-    for (uint8_t i = 0; i < sizeof(position_leds)/sizeof(position_leds[0]); ++i) {
-        HAL_GPIO_WritePin(position_leds[i].port, position_leds[i].pin, GPIO_PIN_RESET);
-    }
-}
-
-void led_set_power_led(bool on) {
-    HAL_GPIO_WritePin(POWER_LED_GPIO_Port, POWER_LED_Pin, on ? GPIO_PIN_SET : GPIO_PIN_RESET);
-}
-
-void led_set_position(uint8_t position) {
-    for (uint8_t i = 0; i < sizeof(position_leds)/sizeof(position_leds[0]); ++i) {
-        HAL_GPIO_WritePin(position_leds[i].port, position_leds[i].pin, (i == position) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-    }
-}
-
-void led_indicate_error(void) {
-    // Indicate error by fast-blink or alternate pattern, simple implementation here:
-    for (uint8_t i = 0; i < sizeof(position_leds)/sizeof(position_leds[0]); ++i) {
-        HAL_GPIO_TogglePin(position_leds[i].port, position_leds[i].pin);
-    }
-}
-###### END FILE ######
 ###### FILE: code/src/system_startup.c ######
 #include "system_startup.h"
 #include "command_parser.h"
@@ -334,23 +352,5 @@ void system_startup_init(void) {
     motor_driver_init();
     led_status_handler_init();
     flap_control_init();
-}
-###### END FILE ######
-###### FILE: code/src/main.c ######
-#include "system_startup.h"
-#include "command_parser.h"
-#include "flap_control_logic.h"
-#include "feedback_processor.h"
-#include <stdint.h>
-
-int main(void) {
-    system_startup_init();
-    while (1) {
-        // Poll for UART byte (abstracted)
-        // Assume UART polling placed here, or driven externally
-        flap_control_event();
-        feedback_processor_update();
-    }
-    return 0;
 }
 ###### END FILE ######
