@@ -1,19 +1,12 @@
-#include "uart_handler.h"
 #include "main_control.h"
-#include "motor_actuator.h"
+#include "uart_handler.h"
 #include "position_feedback.h"
 #include "indicator_control.h"
-
+#include "motor_actuator.h"
 int main(void) {
-    uart_init();
-    main_control_init();
-    motor_init();
-    position_feedback_init();
-    indicator_init();
-
+    // TODO: Initialize peripherals
     while (1) {
-        // Main loop stub
+        // TODO: Main loop stub
     }
-
     return 0;
 }

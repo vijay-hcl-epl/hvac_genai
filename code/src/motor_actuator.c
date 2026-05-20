@@ -1,13 +1,7 @@
 #include "motor_actuator.h"
-
-void motor_init(void) {
-    // Ensure motor is OFF
+void motor_on(void) {
+    // TODO: Activate motor driver
 }
-
-void motor_start(void) {
-    // Start motor
-}
-
-void motor_stop(void) {
-    // Stop motor
+void motor_off(void) {
+    // TODO: Deactivate motor driver
 }

@@ -2,19 +2,9 @@
 #include "motor_actuator.h"
 #include "position_feedback.h"
 #include "indicator_control.h"
-
-void main_control_init(void) {
-    // Initialize control logic
-}
-
 void main_control_process_command(int position) {
-    // Process command
+    // TODO: Implement state machine transitions and actuator requests
 }
-
-void main_control_update_position(int actual_position) {
-    // Update position
-}
-
-void main_control_handle_error(void) {
-    // Handle error
+void main_control_update_feedback(int position) {
+    // TODO: Compare actual vs target, stop actuator if target reached
 }
