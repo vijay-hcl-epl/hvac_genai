@@ -1,134 +1,127 @@
-###### FILE: code/inc/uart_handler.h ######
-#ifndef UART_HANDLER_H
-#define UART_HANDLER_H
+###### FILE: code/inc/main_control_logic.h ######
+#ifndef MAIN_CONTROL_LOGIC_H
+#define MAIN_CONTROL_LOGIC_H
 
-void uart_init(void);
-void uart_receive_handler(void);
-
-#endif
-###### END FILE ######
-###### FILE: code/src/uart_handler.c ######
-#include "uart_handler.h"
-#include "main_control.h"
-
-void uart_init(void) {
-    // Initialize UART peripheral
-}
-
-void uart_receive_handler(void) {
-    // Handle UART reception, parse and validate command
-}
-###### END FILE ######
-###### FILE: code/inc/main_control.h ######
-#ifndef MAIN_CONTROL_H
-#define MAIN_CONTROL_H
-
-void main_control_init(void);
-void process_command(int position);
-void update_position(int actual_position);
+void main_control_process_command(int target_position);
+void main_control_update_feedback(int actual_position);
+void main_control_handle_error(void);
 
 #endif
 ###### END FILE ######
-###### FILE: code/src/main_control.c ######
-#include "main_control.h"
+###### FILE: code/src/main_control_logic.c ######
+#include "main_control_logic.h"
 #include "motor_actuator.h"
-#include "position_feedback.h"
 #include "indicator_control.h"
+#include "position_feedback.h"
 
-void main_control_init(void) {
-    // Initialize control logic state
+static int target_position;
+static int actual_position;
+
+void main_control_process_command(int target) {
+    if (target != actual_position) {
+        target_position = target;
+        motor_actuator_on();
+    }
 }
 
-void process_command(int position) {
-    // Process position command
+void main_control_update_feedback(int actual) {
+    actual_position = actual;
+    if (actual_position == target_position) {
+        motor_actuator_off();
+    }
 }
 
-void update_position(int actual_position) {
-    // Update position and control motor accordingly
-}
-###### END FILE ######
-###### FILE: code/inc/motor_actuator.h ######
-#ifndef MOTOR_ACTUATOR_H
-#define MOTOR_ACTUATOR_H
-
-void motor_init(void);
-void motor_on(void);
-void motor_off(void);
-
-#endif
-###### END FILE ######
-###### FILE: code/src/motor_actuator.c ######
-#include "motor_actuator.h"
-
-void motor_init(void) {
-    // Ensure motor is off at startup
-}
-
-void motor_on(void) {
-    // Activate motor
-}
-
-void motor_off(void) {
-    // Deactivate motor
+void main_control_handle_error(void) {
+    motor_actuator_off();
 }
 ###### END FILE ######
 ###### FILE: code/inc/position_feedback.h ######
 #ifndef POSITION_FEEDBACK_H
 #define POSITION_FEEDBACK_H
 
-void position_feedback_init(void);
-int read_position(void);
+int position_feedback_read(void);
+void position_feedback_notify(void);
 
 #endif
 ###### END FILE ######
 ###### FILE: code/src/position_feedback.c ######
 #include "position_feedback.h"
+#include "main_control_logic.h"
 
-void position_feedback_init(void) {
-    // Initialize ADC
+int position_feedback_read(void) {
+    // Stub: read ADC and map to logical position
+    return 0;
 }
 
-int read_position(void) {
-    // Read ADC and map to logical position
-    return 0;
+void position_feedback_notify(void) {
+    int pos = position_feedback_read();
+    main_control_update_feedback(pos);
+}
+###### END FILE ######
+###### FILE: code/inc/uart_command_handler.h ######
+#ifndef UART_COMMAND_HANDLER_H
+#define UART_COMMAND_HANDLER_H
+
+void uart_command_receive(const char *cmd);
+
+#endif
+###### END FILE ######
+###### FILE: code/src/uart_command_handler.c ######
+#include "uart_command_handler.h"
+#include "main_control_logic.h"
+#include <stdlib.h>
+
+void uart_command_receive(const char *cmd) {
+    int pos = atoi(cmd);
+    if (pos >= 0) {
+        main_control_process_command(pos);
+    }
 }
 ###### END FILE ######
 ###### FILE: code/inc/indicator_control.h ######
 #ifndef INDICATOR_CONTROL_H
 #define INDICATOR_CONTROL_H
 
-void indicator_init(void);
-void update_indicator(int position);
+void indicator_update(int position);
 
 #endif
 ###### END FILE ######
 ###### FILE: code/src/indicator_control.c ######
 #include "indicator_control.h"
 
-void indicator_init(void) {
-    // Initialize LED/GPIO
+void indicator_update(int position) {
+    // Stub: update LEDs based on position
+}
+###### END FILE ######
+###### FILE: code/inc/motor_actuator.h ######
+#ifndef MOTOR_ACTUATOR_H
+#define MOTOR_ACTUATOR_H
+
+void motor_actuator_on(void);
+void motor_actuator_off(void);
+
+#endif
+###### END FILE ######
+###### FILE: code/src/motor_actuator.c ######
+#include "motor_actuator.h"
+
+void motor_actuator_on(void) {
+    // Stub: turn motor ON
 }
 
-void update_indicator(int position) {
-    // Update LED based on position
+void motor_actuator_off(void) {
+    // Stub: turn motor OFF
 }
 ###### END FILE ######
 ###### FILE: code/src/main.c ######
-#include "uart_handler.h"
-#include "main_control.h"
-#include "motor_actuator.h"
+#include "uart_command_handler.h"
 #include "position_feedback.h"
-#include "indicator_control.h"
 
 int main(void) {
-    uart_init();
-    main_control_init();
-    motor_init();
-    position_feedback_init();
-    indicator_init();
-
+    // Initialization
+    // Main loop stub
     while (1) {
-        // Main loop stub
+        position_feedback_notify();
     }
     return 0;
 }
