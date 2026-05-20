@@ -1,39 +1,21 @@
 ###### FILE: code/inc/uart_handler.h ######
 #ifndef UART_HANDLER_H
 #define UART_HANDLER_H
-
-void uart_init(void);
 void uart_receive_handler(void);
-int uart_parse_command(const char *cmd);
-
 #endif
 ###### END FILE ######
 ###### FILE: code/src/uart_handler.c ######
 #include "uart_handler.h"
 #include "main_control.h"
-
-void uart_init(void) {
-    // Initialize UART peripheral
-}
-
 void uart_receive_handler(void) {
-    // Handle UART reception, parse command
-}
-
-int uart_parse_command(const char *cmd) {
-    // Parse numeric flap position
-    return 0;
+    // TODO: Implement UART RX, parse numeric position, validate, and notify main control
 }
 ###### END FILE ######
 ###### FILE: code/inc/main_control.h ######
 #ifndef MAIN_CONTROL_H
 #define MAIN_CONTROL_H
-
-void main_control_init(void);
 void main_control_process_command(int position);
-void main_control_update_position(int actual_position);
-void main_control_handle_error(void);
-
+void main_control_update_feedback(int position);
 #endif
 ###### END FILE ######
 ###### FILE: code/src/main_control.c ######
@@ -41,113 +23,65 @@ void main_control_handle_error(void);
 #include "motor_actuator.h"
 #include "position_feedback.h"
 #include "indicator_control.h"
-
-void main_control_init(void) {
-    // Initialize control logic
-}
-
 void main_control_process_command(int position) {
-    // Process command
+    // TODO: Implement state machine transitions and actuator requests
 }
-
-void main_control_update_position(int actual_position) {
-    // Update position
-}
-
-void main_control_handle_error(void) {
-    // Handle error
+void main_control_update_feedback(int position) {
+    // TODO: Compare actual vs target, stop actuator if target reached
 }
 ###### END FILE ######
 ###### FILE: code/inc/motor_actuator.h ######
 #ifndef MOTOR_ACTUATOR_H
 #define MOTOR_ACTUATOR_H
-
-void motor_init(void);
-void motor_start(void);
-void motor_stop(void);
-
+void motor_on(void);
+void motor_off(void);
 #endif
 ###### END FILE ######
 ###### FILE: code/src/motor_actuator.c ######
 #include "motor_actuator.h"
-
-void motor_init(void) {
-    // Ensure motor is OFF
+void motor_on(void) {
+    // TODO: Activate motor driver
 }
-
-void motor_start(void) {
-    // Start motor
-}
-
-void motor_stop(void) {
-    // Stop motor
+void motor_off(void) {
+    // TODO: Deactivate motor driver
 }
 ###### END FILE ######
 ###### FILE: code/inc/position_feedback.h ######
 #ifndef POSITION_FEEDBACK_H
 #define POSITION_FEEDBACK_H
-
-void position_feedback_init(void);
-int position_feedback_read(void);
-int position_feedback_map_adc(int adc_value);
-
+int read_position(void);
 #endif
 ###### END FILE ######
 ###### FILE: code/src/position_feedback.c ######
 #include "position_feedback.h"
-
-void position_feedback_init(void) {
-    // Initialize ADC reader
-}
-
-int position_feedback_read(void) {
-    // Read ADC value
-    return 0;
-}
-
-int position_feedback_map_adc(int adc_value) {
-    // Map ADC value to logical position
+int read_position(void) {
+    // TODO: Read ADC, map to logical position, return index
     return 0;
 }
 ###### END FILE ######
 ###### FILE: code/inc/indicator_control.h ######
 #ifndef INDICATOR_CONTROL_H
 #define INDICATOR_CONTROL_H
-
-void indicator_init(void);
-void indicator_update(int position);
-
+void update_indicator(int position);
 #endif
 ###### END FILE ######
 ###### FILE: code/src/indicator_control.c ######
 #include "indicator_control.h"
-
-void indicator_init(void) {
-    // Initialize indicators
-}
-
-void indicator_update(int position) {
-    // Update LED/GPIO outputs
+void update_indicator(int position) {
+    // TODO: Update LED/GPIO outputs based on position
 }
 ###### END FILE ######
 ###### FILE: code/src/main.c ######
-#include "uart_handler.h"
 #include "main_control.h"
-#include "motor_actuator.h"
+#include "uart_handler.h"
 #include "position_feedback.h"
 #include "indicator_control.h"
-
+#include "motor_actuator.h"
 int main(void) {
-    uart_init();
-    main_control_init();
-    motor_init();
-    position_feedback_init();
-    indicator_init();
-
+    // TODO: Initialize peripherals
     while (1) {
-        // Main loop stub
+        // TODO: Main loop stub
     }
-
     return 0;
 }
 ###### END FILE ######
