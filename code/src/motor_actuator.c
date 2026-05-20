@@ -1,13 +1,9 @@
 #include "motor_actuator.h"
 
-void motor_init(void) {
-    // Ensure motor is off at startup
+void motor_actuator_on(void) {
+    // Stub: turn motor ON
 }
 
-void motor_on(void) {
-    // Activate motor
-}
-
-void motor_off(void) {
-    // Deactivate motor
+void motor_actuator_off(void) {
+    // Stub: turn motor OFF
 }

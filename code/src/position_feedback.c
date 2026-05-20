@@ -1,10 +1,12 @@
 #include "position_feedback.h"
+#include "main_control_logic.h"
 
-void position_feedback_init(void) {
-    // Initialize ADC
+int position_feedback_read(void) {
+    // Stub: read ADC and map to logical position
+    return 0;
 }
 
-int read_position(void) {
-    // Read ADC and map to logical position
-    return 0;
+void position_feedback_notify(void) {
+    int pos = position_feedback_read();
+    main_control_update_feedback(pos);
 }

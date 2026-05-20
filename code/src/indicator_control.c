@@ -1,9 +1,5 @@
 #include "indicator_control.h"
 
-void indicator_init(void) {
-    // Initialize LED/GPIO
-}
-
-void update_indicator(int position) {
-    // Update LED based on position
+void indicator_update(int position) {
+    // Stub: update LEDs based on position
 }
