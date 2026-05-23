@@ -1,0 +1,272 @@
+### Safety-C Violations
+
+---
+
+#### 1. Rule: 1.2 - Language extensions should not be used
+
+Violating Code:
+```c
+__attribute__((naked, noreturn)) void _reset(void) {
+``
+Explanation: Use of GCC-specific `__attribute__` is a language extension and not standard C.
+
+Suggested Fix:
+```c
+void _reset(void) {
+```
+
+---
+
+#### 2. Rule: 1.2 - Language extensions should not be used
+
+Violating Code:
+```c
+__attribute__((section(".vectors"))) void (*const tab[16 + 91])(void) = {
+``
+Explanation: Use of GCC-specific `__attribute__((section))` is a language extension and not standard C.
+
+Suggested Fix:
+```c
+void (*const tab[16 + 91])(void) = {
+```
+
+---
+
+#### 3. Rule: 7.1 - Octal constants should not be used
+
+Violating Code:
+```c
+int r7_1_octal = 012;
+``
+Explanation: Octal integer constant (`012`) is used, which can be confusing and is not allowed.
+
+Suggested Fix:
+```c
+int r7_1_octal = 10;
+```
+
+---
+
+#### 4. Rule: 7.3 - Lowercase 'l' shall not be used as a suffix for a literal
+
+Violating Code:
+```c
+long r7_3_lowerell = 10l;
+``
+Explanation: Lowercase 'l' is used as a suffix for a literal, which can be confused with '1'.
+
+Suggested Fix:
+```c
+long r7_3_lowerell = 10L;
+```
+
+---
+
+#### 5. Rule: 8.7 - Functions and objects should not be defined with external linkage if they are referenced in only one translation unit
+
+Violating Code:
+```c
+extern const int r8_3_q;
+int r8_3_q = 0;            
+``
+Explanation: Object `r8_3_q` is declared `extern` but defined and used only in this translation unit.
+
+Suggested Fix:
+```c
+static const int r8_3_q = 0;
+```
+
+---
+
+#### 6. Rule: 8.4 - A compatible declaration shall be visible when an object or function with external linkage is defined
+
+Violating Code:
+```c
+int r8_7_helper(void) { return 1; }  
+``
+Explanation: Function `r8_7_helper` is defined without a previous declaration.
+
+Suggested Fix:
+```c
+int r8_7_helper(void);
+int r8_7_helper(void) { return 1; }  
+```
+
+---
+
+#### 7. Rule: 8.4 - A compatible declaration shall be visible when an object or function with external linkage is defined
+
+Violating Code:
+```c
+inline int r8_10_inline(void) { return 0; }
+``
+Explanation: Function `r8_10_inline` is defined without a previous declaration.
+
+Suggested Fix:
+```c
+inline int r8_10_inline(void);
+inline int r8_10_inline(void) { return 0; }
+```
+
+---
+
+#### 8. Rule: 9.1 - Automatic objects shall not be used before their values are set
+
+Violating Code:
+```c
+int x;            
+if (x) {  }
+``
+Explanation: Variable `x` is used before being initialized.
+
+Suggested Fix:
+```c
+int x = 0;            
+if (x) {  }
+```
+
+---
+
+#### 9. Rule: 12.1 - The precedence of operators within expressions should be made explicit
+
+Violating Code:
+```c
+if (a & b == 0) { 
+``
+Explanation: The precedence of `&` and `==` operators is unclear and may not be as intended.
+
+Suggested Fix:
+```c
+if ((a & b) == 0) { 
+```
+
+---
+
+#### 10. Rule: 12.2 - The right hand operand of a shift operator shall lie between zero and one less than the width of the underlying type
+
+Violating Code:
+```c
+return (1U << 32);  
+``
+Explanation: Shifting by 32 bits is undefined for a 32-bit type.
+
+Suggested Fix:
+```c
+return (1U << 31);  
+```
+
+---
+
+#### 11. Rule: 12.3 - The comma operator shall not be used
+
+Violating Code:
+```c
+return (b = 1, b + 2);
+``
+Explanation: The comma operator is used, which is not allowed.
+
+Suggested Fix:
+```c
+b = 1;
+return b + 2;
+```
+
+---
+
+#### 12. Rule: 13.4 - The result of an assignment operator should not be used
+
+Violating Code:
+```c
+if ( (y = 5) > 0 ) { 
+``
+Explanation: The result of an assignment is used in a conditional expression.
+
+Suggested Fix:
+```c
+y = 5;
+if (y > 0) { 
+```
+
+---
+
+#### 13. Rule: 13.6 - The operand of the sizeof operator shall not contain any expression which has potential side effects
+
+Violating Code:
+```c
+return (int)sizeof(++k);  
+``
+Explanation: The operand of `sizeof` has a side effect (`++k`).
+
+Suggested Fix:
+```c
+return (int)sizeof(k);  
+```
+
+---
+
+#### 14. Rule: 15.1 - The goto statement shall not be used
+
+Violating Code:
+```c
+if (n-- > 0) goto start;
+``
+Explanation: Use of `goto` is not allowed.
+
+Suggested Fix:
+```c
+while (n-- > 0) {
+  sum += 1;
+}
+```
+
+---
+
+#### 15. Rule: 16.4 - Every switch statement shall have a default label
+
+Violating Code:
+```c
+switch (v) {
+  case 0: return 0;
+  case 1: return 1;
+}
+``
+Explanation: Switch statement does not have a default label.
+
+Suggested Fix:
+```c
+switch (v) {
+  case 0: return 0;
+  case 1: return 1;
+  default: break;
+}
+```
+
+---
+
+#### 16. Rule: 21.2 - A reserved identifier or macro name shall not be defined
+
+Violating Code:
+```c
+#define FREQ 16000000 
+#define BIT(x) (1UL << (x))
+#define PIN(bank, num) ((((bank) - 'A') << 8) | (num))
+#define PINNO(pin) (pin & 255)
+#define PINBANK(pin) (pin >> 8)
+#define SYSTICK ((struct systick *) 0xe000e010)
+#define RCC ((struct rcc *) 0x40023800)
+#define GPIO(bank) ((struct gpio *) (0x40020000 + 0x400 * (bank)))
+#define UART1 ((struct uart *) 0x40011000)
+#define UART2 ((struct uart *) 0x40004400)
+#define UART3 ((struct uart *) 0x40004800)
+``
+Explanation: Identifiers beginning with an uppercase letter followed by a digit or another uppercase letter are reserved for the implementation.
+
+Suggested Fix:
+```c
+/* Use lower case or project-specific prefix for macros, e.g.: */
+#define freq 16000000 
+#define bit(x) (1UL << (x))
+/* ...and so on for other macros */
+```
+
+---
