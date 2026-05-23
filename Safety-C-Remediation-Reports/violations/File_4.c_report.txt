@@ -1,0 +1,268 @@
+### Safety-C Violations
+
+---
+
+#### 1. Rule: 7.1 - Octal Constants
+
+Violating Code:
+```c
+int r7_1_octal = 012;
+```
+Explanation: Octal integer constants (leading zero) are not permitted.
+
+Suggested Fix:
+```c
+int r7_1_octal = 10;
+```
+
+---
+
+#### 2. Rule: 7.2 - Unsigned Suffix
+
+Violating Code:
+```c
+unsigned int r7_2_unsigned = 10;     
+```
+Explanation: Unsigned integer constants should use the 'U' suffix.
+
+Suggested Fix:
+```c
+unsigned int r7_2_unsigned = 10U;     
+```
+
+---
+
+#### 3. Rule: 7.3 - Lowercase 'l' Suffix
+
+Violating Code:
+```c
+long r7_3_lowerell = 10l;
+```
+Explanation: The lowercase 'l' suffix is not permitted; use uppercase 'L'.
+
+Suggested Fix:
+```c
+long r7_3_lowerell = 10L;
+```
+
+---
+
+#### 4. Rule: 8.3 - External Object Definitions
+
+Violating Code:
+```c
+extern const int r8_3_global;
+int r8_3_global = 0;                
+```
+Explanation: Object defined with external linkage and referenced in only one translation unit.
+
+Suggested Fix:
+```c
+static const int r8_3_global = 0;
+```
+
+---
+
+#### 5. Rule: 8.10 - Inline Function Definition
+
+Violating Code:
+```c
+inline int r8_10_inline(void) { return 0; }
+```
+Explanation: The 'inline' keyword is not allowed in C90/C99 for function definitions.
+
+Suggested Fix:
+```c
+static int r8_10_inline(void) { return 0; }
+```
+
+---
+
+#### 6. Rule: 9.1 - Use of Uninitialized Automatic Variable
+
+Violating Code:
+```c
+int x;                
+if (x) {  }
+```
+Explanation: The variable 'x' is used without being initialized.
+
+Suggested Fix:
+```c
+int x = 0;                
+if (x) {  }
+```
+
+---
+
+#### 7. Rule: 10.3 - Narrowing Conversion
+
+Violating Code:
+```c
+uc = f;               
+```
+Explanation: Assignment of float to unsigned char causes narrowing conversion.
+
+Suggested Fix:
+```c
+uc = (unsigned char)f;
+```
+
+---
+
+#### 8. Rule: 11.4 - Pointer to Integer Conversion
+
+Violating Code:
+```c
+unsigned long addr = (unsigned long)&errno;
+```
+Explanation: Conversion between pointer and integer type is not permitted.
+
+Suggested Fix:
+```c
+uintptr_t addr = (uintptr_t)&errno;
+```
+
+---
+
+#### 9. Rule: 11.6 - Cast from void* to int
+
+Violating Code:
+```c
+int i = (int)vp;
+```
+Explanation: Conversion from void pointer to integer is not permitted.
+
+Suggested Fix:
+```c
+uintptr_t i = (uintptr_t)vp;
+```
+
+---
+
+#### 10. Rule: 11.8 - Cast Away Const Qualifier
+
+Violating Code:
+```c
+int *pc = (int *)&c; 
+```
+Explanation: Casting away const from a variable is not permitted.
+
+Suggested Fix:
+```c
+/* Remove cast and avoid modifying const object */
+```
+
+---
+
+#### 11. Rule: 11.9 - Zero Used as Null Pointer Constant
+
+Violating Code:
+```c
+int *p = 0;          
+```
+Explanation: The constant '0' should not be used as a null pointer constant.
+
+Suggested Fix:
+```c
+int *p = NULL;
+```
+
+---
+
+#### 12. Rule: 12.1 - Operator Precedence Ambiguity
+
+Violating Code:
+```c
+if (a & b == 0) {    
+```
+Explanation: Ambiguous precedence between '&' and '==' operators.
+
+Suggested Fix:
+```c
+if ((a & b) == 0) {    
+```
+
+---
+
+#### 13. Rule: 12.3 - Use of Comma Operator
+
+Violating Code:
+```c
+return (t = 1, t + 2);
+```
+Explanation: Use of the comma operator is not permitted.
+
+Suggested Fix:
+```c
+t = 1;
+return t + 2;
+```
+
+---
+
+#### 14. Rule: 15.1 - Use of goto
+
+Violating Code:
+```c
+if (n-- > 0) goto start;  
+```
+Explanation: Use of 'goto' is not permitted.
+
+Suggested Fix:
+```c
+while (n-- > 0) {
+  s++;
+}
+```
+
+---
+
+#### 15. Rule: 21.6 - Use of Standard I/O Functions
+
+Violating Code:
+```c
+printf("Client is running...\n");
+printf("\nEnter Command To Be Executed Remotely: \n");
+printf("Client is Connected Successfully...\n");
+printf("Server Reply: %s\n", recv_msg);
+printf("Client is offline...\n");
+```
+Explanation: Use of standard I/O functions is not permitted.
+
+Suggested Fix:
+```c
+/* Replace printf with application-specific output function */
+```
+
+---
+
+#### 16. Rule: 21.6 - Use of fgets
+
+Violating Code:
+```c
+fgets(send_msg, sizeof(send_msg), stdin);
+```
+Explanation: Use of standard input function is not permitted.
+
+Suggested Fix:
+```c
+/* Replace fgets with application-specific input function */
+```
+
+---
+
+#### 17. Rule: 21.6 - Use of perror
+
+Violating Code:
+```c
+perror("Socket Creation Failed");
+```
+Explanation: Use of standard I/O function is not permitted.
+
+Suggested Fix:
+```c
+/* Replace perror with application-specific error reporting */
+```
+
+---
