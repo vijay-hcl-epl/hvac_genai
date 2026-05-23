@@ -1,0 +1,182 @@
+### Safety-C Violations
+
+---
+
+#### 1. Rule: 7.1 - Octal constants shall not be used
+
+Violating Code:
+```c
+int r7_1_octal = 012;                  
+``
+Explanation: Octal constant 012 used; octal literals are not allowed.
+
+Suggested Fix:
+```c
+int r7_1_octal = 10;
+```
+
+---
+
+#### 2. Rule: 7.2 - Unsigned variables shall not be used for loop counters
+
+Violating Code:
+```c
+for (uint32_t i = 0U; i < ms; i++) { delay_us(1000U); }
+``
+Explanation: Unsigned type used as loop counter; may cause unexpected behavior if decremented below zero.
+
+Suggested Fix:
+```c
+for (int32_t i = 0; i < (int32_t)ms; i++) { delay_us(1000U); }
+```
+
+---
+
+#### 3. Rule: 8.7 - Functions and objects should not be defined with external linkage if referenced in only one translation unit
+
+Violating Code:
+```c
+extern const int r8_3_global;          
+int r8_3_global = 0;                   
+``
+Explanation: Object has external linkage but is only used in this file; should be static.
+
+Suggested Fix:
+```c
+static const int r8_3_global = 0;
+```
+
+---
+
+#### 4. Rule: 8.7 - Functions and objects should not be defined with external linkage if referenced in only one translation unit
+
+Violating Code:
+```c
+int r8_2_add(int, int);             
+...
+int r8_2_add(int a, int b) { return a + b; } 
+``
+Explanation: Function declared and defined with external linkage but only used in this file.
+
+Suggested Fix:
+```c
+static int r8_2_add(int a, int b) { return a + b; }
+```
+
+---
+
+#### 5. Rule: 1.1 - Syntax errors shall not be present
+
+Violating Code:
+```c
+int r1_1_syntax_error = ;          
+``
+Explanation: Missing initializer; this is a syntax error.
+
+Suggested Fix:
+```c
+int r1_1_syntax_error = 0;
+```
+
+---
+
+#### 6. Rule: 9.1 - The value of an automatic object shall not be read before it has been set
+
+Violating Code:
+```c
+int x;             
+if (x) {          
+```
+Explanation: Variable 'x' is used before being initialized.
+
+Suggested Fix:
+```c
+int x = 0;
+if (x) {
+```
+
+---
+
+#### 7. Rule: 1.2 - Language extensions should not be used
+
+Violating Code:
+```c
+__asm__("nop"); 
+``
+Explanation: Use of compiler-specific language extension (inline assembly).
+
+Suggested Fix:
+```c
+/* Remove or replace with standard C code if possible */
+```
+
+---
+
+#### 8. Rule: 2.2 - There shall be no dead code
+
+Violating Code:
+```c
+if (0) {
+    r7_1_octal++;
+}
+``
+Explanation: Code inside 'if (0)' is never executed (dead code).
+
+Suggested Fix:
+```c
+/* Remove the dead code block */
+```
+
+---
+
+#### 9. Rule: 2.1 - There shall be no unreachable code
+
+Violating Code:
+```c
+return;
+r7_2_unsigned++;  
+``
+Explanation: Code after 'return' is unreachable.
+
+Suggested Fix:
+```c
+return;
+/* Remove unreachable statement */
+```
+
+---
+
+#### 10. Rule: 2.7 - Unused function parameters should be removed
+
+Violating Code:
+```c
+static void r2_7_unused_param(int unused_param)
+{
+    
+}
+``
+Explanation: Function parameter 'unused_param' is not used.
+
+Suggested Fix:
+```c
+static void r2_7_unused_param(void)
+{
+    
+}
+```
+
+---
+
+#### 11. Rule: 11.8 - A cast should not remove any const or volatile qualification from the type pointed to by a pointer
+
+Violating Code:
+```c
+int *pc = (int *)&c;   
+*pc = 6;              
+``
+Explanation: Cast removes 'const' qualification from 'c'.
+
+Suggested Fix:
+```c
+/* Do not cast away const; avoid modifying const objects */
+```
