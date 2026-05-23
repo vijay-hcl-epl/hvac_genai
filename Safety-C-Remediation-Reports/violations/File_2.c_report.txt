@@ -1,0 +1,371 @@
+### Safety-C Violations
+
+---
+
+#### 1. Rule: 2.4 - Unused macro
+
+Violating Code:
+```c
+#define UNUSED_MACRO 100
+```
+Explanation: Unused macro defined but never referenced.
+
+Suggested Fix:
+```c
+/* #define UNUSED_MACRO 100 */
+```
+
+---
+
+#### 2. Rule: 8.7 - Non-static global variable
+
+Violating Code:
+```c
+int globalVar = 0;
+```
+Explanation: Non-static global variable increases risk of unintended access.
+
+Suggested Fix:
+```c
+static int globalVar = 0;
+```
+
+---
+
+#### 3. Rule: 14.2 - Empty loop body
+
+Violating Code:
+```c
+for(i = 0; i < 100000; i++);
+```
+Explanation: Empty loop body may indicate busy-wait or logic error.
+
+Suggested Fix:
+```c
+for(i = 0; i < 100000; i++)
+{
+    /* Intentional delay - consider using a hardware timer or comment */
+}
+```
+
+---
+
+#### 4. Rule: 1.3 - No input validation
+
+Violating Code:
+```c
+int add(int a, int b)
+{
+    // Violation 4: No input validation
+    return a + b;
+}
+```
+Explanation: Function does not validate input parameters.
+
+Suggested Fix:
+```c
+int add(int a, int b)
+{
+    /* Validate inputs as required */
+    return a + b;
+}
+```
+
+---
+
+#### 5. Rule: 18.1 - Array bounds
+
+Violating Code:
+```c
+arr[10] = 5;
+```
+Explanation: Accessing array out of bounds causes undefined behavior.
+
+Suggested Fix:
+```c
+/* arr[10] = 5; */ /* Ensure index is within bounds */
+```
+
+---
+
+#### 6. Rule: 9.1 - Use of uninitialized variable
+
+Violating Code:
+```c
+if(x == 5)
+```
+Explanation: Variable 'x' used before being initialized.
+
+Suggested Fix:
+```c
+x = 0;
+if(x == 5)
+```
+
+---
+
+#### 7. Rule: 1.3 - Division by zero
+
+Violating Code:
+```c
+int y = 10 / 0;
+```
+Explanation: Division by zero causes undefined behavior.
+
+Suggested Fix:
+```c
+/* int y = 10 / 0; */ /* Ensure divisor is not zero */
+```
+
+---
+
+#### 8. Rule: 1.3 - NULL pointer dereference
+
+Violating Code:
+```c
+char *ptr = NULL;
+*ptr = 10;
+```
+Explanation: Dereferencing NULL pointer causes undefined behavior.
+
+Suggested Fix:
+```c
+char data = 10;
+char *ptr = &data;
+*ptr = 10;
+```
+
+---
+
+#### 9. Rule: 21.6 - Freeing non-heap memory
+
+Violating Code:
+```c
+free(p);
+```
+Explanation: Attempting to free memory not allocated by malloc.
+
+Suggested Fix:
+```c
+/* free(p); */ /* Only free memory allocated by malloc */
+```
+
+---
+
+#### 10. Rule: 10.3 - Implicit narrowing conversion
+
+Violating Code:
+```c
+char b = a;
+```
+Explanation: Implicit conversion from int to char may lose data.
+
+Suggested Fix:
+```c
+char b = (char)a;
+```
+
+---
+
+#### 11. Rule: 8.9 - Magic number usage
+
+Violating Code:
+```c
+int x = 42;
+```
+Explanation: Use of magic number instead of named constant.
+
+Suggested Fix:
+```c
+#define ANSWER_TO_LIFE 42
+int x = ANSWER_TO_LIFE;
+```
+
+---
+
+#### 12. Rule: 2.7 - Unused variable
+
+Violating Code:
+```c
+int x = 5;
+```
+Explanation: Variable declared but not used.
+
+Suggested Fix:
+```c
+/* int x = 5; */
+```
+
+---
+
+#### 13. Rule: 17.2 - Recursion
+
+Violating Code:
+```c
+recursionFunction(n - 1);
+```
+Explanation: Recursion can cause stack overflow in embedded systems.
+
+Suggested Fix:
+```c
+/* Use iteration instead of recursion */
+```
+
+---
+
+#### 14. Rule: 15.5 - Multiple exit points
+
+Violating Code:
+```c
+if(a > 0)
+{
+    return;
+}
+return;
+```
+Explanation: Multiple return statements in function.
+
+Suggested Fix:
+```c
+void multipleReturn(int a)
+{
+    /* Refactor to single exit point */
+    /* ... */
+    return;
+}
+```
+
+---
+
+#### 15. Rule: 8.13 - Pointer should be to const
+
+Violating Code:
+```c
+int *p = &x;
+```
+Explanation: Pointer to object not modified should be const.
+
+Suggested Fix:
+```c
+const int *p = &x;
+```
+
+---
+
+#### 16. Rule: 11.4 - Dangerous cast between object pointer types
+
+Violating Code:
+```c
+int *p = (int*)&f;
+```
+Explanation: Casting between incompatible pointer types.
+
+Suggested Fix:
+```c
+/* Avoid casting float* to int* */
+```
+
+---
+
+#### 17. Rule: 9.1 - Use of uninitialized pointer
+
+Violating Code:
+```c
+int *p;
+*p = 5;
+```
+Explanation: Pointer used before being initialized.
+
+Suggested Fix:
+```c
+int value = 5;
+int *p = &value;
+*p = 5;
+```
+
+---
+
+#### 18. Rule: 2.2 - Dead code
+
+Violating Code:
+```c
+return;
+int x = 5;
+```
+Explanation: Code after return statement is unreachable.
+
+Suggested Fix:
+```c
+return;
+/* int x = 5; */
+```
+
+---
+
+#### 19. Rule: 16.4 - No default case in switch
+
+Violating Code:
+```c
+switch(x)
+{
+    case 1:
+        break;
+    case 2:
+        break;
+}
+```
+Explanation: Switch statement lacks a default case.
+
+Suggested Fix:
+```c
+switch(x)
+{
+    case 1:
+        break;
+    case 2:
+        break;
+    default:
+        break;
+}
+```
+
+---
+
+#### 20. Rule: 1.1 - Function used without declaration
+
+Violating Code:
+```c
+undeclaredFunction();
+```
+Explanation: Function used without prior declaration.
+
+Suggested Fix:
+```c
+void undeclaredFunction(void);
+undeclaredFunction();
+```
+
+---
+
+#### 21. Rule: 8.12 - Missing volatile for shared variable
+
+Violating Code:
+```c
+int flag = 0;
+
+while(flag == 0)
+{
+    // wait
+}
+```
+Explanation: Shared variable should be declared volatile.
+
+Suggested Fix:
+```c
+volatile int flag = 0;
+
+while(flag == 0)
+{
+    /* wait */
+}
+```
