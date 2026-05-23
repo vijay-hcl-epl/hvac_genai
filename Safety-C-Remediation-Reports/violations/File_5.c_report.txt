@@ -1,0 +1,285 @@
+### Safety-C Violations
+
+---
+
+#### 1. Rule: 7.1 - Octal constants should not be used
+
+Violating Code:
+```c
+int r7_1_octal = 012;
+```
+Explanation: Octal integer constants can be confusing and should be avoided.
+
+Suggested Fix:
+```c
+int r7_1_octal = 10;
+```
+
+---
+
+#### 2. Rule: 7.3 - Lowercase 'l' shall not be used as a suffix for a literal
+
+Violating Code:
+```c
+long r7_3_lowerell = 10l;
+```
+Explanation: Lowercase 'l' is easily confused with '1'; use uppercase 'L'.
+
+Suggested Fix:
+```c
+long r7_3_lowerell = 10L;
+```
+
+---
+
+#### 3. Rule: 8.3 - Objects shall be defined at block scope if they are only accessed from within a single function
+
+Violating Code:
+```c
+extern const int r8_3_global;         
+int r8_3_global = 0;                
+```
+Explanation: Object with external linkage is only used in one translation unit.
+
+Suggested Fix:
+```c
+static const int r8_3_global = 0;
+```
+
+---
+
+#### 4. Rule: 8.10 - An inline function shall be declared with the static storage class
+
+Violating Code:
+```c
+inline int r8_10_inline(void) { return 0; }
+```
+Explanation: Inline functions should be declared static to avoid external linkage.
+
+Suggested Fix:
+```c
+static inline int r8_10_inline(void) { return 0; }
+```
+
+---
+
+#### 5. Rule: 9.1 - Automatic variables shall not be used without being initialized
+
+Violating Code:
+```c
+int x;              
+if (x) { }
+```
+Explanation: Variable 'x' is used without initialization.
+
+Suggested Fix:
+```c
+int x = 0;
+if (x) { }
+```
+
+---
+
+#### 6. Rule: 10.3 - The value of an expression shall not be assigned to an object with a narrower essential type or of a different essential type category without explicit cast
+
+Violating Code:
+```c
+uc = f;             
+```
+Explanation: Assignment from float to unsigned char without explicit cast.
+
+Suggested Fix:
+```c
+uc = (unsigned char)f;
+```
+
+---
+
+#### 7. Rule: 11.4 - A conversion should not be performed between a pointer to object and an integer type
+
+Violating Code:
+```c
+unsigned long addr = (unsigned long)&errno;
+```
+Explanation: Pointer to object is cast to integer type.
+
+Suggested Fix:
+```c
+uintptr_t addr = (uintptr_t)&errno;
+```
+
+---
+
+#### 8. Rule: 11.6 - A cast shall not be performed between pointer to void and an arithmetic type, other than to uintptr_t or intptr_t
+
+Violating Code:
+```c
+int i = (int)vp;
+```
+Explanation: Void pointer is cast directly to int.
+
+Suggested Fix:
+```c
+intptr_t i = (intptr_t)vp;
+```
+
+---
+
+#### 9. Rule: 11.8 - A cast shall not remove any const or volatile qualification from the type pointed to by a pointer
+
+Violating Code:
+```c
+int *pc = (int *)&c; 
+```
+Explanation: Cast removes const qualification from pointer.
+
+Suggested Fix:
+```c
+const int *pc = &c;
+```
+
+---
+
+#### 10. Rule: 11.9 - The macro NULL shall be used as the only null pointer constant
+
+Violating Code:
+```c
+int *p = 0;          
+```
+Explanation: Integer 0 used as null pointer constant instead of NULL.
+
+Suggested Fix:
+```c
+int *p = NULL;
+```
+
+---
+
+#### 11. Rule: 12.1 - The precedence of operators within expressions should be made explicit
+
+Violating Code:
+```c
+if (a & b == 0) {   
+```
+Explanation: Operator precedence is unclear; parentheses required.
+
+Suggested Fix:
+```c
+if ((a & b) == 0) {
+```
+
+---
+
+#### 12. Rule: 12.3 - The comma operator shall not be used
+
+Violating Code:
+```c
+return (t = 1, t + 2);
+```
+Explanation: Use of comma operator is not allowed.
+
+Suggested Fix:
+```c
+t = 1;
+return t + 2;
+```
+
+---
+
+#### 13. Rule: 15.1 - A function should have a single point of exit at the end
+
+Violating Code:
+```c
+void error()
+{
+  perror("Socket Creation Failed");
+  exit(EXIT_FAILURE);
+}
+```
+Explanation: Function exits via exit(), not at a single return point.
+
+Suggested Fix:
+```c
+void error()
+{
+  perror("Socket Creation Failed");
+}
+```
+
+---
+
+#### 14. Rule: 15.1 - A function should have a single point of exit at the end
+
+Violating Code:
+```c
+if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+{
+  error();
+}
+```
+Explanation: Early exit via error() and exit() instead of returning at end.
+
+Suggested Fix:
+```c
+if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+{
+  error();
+  return 1;
+}
+```
+
+---
+
+#### 15. Rule: 15.1 - A function should have a single point of exit at the end
+
+Violating Code:
+```c
+if (bind(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+{
+  error(); /// If binding is unsuccessful
+}
+```
+Explanation: Early exit via error() and exit() instead of returning at end.
+
+Suggested Fix:
+```c
+if (bind(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+{
+  error();
+  return 1;
+}
+```
+
+---
+
+#### 16. Rule: 15.3 - The goto statement shall not be used
+
+Violating Code:
+```c
+if (n-- > 0) goto start; 
+```
+Explanation: Use of goto statement is not allowed.
+
+Suggested Fix:
+```c
+while (n-- > 0) {
+  s++;
+}
+```
+
+---
+
+#### 17. Rule: 21.6 - The standard library function system() shall not be used
+
+Violating Code:
+```c
+system(recv_msg);
+```
+Explanation: Use of system() is prohibited due to security risks.
+
+Suggested Fix:
+```c
+/* Remove or replace system() with safer alternative */
+```
+
+---
