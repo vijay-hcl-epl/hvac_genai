@@ -1,0 +1,98 @@
+# HVAC Flap Actuator — Software Architecture (SWE.2)
+
+**Scope:**
+This architecture is derived exclusively from the supplied system and software requirements for the HVAC Flap Actuator application (branch: demojun-10a).
+
+---
+
+## 1. ARCHITECTURE STYLE SELECTION
+
+### Candidate Styles Considered
+- Layered (Presentation, Application, Hardware Abstraction)
+- Component-Based (distinct modules for each function or interface)
+- Monolithic (single-block with functional separation only through code structure)
+- Service-Oriented / Microkernel (not suitable; out of scope per SYS/SWE.1)
+
+### Evaluation
+
+| Style            | System Complexity | HW Interaction | Testability       | Maintainability   | ASPICE L3 Fit           |
+|------------------|------------------|----------------|-------------------|-------------------|-------------------------|
+| Layered          | Moderate         | Good           | Good              | Good              | Well-suited             |
+| Component-Based  | Moderate         | Very Good      | Very Good         | Very Good         | Well-suited             |
+| Monolithic       | Simple           | Acceptable     | Limited           | Poor              | Not preferred           |
+| Service/Micro    | Excessive        | Overkill       | Unneeded          | Overengineered    | Not justified           |
+
+### Style Decision
+**Selected:**  
+**Component-based architecture** (justified below).
+
+**Rational & Justification:**  
+- System and SWE.1 both require clear interface abstraction (UART, GPIO/PWM, ADC, LEDs) with direct traceability to functional decomposition (SWE-REQ-016 thru SWE-REQ-019); these are best modularized as components.
+- Testability and maintainability increased via explicit interface separation.
+- System complexity is low—layered is possible, but a flat component model achieves the modularity and traceability sought by SWE.1/ASPICE.
+- Monolithic design explicitly rejected for long-term maintainability and traceability reasons.
+- Service/microkernel not justified due to simplicity and lack of dynamic or distributed requirements.
+
+---
+
+## 2. ARCHITECTURE DEFINITION
+
+### Top-Level Component Diagram (Text)
+
+```
++-----------------------------+
+|      Command Manager        |<-------- UART Input (SWE-REQ-016)
++-------------+---------------+
+              |
+              v
++-------------+---------------+
+| Flap Control Coordinator    |
++---+-------------+----+------+
+    |             |    |
+    v             v    v
++---+---+     +---+---+  +-----+
+| Motor |     |Feedback|  |LEDs|
+| Ctrl  |     |Proc.   |  |Mgmt|
++-------+     +-------+  +-----+
+     |            |      ^
+     v            |      |
+ +----------------+------+
+ |  Hardware Abstraction  |----> GPIO/PWM/ADC Drivers (SWE-REQ-017/018/019)
+ +-----------------------+
+```
+
+- User command input triggers `Command Manager`.
+- `Command Manager` invokes `Flap Control Coordinator` to process and direct operations.
+- `Flap Control Coordinator` orchestrates:
+    - Motor actions via `Motor Control`
+    - ADC feedback via `Feedback Processing`
+    - LED indications via `LED Management`
+- All external HW accesses handled via dedicated driver interfaces.
+
+#### No explicit execution model or scheduling policy is mandated by the requirements at this stage.
+
+---
+
+## 3. SOFTWARE UNIT RESPONSIBILITY TABLE
+
+| Software Unit         | Responsibilities                                                               | Interfaces Provided   | Interfaces Used                          |
+|---------------------- |-------------------------------------------------------------------------------|----------------------|------------------------------------------|
+| Command Manager       | Decode UART input, validate commands, initiate position change (SWE-REQ-001/002/003)     | Command API          | UART input, Flap Control Coordinator     |
+| Flap Control Coordinator | Orchestrate overall movement: position tracking, action sequencing (SWE-REQ-004/005/023/026) | Flap Action API      | Command Manager, Motor Control, Feedback Processing, LED Management |
+| Motor Control         | Operate motor: enable/disable, set direction, stop at target or on error (SWE-REQ-006/007/008/027) | Motor Driver API     | GPIO/PWM abstraction, Flap Control Coordinator                          |
+| Feedback Processing   | Acquire/process ADC values, map to discrete positions, error flagging (SWE-REQ-009/010/011/012/025) | Feedback API         | ADC abstraction, Flap Control Coordinator                             |
+| LED Management        | Update status/position LEDs for power-up, movement, and feedback (SWE-REQ-013/014/015/026) | LED API              | GPIO abstraction, Flap Control Coordinator                            |
+| Hardware Abstraction  | Logical driver interface over GPIO, ADC, PWM (initialization & runtime use) (SWE-REQ-017/018/019/020) | GPIO/ADC/PWM APIs    | MCU periphery, Motor Control, Feedback, LED Management                  |
+
+**Traceability:**  
+Every unit's responsibilities directly trace to numbered SWE.1 requirements.
+
+---
+
+## 4. FINAL REMARKS (STRICT SWE.2 SCOPE)
+
+- No scheduling/timing, event sequencing, OS, or concurrency is introduced since SWE.1 requirements do not mandate such details.
+- No behavior or safety extensions included.
+- Interface and component boundaries are strictly based on functions present in SWE.1.
+- No implementation detail, code, or algorithmic content is present.
+- This architecture is suitable for future decomposition into SWE.3 design if/when required.
