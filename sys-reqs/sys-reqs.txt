@@ -1,0 +1,78 @@
+1.0 System Overview
+The HVAC Flap Actuator system is a microcontroller-based prototype designed to control an air flap using a DC motor, providing discrete position control for air distribution in an HVAC system. Position feedback is via a potentiometer read by an ADC, and user commands are received over UART. Visual feedback is provided using LEDs. All operations are local; no vehicle network interfaces are present.
+
+2.0 Flap Position Control
+SYS-REQ-001: The system SHALL accept user commands to set the HVAC flap to one of six discrete positions (0 to 5).
+SYS-REQ-002: The system SHALL move the flap to the commanded position if the command is valid.
+SYS-REQ-003: The system SHALL stop the motor once the target position is reached.
+SYS-REQ-004: The system SHALL ignore invalid position commands (i.e., commands not corresponding to positions 0–5).
+SYS-REQ-005: The mapping of ADC values to positions SHALL be defined in software.
+[Implied] The system SHALL not act on simultaneous contradictory commands (by accepting only one command at a time).
+
+3.0 Motor Control
+SYS-REQ-006: The system SHALL control the motor direction based on the required flap movement (clockwise or anti-clockwise).
+SYS-REQ-007: The system SHALL switch off (disable) the motor when the target position is reached or an error/invalid state is detected.
+SYS-REQ-008: Motor start and stop SHALL be managed via GPIO and PWM as appropriate.
+[Implied] The system SHALL ensure the flap is only moved upon receipt of a valid command.
+
+4.0 Position Feedback Acquisition & Processing
+SYS-REQ-009: The system SHALL read flap position using the potentiometer connected to an ADC channel.
+SYS-REQ-010: The system SHALL process and map ADC readings to discrete flap positions (0–5).
+SYS-REQ-011: The system SHALL stop the motor if ADC values fall outside the valid range.
+[Implied] The system SHALL periodically acquire and update position feedback.
+
+5.0 User Command Interface
+SYS-REQ-012: The system SHALL receive user commands via UART.
+SYS-REQ-013: The system SHALL accept only numeric commands within the allowed range (0–5).
+SYS-REQ-014: The system SHALL not transmit acknowledgments or errors for invalid commands.
+[Implied] Commands from only one user/source SHALL be supported at a time.
+
+6.0 Status Indication
+SYS-REQ-015: The system SHALL turn on a dedicated power/status LED when the system is powered up.
+SYS-REQ-016: The system SHALL illuminate a green LED corresponding to the current flap position so that only one position LED is ON at any time.
+[Implied] LED indication SHALL update if the flap position changes as a result of a command or at power-up.
+
+7.0 System Behavior (power-up, idle, normal, target reached, invalid input)
+SYS-REQ-017: On power-up, the system SHALL initialize all peripherals (ADC, UART, GPIO, PWM), leave the motor OFF, read current flap position, turn the status LED ON, and illuminate the correct position LED.
+SYS-REQ-018: While idle (no user command), the system SHALL monitor UART for commands and flap position for feedback indication.
+SYS-REQ-019: When moving to a new position, the system SHALL update position indication and switch off the motor once the position is achieved.
+SYS-REQ-020: If an invalid command is received, the system SHALL ignore it and continue normal operation.
+[Implied] System states SHALL be managed according to this behavioral logic.
+
+8.0 Interfaces (UART, motor driver, ADC, LEDs)
+SYS-REQ-021: The system SHALL communicate with a PC/user via UART for command input.
+SYS-REQ-022: The system SHALL interface with the motor driver (L298N) for motor actuation using GPIO and PWM.
+SYS-REQ-023: The system SHALL use an ADC channel for flap position feedback from the potentiometer.
+SYS-REQ-024: The system SHALL use GPIOs to control all status and position LEDs.
+[Implied] Each interface SHALL be initialized and monitored for correct operation upon system start.
+
+9.0 Constraints & Assumptions
+SYS-REQ-025: The system SHALL operate as a single-flap, single-user, local controller only.
+SYS-REQ-026: Calibration/position-mapping values SHALL be fixed in software; no self-learning or run-time calibration is required.
+SYS-REQ-027: The system SHALL not assume perfect hardware; invalid readings must be handled as specified; advanced diagnostics are not required.
+[Implied] The hardware setup (motor, gears, potentiometer) is mechanically correct.
+
+10.0 Non-Functional Requirements
+10.1 Responsiveness
+SYS-REQ-028: The system SHALL process UART commands and update position/LED indication with responsiveness suitable for interactive manual testing (typically < 1 second per action, but no strict timing).
+
+10.2 Error Handling & Edge Cases
+SYS-REQ-029: The system SHALL stop the motor for any out-of-range ADC readings or unrecognized position commands.
+SYS-REQ-030: The system SHALL not hang or crash if the commanded position cannot be achieved (e.g., due to hardware limits or potentiometer fault).
+
+10.3 Resource Constraints
+SYS-REQ-031: The system SHALL operate within the memory, I/O, and processing power available on the STM32F407-Discovery platform.
+
+10.4 Maintainability & Modularity
+SYS-REQ-032: Code and configuration values for positions, calibration, interfaces, and state indication SHALL be separated and well-documented for ease of change.
+
+10.5 Testability
+SYS-REQ-033: The system SHALL support testability via user command input (UART), observable motor behavior, and LED output.
+[Implied] Manual/script-based testing SHALL be feasible using listed interfaces and behaviors.
+
+Architecture-Relevant Considerations Derived from System Requirements
+
+- Concurrency: Only implicit, low-level concurrency (e.g., interrupt-driven UART/ADC) is suggested; the system logic itself is single-command-at-a-time, with simple event handling.
+- Interaction Complexity: The system has low interaction complexity; user commands are one-at-a-time, and control/feedback interfaces are direct.
+- Control Complexity: The control logic is straightforward with stateful behavior tracked via software variables and simple status indication.
+- Expandability: The system could be extended to support more positions or features, but is explicitly single-flap, single-user, no networking as per requirements.
