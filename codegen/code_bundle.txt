@@ -1,0 +1,288 @@
+###### FILE: code/inc/command_manager.h ######
+#ifndef COMMAND_MANAGER_H
+#define COMMAND_MANAGER_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+void Handle_UART_Command(const char *input);
+
+#endif // COMMAND_MANAGER_H
+###### END FILE ######
+
+###### FILE: code/inc/flap_control_coordinator.h ######
+#ifndef FLAP_CONTROL_COORDINATOR_H
+#define FLAP_CONTROL_COORDINATOR_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+typedef enum {
+    DIR_CW,
+    DIR_CCW
+} direction_t;
+
+void Process_Position_Request(uint8_t target);
+void FlapControl_Feedback_Update(uint8_t feedback_position);
+void FlapControl_Error_Handler(void);
+
+#endif // FLAP_CONTROL_COORDINATOR_H
+###### END FILE ######
+
+###### FILE: code/inc/motor_control.h ######
+#ifndef MOTOR_CONTROL_H
+#define MOTOR_CONTROL_H
+
+#include <stdint.h>
+#include <stdbool.h>
+#include "flap_control_coordinator.h"
+
+void Enable_Motor(direction_t dir);
+void Disable_Motor(void);
+
+#endif // MOTOR_CONTROL_H
+###### END FILE ######
+
+###### FILE: code/inc/feedback_processing.h ######
+#ifndef FEEDBACK_PROCESSING_H
+#define FEEDBACK_PROCESSING_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+uint8_t Get_Current_Position(void);
+
+#endif // FEEDBACK_PROCESSING_H
+###### END FILE ######
+
+###### FILE: code/inc/led_management.h ######
+#ifndef LED_MANAGEMENT_H
+#define LED_MANAGEMENT_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+void Set_Status_LED(bool on);
+void Set_Position_LED(uint8_t pos);
+
+#endif // LED_MANAGEMENT_H
+###### END FILE ######
+
+###### FILE: code/inc/hardware_abstraction.h ######
+#ifndef HARDWARE_ABSTRACTION_H
+#define HARDWARE_ABSTRACTION_H
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// Init peripherals (GPIO, ADC, PWM, UART)
+int Init_Hardware(void);
+int GPIO_Write(uint8_t pin, bool val);
+int PWM_Set(uint8_t channel, uint16_t value);
+uint16_t ADC_Read(uint8_t channel);
+
+#endif // HARDWARE_ABSTRACTION_H
+###### END FILE ######
+
+###### FILE: code/src/command_manager.c ######
+#include "command_manager.h"
+#include "flap_control_coordinator.h"
+#include <string.h>
+
+// Config: ASCII digit range for positions 0-5
+#define CMD_MIN '0'
+#define CMD_MAX '5'
+#define MAX_CMD_LEN 8
+
+static int command_in_progress = 0;
+static uint8_t command_value = 0;
+static bool error_flag = false;
+
+void Handle_UART_Command(const char *input) {
+    if (command_in_progress) return;
+    if (!input || strlen(input) == 0 || strlen(input) > MAX_CMD_LEN)
+        goto invalid;
+    if (input[1] != '\0')
+        goto invalid;
+    if (input[0] < CMD_MIN || input[0] > CMD_MAX)
+        goto invalid;
+    command_value = (uint8_t)(input[0] - '0');
+    error_flag = false;
+    command_in_progress = 1;
+    Process_Position_Request(command_value);
+    return;
+invalid:
+    error_flag = true;
+}
+
+// Callback from FlapControl when command processing is complete
+void CommandManager_Complete(void) {
+    command_in_progress = 0;
+}
+###### END FILE ######
+
+###### FILE: code/src/flap_control_coordinator.c ######
+#include "flap_control_coordinator.h"
+#include "motor_control.h"
+#include "feedback_processing.h"
+#include "led_management.h"
+
+static uint8_t target_position = 0;
+static uint8_t current_position = 0;
+static bool move_in_progress = false;
+static bool error_state = false;
+
+void Process_Position_Request(uint8_t target) {
+    if (move_in_progress || error_state) return;
+    if (target > 5) return;
+    if (target == current_position) return;
+    target_position = target;
+    move_in_progress = true;
+    direction_t dir = (target_position > current_position) ? DIR_CW : DIR_CCW;
+    Enable_Motor(dir);
+}
+
+void FlapControl_Feedback_Update(uint8_t feedback_position) {
+    current_position = feedback_position;
+    if (move_in_progress && current_position == target_position) {
+        Disable_Motor();
+        move_in_progress = false;
+        Set_Position_LED(current_position);
+        CommandManager_Complete();
+    }
+}
+
+void FlapControl_Error_Handler(void) {
+    Disable_Motor();
+    error_state = true;
+    move_in_progress = false;
+}
+
+// For simulation, add a reset function (not called by main.c)
+void FlapControl_Reset_Error(void) {
+    error_state = false;
+}
+###### END FILE ######
+
+###### FILE: code/src/motor_control.c ######
+#include "motor_control.h"
+#include "hardware_abstraction.h"
+
+static enum {Motor_Stopped, Motor_MovingCW, Motor_MovingCCW} motor_state = Motor_Stopped;
+static bool error_flag = false;
+
+void Enable_Motor(direction_t dir) {
+    if (motor_state != Motor_Stopped) return;
+    if (dir == DIR_CW) {
+        PWM_Set(0, 100); // Example: channel 0, full speed CW
+    } else {
+        PWM_Set(0, 100); // Example: channel 0, full speed CCW
+    }
+    motor_state = (dir == DIR_CW) ? Motor_MovingCW : Motor_MovingCCW;
+    GPIO_Write(1, true); // Enable motor output
+}
+
+void Disable_Motor(void) {
+    PWM_Set(0, 0);
+    GPIO_Write(1, false);
+    motor_state = Motor_Stopped;
+    error_flag = false;
+}
+###### END FILE ######
+
+###### FILE: code/src/feedback_processing.c ######
+#include "feedback_processing.h"
+#include "hardware_abstraction.h"
+
+// Example mapping table (calibration: should be maintained by config)
+typedef struct {
+    uint16_t adc_min;
+    uint16_t adc_max;
+    uint8_t position;
+} position_map_t;
+
+static const position_map_t pos_table[6] = {
+    {0,  6554, 0},
+    {6555, 13108, 1},
+    {13109, 19662, 2},
+    {19663, 26216, 3},
+    {26217, 32770, 4},
+    {32771, 40959, 5}
+};
+
+uint8_t Get_Current_Position(void) {
+    uint16_t adc = ADC_Read(0);
+    for (int i = 0; i < 6; i++) {
+        if (adc >= pos_table[i].adc_min && adc <= pos_table[i].adc_max)
+            return pos_table[i].position;
+    }
+    return 0xFF; // Invalid position
+}
+###### END FILE ######
+
+###### FILE: code/src/led_management.c ######
+#include "led_management.h"
+#include "hardware_abstraction.h"
+
+void Set_Status_LED(bool on) {
+    GPIO_Write(2, on); // status LED assumed at pin 2
+}
+
+void Set_Position_LED(uint8_t pos) {
+    // Six position LEDs at pins 10–15
+    for (uint8_t i = 0; i < 6; i++)
+        GPIO_Write(10 + i, (i == pos));
+}
+###### END FILE ######
+
+###### FILE: code/src/hardware_abstraction.c ######
+#include "hardware_abstraction.h"
+
+int Init_Hardware(void) {
+    // TODO: configure all peripherals (GPIO, ADC, UART, PWM)
+    return 0;
+}
+
+int GPIO_Write(uint8_t pin, bool val) {
+    // TODO: implement MCU-specific write
+    (void)pin; (void)val;
+    return 0;
+}
+
+int PWM_Set(uint8_t channel, uint16_t value) {
+    // TODO: implement
+    (void)channel; (void)value;
+    return 0;
+}
+
+uint16_t ADC_Read(uint8_t channel) {
+    // TODO: return dummy for simulation
+    (void)channel;
+    return 1000; // Simulation value
+}
+###### END FILE ######
+
+###### FILE: code/src/main.c ######
+#include "hardware_abstraction.h"
+#include "command_manager.h"
+#include "led_management.h"
+#include "flap_control_coordinator.h"
+#include <stdio.h>
+
+int main(void) {
+    Init_Hardware();
+    Set_Status_LED(true);
+    uint8_t pos = Get_Current_Position();
+    Set_Position_LED(pos != 0xFF ? pos : 0);
+    // Main loop stub for polling UART and periodic feedback sample
+    while (1) {
+        // Simulation: handle some example UART command
+        // e.g., Handle_UART_Command("2");
+        // Periodically update feedback to flap control
+        FlapControl_Feedback_Update(Get_Current_Position());
+        // Sleep, wait for events, etc. (not implemented)
+        break; // Remove or replace with real event loop
+    }
+    return 0;
+}
+###### END FILE ######
