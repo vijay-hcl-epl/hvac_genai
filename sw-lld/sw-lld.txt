@@ -1,0 +1,301 @@
+# HVAC Flap Actuator Low-Level Software Design (SWE.3)
+
+### Scope
+Detailed, traceable designs for all software units in branch demojun-10a based strictly on architecture and software requirements. No new units, no additional architecture, no scheduling, no code.
+
+---
+
+## Software Unit: Command Manager
+
+1. Responsibilities
+   - Handles: UART command reception, validation, decoding, and initiation of position requests.
+   - Does not handle: communication protocols, hardware error recovery, or scheduling.
+
+2. Internal Data Design
+   - RX buffer: Fixed-size char array (length defined in config, ~8 chars for ASCII encoding)
+   - Command variable: integer (0-5), stores decoded position
+   - Error flag: Boolean, indicates invalid command
+   - State: none (see below)
+   - Configuration: Acceptable character set (ASCII digits '0'-'5')
+
+3. State Machine
+   - State: none (function is simple input processing, not event- or state-driven)
+   - Flow: On UART receive event, buffer input, decode command, set error flag if invalid
+
+4. Algorithms & Control Flow
+   - On UART RX:
+     - Buffer input
+     - Validate ASCII integer value ('0'-'5')
+     - If valid: set command variable and clear error flag
+     - If invalid: set error flag, ignore
+     - Pass valid command to Flap Control Coordinator
+     - Ignore further input until completion callback from Flap Control Coordinator
+
+5. Interfaces (APIs)
+   - Provided: void Handle_UART_Command(const char *input)
+     - Params: input buffer (const char*)
+     - Returns: none
+     - Error reporting: internal error flag
+   - Required: void Request_Position(uint8_t position)
+     - Params: position (0-5)
+     - Returns: ACK (internal), no external reporting
+
+6. Error Handling
+   - Sets error flag and ignores invalid/duplicate commands (SWE-REQ-002, SWE-REQ-028)
+   - No external error communication
+
+7. Resource & Timing Considerations
+   - Invoked only on UART RX event
+   - WCET: <<1ms (command parse/decode only)
+   - Not re-entrant (single command at a time)
+
+8. Traceability
+   - SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-016, SWE-REQ-028
+
+---
+
+## Software Unit: Flap Control Coordinator
+
+1. Responsibilities
+   - Handles: Main control sequencing, position tracking, high-level actions
+   - Does not handle: hardware, direct input/output, or scheduling
+
+2. Internal Data Design
+   - Target position: integer (0-5)
+   - Current position: integer (updated from feedback)
+   - Move in progress flag: Boolean
+   - Error state: Boolean
+   - Configuration: movement debounce time (optional)
+
+3. State Machine
+   - States: Idle, MoveRequested, Moving, AtTarget, Error
+   - Events: New command, feedback update, error detect, position complete
+   - Transitions/action summary:
+     - Idle → MoveRequested (new valid command)
+     - MoveRequested → Moving (command accepted, motor start)
+     - Moving → AtTarget (feedback = target)
+     - Any → Error (error flag set)
+     - AtTarget/Error → Idle (on clear/reset)
+
+4. Algorithms & Control Flow
+   - On valid position request:
+     - If not moving, check validity vs current
+     - If change needed, save as target, arm movement flag
+     - Request Motor Control for movement
+   - On feedback update:
+     - Update current position
+     - If reached target, request Motor Control stop
+     - Update LED Management with new position
+   - On error:
+     - Request Motor Control stop
+     - Set error state, block new commands until cleared
+
+5. Interfaces (APIs)
+   - Provided: void Process_Position_Request(uint8_t target)
+   - Required:
+     - void Initiate_Motor_Move(direction_t dir)
+     - void Stop_Motor(void)
+     - void Update_Leds(uint8_t position)
+     - uint8_t Get_Feedback_Position(void)
+     - void Error_Handler(void)
+   - Params/returns per above, no external errors
+
+6. Error Handling
+   - Sets and blocks on error, only explicit reset clears
+   - Requests error actions by Motor/LED units
+
+7. Resource & Timing Considerations
+   - Invoked on command or feedback
+   - WCET: <<2ms (simple logic only)
+   - Not re-entrant (one movement at a time)
+
+8. Traceability
+   - SWE-REQ-004, SWE-REQ-005, SWE-REQ-012, SWE-REQ-023, SWE-REQ-024, SWE-REQ-026
+
+---
+
+## Software Unit: Motor Control
+
+1. Responsibilities
+   - Handles: Motor enable/disable, direction setting
+   - Does not handle: position/logic validation or scheduling
+
+2. Internal Data Design
+   - Motor state: enum (Stopped, MovingCW, MovingCCW)
+   - State variable: above
+   - Error flag: Boolean
+   - Config: GPIO/PWM control data
+
+3. State Machine
+   - States: Stopped, MovingCW, MovingCCW
+   - Actions: Set relevant outputs, stop on request
+   - Events: Start/stop from control coordinator, Error
+
+4. Algorithms & Control Flow
+   - On move request:
+     - Set direction output
+     - Set motor enable
+     - State = Moving
+   - On stop/error:
+     - Clear enable output
+     - State = Stopped
+
+5. Interfaces (APIs)
+   - Provided:
+     - void Enable_Motor(direction_t dir)
+     - void Disable_Motor(void)
+   - Required:
+     - int Set_Motor_Outputs(direction_t, bool enable)
+   - Params: direction, enable
+   - Error reporting: Returns error code from Set_Motor_Outputs
+
+6. Error Handling
+   - On error or invalid request, disables all outputs
+
+7. Resource & Timing Considerations
+   - Invoked only on valid requests
+   - WCET: <<1ms
+   - Not re-entrant
+
+8. Traceability
+   - SWE-REQ-006, SWE-REQ-007, SWE-REQ-008, SWE-REQ-027
+
+---
+
+## Software Unit: Feedback Processing
+
+1. Responsibilities
+   - Handles: ADC reading, mapping, and validation of position feedback
+   - Does not handle: direct sensor/hardware management
+
+2. Internal Data Design
+   - ADC value: uint16_t
+   - Position table: array of structs (ADC thresholds to position)
+   - State: none (stateless between readings)
+   - Error flag: Boolean
+
+3. State Machine
+   - State: none (invoked per sample, no persistence)
+   - Flow: Read ADC, map value, flag error if out-of-range
+
+4. Algorithms & Control Flow
+   - On feedback request:
+     - Read ADC sample
+     - For each range, check where value falls
+     - Return mapped position (0–5), set error if not valid/calibrated
+
+5. Interfaces (APIs)
+   - Provided:
+     - uint8_t Get_Current_Position(void)
+   - Required:
+     - uint16_t Read_ADC(void)
+     - struct pos_table *Get_Pos_Mapping(void)
+   - Params: none
+   - Error: returns special code or error flag on out-of-range
+
+6. Error Handling
+   - If sample invalid, set error for Flap Control; never blocks or retries
+
+7. Resource & Timing Considerations
+   - Invoked on demand
+   - WCET: <<1ms
+   - Re-entrancy not required; no state between invocations
+
+8. Traceability
+   - SWE-REQ-009, SWE-REQ-010, SWE-REQ-011, SWE-REQ-012, SWE-REQ-025
+
+---
+
+## Software Unit: LED Management
+
+1. Responsibilities
+   - Handles: Status and position indication through LEDs
+   - Does not handle: scheduling or advanced diagnostics
+
+2. Internal Data Design
+   - Status LED state: Boolean
+   - Position LEDs: Bit field or array (6 bits)
+   - State: none (values reflect inputs only)
+   - Config: GPIO mapping struct
+
+3. State Machine
+   - State: none (outputs reflect inputs)
+   - Flow: On change event, update outputs
+
+4. Algorithms & Control Flow
+   - On init:
+     - Set status LED to ON
+     - Turn ON only position LED matching current position; clear others
+   - On position change:
+     - Update LEDs accordingly
+
+5. Interfaces (APIs)
+   - Provided:
+     - void Set_Status_LED(bool on)
+     - void Set_Position_LED(uint8_t pos)
+   - Required:
+     - int Write_LED_Outputs(uint8_t ledmask)
+   - Params: as above
+   - Error: none returned; interface never fails silently
+
+6. Error Handling
+   - LEDs show only valid status; no explicit error indication logic
+
+7. Resource & Timing Considerations
+   - Invoked on init or position change
+   - WCET: <<1ms
+   - Not re-entrant
+
+8. Traceability
+   - SWE-REQ-013, SWE-REQ-014, SWE-REQ-015, SWE-REQ-019, SWE-REQ-026
+
+---
+
+## Software Unit: Hardware Abstraction
+
+1. Responsibilities
+   - Handles: Logical abstraction of GPIO, ADC, UART, PWM peripheral access
+   - Does not handle: hardware faults, low-level driver implementation
+
+2. Internal Data Design
+   - Peripherals: structs for config/handles (GPIO pins, ADC channels, UART instance)
+   - Init state: Boolean (one-shot)
+
+3. State Machine
+   - State: Initializing, Ready
+   - Event: Init call, peripheral ready
+   - Only one transition: Initializing → Ready
+
+4. Algorithms & Control Flow
+   - On init:
+     - Configure all peripherals per static config
+     - Validate status; update init state
+   - On access:
+     - Provide Apis to read/write discrete entities
+
+5. Interfaces (APIs)
+   - Provided:
+     - int Init_Hardware(void)
+     - int GPIO_Write(uint8_t pin, bool val)
+     - int PWM_Set(uint8_t channel, uint16_t value)
+     - uint16_t ADC_Read(uint8_t channel)
+   - Required: None (direct peripheral)
+   - Params: as above
+   - Error: return code per call
+
+6. Error Handling
+   - Returns error status to all requests
+
+7. Resource & Timing Considerations
+   - Init called once at startup (<<10ms typical)
+   - Other calls guard against use-before-init
+   - Not reentrant
+
+8. Traceability
+   - SWE-REQ-017, SWE-REQ-018, SWE-REQ-019, SWE-REQ-020
+
+---
+
+**End of Document**
+
+(Strictly no scheduling, code, extra architecture, or external hardware details per all constraints.)
