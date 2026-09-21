@@ -1,4 +1,4 @@
-###### FILE: code/inc/Command_Parser.h ######
+###### FILE: code/inc/Command Parser.h ######
 #ifndef COMMAND_PARSER_H
 #define COMMAND_PARSER_H
 
@@ -22,7 +22,7 @@ uint8_t CommandParser_IsValidPosition(uint8_t position);
 
 #endif /* COMMAND_PARSER_H */
 ###### END FILE ######
-###### FILE: code/inc/Feedback_Processor.h ######
+###### FILE: code/inc/Feedback Processor.h ######
 #ifndef FEEDBACK_PROCESSOR_H
 #define FEEDBACK_PROCESSOR_H
 
@@ -45,7 +45,7 @@ uint16_t FeedbackProcessor_GetAdcRaw(void);
 
 #endif /* FEEDBACK_PROCESSOR_H */
 ###### END FILE ######
-###### FILE: code/inc/Flap_Control_Logic.h ######
+###### FILE: code/inc/Flap Control Logic.h ######
 #ifndef FLAP_CONTROL_LOGIC_H
 #define FLAP_CONTROL_LOGIC_H
 
@@ -67,7 +67,7 @@ uint8_t FlapControl_GetTargetPosition(void);
 
 #endif /* FLAP_CONTROL_LOGIC_H */
 ###### END FILE ######
-###### FILE: code/inc/LED_Status_Handler.h ######
+###### FILE: code/inc/LED Status Handler.h ######
 #ifndef LED_STATUS_HANDLER_H
 #define LED_STATUS_HANDLER_H
 
@@ -81,7 +81,7 @@ uint8_t LEDStatusHandler_GetCurrentState(void);
 
 #endif /* LED_STATUS_HANDLER_H */
 ###### END FILE ######
-###### FILE: code/inc/Motor_Driver.h ######
+###### FILE: code/inc/Motor Driver.h ######
 #ifndef MOTOR_DRIVER_H
 #define MOTOR_DRIVER_H
 
@@ -105,7 +105,7 @@ MotorDriver_StatusType MotorDriver_GetStatus(void);
 
 #endif /* MOTOR_DRIVER_H */
 ###### END FILE ######
-###### FILE: code/inc/System_Startup_Initialization.h ######
+###### FILE: code/inc/System Startup/Initialization.h ######
 #ifndef SYSTEM_STARTUP_INITIALIZATION_H
 #define SYSTEM_STARTUP_INITIALIZATION_H
 
@@ -117,8 +117,8 @@ uint8_t SystemStartupInitialization_IsInitialized(void);
 
 #endif /* SYSTEM_STARTUP_INITIALIZATION_H */
 ###### END FILE ######
-###### FILE: code/src/Command_Parser.c ######
-#include "Command_Parser.h"
+###### FILE: code/src/Command Parser.c ######
+#include "Command Parser.h"
 #include "stm32f4xx_hal.h"
 
 extern UART_HandleTypeDef huart2;
@@ -239,8 +239,8 @@ CommandParser_CommandType CommandParser_GetLatestCommand(void)
     return command;
 }
 ###### END FILE ######
-###### FILE: code/src/Feedback_Processor.c ######
-#include "Feedback_Processor.h"
+###### FILE: code/src/Feedback Processor.c ######
+#include "Feedback Processor.h"
 #include "stm32f4xx_hal.h"
 
 extern ADC_HandleTypeDef hadc1;
@@ -343,11 +343,11 @@ uint16_t FeedbackProcessor_GetAdcRaw(void)
     return latest_adc;
 }
 ###### END FILE ######
-###### FILE: code/src/Flap_Control_Logic.c ######
-#include "Flap_Control_Logic.h"
-#include "Feedback_Processor.h"
-#include "LED_Status_Handler.h"
-#include "Motor_Driver.h"
+###### FILE: code/src/Flap Control Logic.c ######
+#include "Flap Control Logic.h"
+#include "Feedback Processor.h"
+#include "LED Status Handler.h"
+#include "Motor Driver.h"
 
 static FlapControl_StateType flap_state;
 static uint8_t current_position;
@@ -448,8 +448,8 @@ uint8_t FlapControl_GetTargetPosition(void)
     return target_position;
 }
 ###### END FILE ######
-###### FILE: code/src/LED_Status_Handler.c ######
-#include "LED_Status_Handler.h"
+###### FILE: code/src/LED Status Handler.c ######
+#include "LED Status Handler.h"
 #include "stm32f4xx_hal.h"
 
 #define LED_POWER_PORT GPIOB
@@ -528,8 +528,8 @@ uint8_t LEDStatusHandler_GetCurrentState(void)
     return led_state;
 }
 ###### END FILE ######
-###### FILE: code/src/Motor_Driver.c ######
-#include "Motor_Driver.h"
+###### FILE: code/src/Motor Driver.c ######
+#include "Motor Driver.h"
 #include "stm32f4xx_hal.h"
 
 #define MOTOR_IN1_PORT GPIOB
@@ -607,13 +607,13 @@ MotorDriver_StatusType MotorDriver_GetStatus(void)
     return motor_status;
 }
 ###### END FILE ######
-###### FILE: code/src/System_Startup_Initialization.c ######
-#include "System_Startup_Initialization.h"
-#include "Command_Parser.h"
-#include "Feedback_Processor.h"
-#include "Flap_Control_Logic.h"
-#include "LED_Status_Handler.h"
-#include "Motor_Driver.h"
+###### FILE: code/src/System Startup/Initialization.c ######
+#include "System Startup/Initialization.h"
+#include "Command Parser.h"
+#include "Feedback Processor.h"
+#include "Flap Control Logic.h"
+#include "LED Status Handler.h"
+#include "Motor Driver.h"
 
 static uint8_t system_initialized;
 
@@ -667,7 +667,7 @@ uint8_t SystemStartupInitialization_IsInitialized(void)
 ###### END FILE ######
 ###### FILE: code/src/main.c ######
 #include "stm32f4xx_hal.h"
-#include "System_Startup_Initialization.h"
+#include "System Startup/Initialization.h"
 
 ADC_HandleTypeDef hadc1;
 TIM_HandleTypeDef htim3;
