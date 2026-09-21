@@ -1,0 +1,854 @@
+###### FILE: code/inc/Command Parser.h ######
+#ifndef COMMAND_PARSER_H
+#define COMMAND_PARSER_H
+
+#include <stdint.h>
+
+#define COMMAND_PARSER_POSITION_MIN   (0U)
+#define COMMAND_PARSER_POSITION_MAX   (3U)
+
+void CommandParser_Init(void);
+void CommandParser_ProcessRxByte(uint8_t rx_byte);
+uint8_t CommandParser_PollUart(void);
+uint8_t CommandParser_GetLatestCommand(uint8_t * position);
+uint8_t CommandParser_IsValidPosition(uint8_t position);
+
+#endif /* COMMAND_PARSER_H */
+###### END FILE ######
+###### FILE: code/inc/Feedback Processor.h ######
+#ifndef FEEDBACK_PROCESSOR_H
+#define FEEDBACK_PROCESSOR_H
+
+#include <stdint.h>
+
+#define FEEDBACK_PROCESSOR_POSITION_MIN (0U)
+#define FEEDBACK_PROCESSOR_POSITION_MAX (3U)
+
+typedef struct
+{
+    uint8_t position;
+    uint8_t valid;
+} FeedbackProcessor_PositionType;
+
+void FeedbackProcessor_Init(void);
+void FeedbackProcessor_Update(void);
+FeedbackProcessor_PositionType FeedbackProcessor_GetPosition(void);
+uint16_t FeedbackProcessor_GetAdcRaw(void);
+
+#endif /* FEEDBACK_PROCESSOR_H */
+###### END FILE ######
+###### FILE: code/inc/Flap Control Logic.h ######
+#ifndef FLAP_CONTROL_LOGIC_H
+#define FLAP_CONTROL_LOGIC_H
+
+#include <stdint.h>
+
+typedef enum
+{
+    FLAP_CONTROL_STATE_IDLE = 0,
+    FLAP_CONTROL_STATE_MOVING,
+    FLAP_CONTROL_STATE_TARGET_REACHED,
+    FLAP_CONTROL_STATE_FAULT
+} FlapControl_StateType;
+
+void FlapControl_Init(void);
+void FlapControl_IssueMovementCmd(uint8_t target_pos);
+void FlapControl_Task(void);
+FlapControl_StateType FlapControl_GetState(void);
+uint8_t FlapControl_GetTargetPosition(void);
+
+#endif /* FLAP_CONTROL_LOGIC_H */
+###### END FILE ######
+###### FILE: code/inc/LED Status Handler.h ######
+#ifndef LED_STATUS_HANDLER_H
+#define LED_STATUS_HANDLER_H
+
+#include <stdint.h>
+
+void LedStatusHandler_Init(void);
+void LedStatusHandler_SetPowerLed(void);
+void LedStatusHandler_SetLedState(uint8_t position);
+void LedStatusHandler_IndicateError(void);
+uint8_t LedStatusHandler_GetCurrentState(void);
+
+#endif /* LED_STATUS_HANDLER_H */
+###### END FILE ######
+###### FILE: code/inc/Motor Driver.h ######
+#ifndef MOTOR_DRIVER_H
+#define MOTOR_DRIVER_H
+
+#include <stdint.h>
+
+#define MOTOR_DRIVER_DIR_STOP     (0U)
+#define MOTOR_DRIVER_DIR_REVERSE  (1U)
+#define MOTOR_DRIVER_DIR_FORWARD  (2U)
+
+typedef struct
+{
+    uint8_t direction;
+    uint8_t enabled;
+    uint16_t duty_percent;
+} MotorDriver_StatusType;
+
+void MotorDriver_Init(void);
+void MotorDriver_DriveMotor(uint8_t direction, uint8_t enable);
+void MotorDriver_StopMotor(void);
+MotorDriver_StatusType MotorDriver_GetStatus(void);
+
+#endif /* MOTOR_DRIVER_H */
+###### END FILE ######
+###### FILE: code/inc/System Startup/Initialization.h ######
+#ifndef SYSTEM_STARTUP_INITIALIZATION_H
+#define SYSTEM_STARTUP_INITIALIZATION_H
+
+#include <stdint.h>
+
+void SystemStartup_Init(void);
+void SystemStartup_TaskDispatcher(void);
+uint8_t SystemStartup_IsInitialized(void);
+
+#endif /* SYSTEM_STARTUP_INITIALIZATION_H */
+###### END FILE ######
+###### FILE: code/src/Command Parser.c ######
+#include "Command Parser.h"
+#include "stm32f4xx_hal.h"
+
+extern UART_HandleTypeDef huart2;
+
+typedef enum
+{
+    COMMAND_STATE_INIT = 0,
+    COMMAND_STATE_WAIT_RX,
+    COMMAND_STATE_VALID,
+    COMMAND_STATE_INVALID
+} CommandParser_StateType;
+
+typedef struct
+{
+    uint8_t latest_position;
+    uint8_t valid;
+    CommandParser_StateType state;
+} CommandParser_ContextType;
+
+static CommandParser_ContextType command_context;
+static const uint8_t command_position_table[4] = {0U, 1U, 2U, 3U};
+
+static uint8_t CommandParser_MapByte(uint8_t rx_byte, uint8_t * position)
+{
+    uint8_t result = 0U;
+
+    if ((rx_byte >= (uint8_t)'0') && (rx_byte <= (uint8_t)'3'))
+    {
+        *position = (uint8_t)(rx_byte - (uint8_t)'0');
+        result = 1U;
+    }
+    else if (rx_byte <= COMMAND_PARSER_POSITION_MAX)
+    {
+        *position = rx_byte;
+        result = 1U;
+    }
+    else
+    {
+        result = 0U;
+    }
+
+    return result;
+}
+
+void CommandParser_Init(void)
+{
+    command_context.latest_position = 0U;
+    command_context.valid = 0U;
+    command_context.state = COMMAND_STATE_WAIT_RX;
+}
+
+uint8_t CommandParser_IsValidPosition(uint8_t position)
+{
+    uint8_t idx;
+    uint8_t valid = 0U;
+
+    for (idx = 0U; idx < 4U; idx++)
+    {
+        if (position == command_position_table[idx])
+        {
+            valid = 1U;
+        }
+    }
+
+    return valid;
+}
+
+void CommandParser_ProcessRxByte(uint8_t rx_byte)
+{
+    uint8_t mapped_position = 0U;
+
+    if (CommandParser_MapByte(rx_byte, &mapped_position) != 0U)
+    {
+        if ((command_context.valid == 0U) || (mapped_position != command_context.latest_position))
+        {
+            command_context.latest_position = mapped_position;
+            command_context.valid = 1U;
+            command_context.state = COMMAND_STATE_VALID;
+        }
+        else
+        {
+            command_context.state = COMMAND_STATE_WAIT_RX;
+        }
+    }
+    else
+    {
+        command_context.state = COMMAND_STATE_INVALID;
+        command_context.valid = 0U;
+    }
+}
+
+uint8_t CommandParser_PollUart(void)
+{
+    uint8_t rx_byte = 0U;
+    uint8_t received = 0U;
+
+    if (HAL_UART_Receive(&huart2, &rx_byte, 1U, 0U) == HAL_OK)
+    {
+        CommandParser_ProcessRxByte(rx_byte);
+        received = command_context.valid;
+    }
+
+    return received;
+}
+
+uint8_t CommandParser_GetLatestCommand(uint8_t * position)
+{
+    uint8_t valid = 0U;
+
+    if (position != (uint8_t *)0)
+    {
+        if (command_context.valid != 0U)
+        {
+            *position = command_context.latest_position;
+            valid = 1U;
+            command_context.valid = 0U;
+            command_context.state = COMMAND_STATE_WAIT_RX;
+        }
+    }
+
+    return valid;
+}
+###### END FILE ######
+###### FILE: code/src/Feedback Processor.c ######
+#include "Feedback Processor.h"
+#include "stm32f4xx_hal.h"
+
+extern ADC_HandleTypeDef hadc1;
+
+typedef enum
+{
+    FEEDBACK_STATE_INIT = 0,
+    FEEDBACK_STATE_READY,
+    FEEDBACK_STATE_INVALID
+} FeedbackProcessor_StateType;
+
+typedef struct
+{
+    uint16_t min_adc;
+    uint16_t max_adc;
+    uint8_t position;
+} FeedbackProcessor_MapEntryType;
+
+static const FeedbackProcessor_MapEntryType feedback_map[4] =
+{
+    {0U,    1023U, 0U},
+    {1024U, 2047U, 1U},
+    {2048U, 3071U, 2U},
+    {3072U, 4095U, 3U}
+};
+
+static uint16_t latest_adc;
+static FeedbackProcessor_PositionType latest_position;
+static FeedbackProcessor_StateType feedback_state;
+
+static uint8_t FeedbackProcessor_MapAdc(uint16_t adc_value, uint8_t * position)
+{
+    uint8_t idx;
+    uint8_t valid = 0U;
+
+    for (idx = 0U; idx < 4U; idx++)
+    {
+        if ((adc_value >= feedback_map[idx].min_adc) && (adc_value <= feedback_map[idx].max_adc))
+        {
+            *position = feedback_map[idx].position;
+            valid = 1U;
+        }
+    }
+
+    return valid;
+}
+
+void FeedbackProcessor_Init(void)
+{
+    latest_adc = 0U;
+    latest_position.position = 0U;
+    latest_position.valid = 0U;
+    feedback_state = FEEDBACK_STATE_INIT;
+}
+
+void FeedbackProcessor_Update(void)
+{
+    uint8_t mapped_position = 0U;
+
+    if (HAL_ADC_Start(&hadc1) == HAL_OK)
+    {
+        if (HAL_ADC_PollForConversion(&hadc1, 1U) == HAL_OK)
+        {
+            latest_adc = (uint16_t)HAL_ADC_GetValue(&hadc1);
+            if (FeedbackProcessor_MapAdc(latest_adc, &mapped_position) != 0U)
+            {
+                latest_position.position = mapped_position;
+                latest_position.valid = 1U;
+                feedback_state = FEEDBACK_STATE_READY;
+            }
+            else
+            {
+                latest_position.valid = 0U;
+                feedback_state = FEEDBACK_STATE_INVALID;
+            }
+        }
+        else
+        {
+            latest_position.valid = 0U;
+            feedback_state = FEEDBACK_STATE_INVALID;
+        }
+        (void)HAL_ADC_Stop(&hadc1);
+    }
+    else
+    {
+        latest_position.valid = 0U;
+        feedback_state = FEEDBACK_STATE_INVALID;
+    }
+}
+
+FeedbackProcessor_PositionType FeedbackProcessor_GetPosition(void)
+{
+    return latest_position;
+}
+
+uint16_t FeedbackProcessor_GetAdcRaw(void)
+{
+    return latest_adc;
+}
+###### END FILE ######
+###### FILE: code/src/Flap Control Logic.c ######
+#include "Flap Control Logic.h"
+#include "Feedback Processor.h"
+#include "Motor Driver.h"
+#include "LED Status Handler.h"
+
+static FlapControl_StateType flap_state;
+static uint8_t current_position;
+static uint8_t target_position;
+static uint8_t in_motion;
+
+void FlapControl_Init(void)
+{
+    flap_state = FLAP_CONTROL_STATE_IDLE;
+    current_position = 0U;
+    target_position = 0U;
+    in_motion = 0U;
+}
+
+void FlapControl_IssueMovementCmd(uint8_t target_pos)
+{
+    FeedbackProcessor_PositionType feedback;
+
+    FeedbackProcessor_Update();
+    feedback = FeedbackProcessor_GetPosition();
+
+    if ((feedback.valid == 0U) || (target_pos > FEEDBACK_PROCESSOR_POSITION_MAX))
+    {
+        MotorDriver_StopMotor();
+        LedStatusHandler_IndicateError();
+        flap_state = FLAP_CONTROL_STATE_FAULT;
+        in_motion = 0U;
+    }
+    else
+    {
+        current_position = feedback.position;
+        target_position = target_pos;
+
+        if (target_position == current_position)
+        {
+            MotorDriver_StopMotor();
+            LedStatusHandler_SetLedState(current_position);
+            flap_state = FLAP_CONTROL_STATE_TARGET_REACHED;
+            in_motion = 0U;
+        }
+        else if (target_position > current_position)
+        {
+            MotorDriver_DriveMotor(MOTOR_DRIVER_DIR_FORWARD, 1U);
+            flap_state = FLAP_CONTROL_STATE_MOVING;
+            in_motion = 1U;
+        }
+        else
+        {
+            MotorDriver_DriveMotor(MOTOR_DRIVER_DIR_REVERSE, 1U);
+            flap_state = FLAP_CONTROL_STATE_MOVING;
+            in_motion = 1U;
+        }
+    }
+}
+
+void FlapControl_Task(void)
+{
+    FeedbackProcessor_PositionType feedback;
+
+    FeedbackProcessor_Update();
+    feedback = FeedbackProcessor_GetPosition();
+
+    if (feedback.valid == 0U)
+    {
+        MotorDriver_StopMotor();
+        LedStatusHandler_IndicateError();
+        flap_state = FLAP_CONTROL_STATE_FAULT;
+        in_motion = 0U;
+    }
+    else
+    {
+        current_position = feedback.position;
+        if ((in_motion != 0U) && (current_position == target_position))
+        {
+            MotorDriver_StopMotor();
+            LedStatusHandler_SetLedState(current_position);
+            flap_state = FLAP_CONTROL_STATE_TARGET_REACHED;
+            in_motion = 0U;
+        }
+        else if (in_motion == 0U)
+        {
+            flap_state = FLAP_CONTROL_STATE_IDLE;
+        }
+        else
+        {
+            flap_state = FLAP_CONTROL_STATE_MOVING;
+        }
+    }
+}
+
+FlapControl_StateType FlapControl_GetState(void)
+{
+    return flap_state;
+}
+
+uint8_t FlapControl_GetTargetPosition(void)
+{
+    return target_position;
+}
+###### END FILE ######
+###### FILE: code/src/LED Status Handler.c ######
+#include "LED Status Handler.h"
+#include "stm32f4xx_hal.h"
+
+#define LED_POWER_PORT GPIOB
+#define LED_POWER_PIN  GPIO_PIN_0
+#define LED_POS0_PORT  GPIOD
+#define LED_POS0_PIN   GPIO_PIN_13
+#define LED_POS1_PORT  GPIOD
+#define LED_POS1_PIN   GPIO_PIN_14
+#define LED_POS2_PORT  GPIOD
+#define LED_POS2_PIN   GPIO_PIN_15
+#define LED_POS3_PORT  GPIOC
+#define LED_POS3_PIN   GPIO_PIN_7
+
+static uint8_t led_state;
+
+static void LedStatusHandler_ClearPositionLeds(void)
+{
+    HAL_GPIO_WritePin(LED_POS0_PORT, LED_POS0_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LED_POS1_PORT, LED_POS1_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LED_POS2_PORT, LED_POS2_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LED_POS3_PORT, LED_POS3_PIN, GPIO_PIN_RESET);
+}
+
+void LedStatusHandler_Init(void)
+{
+    led_state = 0U;
+    LedStatusHandler_ClearPositionLeds();
+    LedStatusHandler_SetPowerLed();
+}
+
+void LedStatusHandler_SetPowerLed(void)
+{
+    HAL_GPIO_WritePin(LED_POWER_PORT, LED_POWER_PIN, GPIO_PIN_SET);
+    led_state |= 0x80U;
+}
+
+void LedStatusHandler_SetLedState(uint8_t position)
+{
+    LedStatusHandler_ClearPositionLeds();
+
+    if (position == 0U)
+    {
+        HAL_GPIO_WritePin(LED_POS0_PORT, LED_POS0_PIN, GPIO_PIN_SET);
+        led_state = 0x81U;
+    }
+    else if (position == 1U)
+    {
+        HAL_GPIO_WritePin(LED_POS1_PORT, LED_POS1_PIN, GPIO_PIN_SET);
+        led_state = 0x82U;
+    }
+    else if (position == 2U)
+    {
+        HAL_GPIO_WritePin(LED_POS2_PORT, LED_POS2_PIN, GPIO_PIN_SET);
+        led_state = 0x84U;
+    }
+    else if (position == 3U)
+    {
+        HAL_GPIO_WritePin(LED_POS3_PORT, LED_POS3_PIN, GPIO_PIN_SET);
+        led_state = 0x88U;
+    }
+    else
+    {
+        led_state = 0x80U;
+    }
+}
+
+void LedStatusHandler_IndicateError(void)
+{
+    LedStatusHandler_ClearPositionLeds();
+    LedStatusHandler_SetPowerLed();
+    led_state = 0x80U;
+}
+
+uint8_t LedStatusHandler_GetCurrentState(void)
+{
+    return led_state;
+}
+###### END FILE ######
+###### FILE: code/src/Motor Driver.c ######
+#include "Motor Driver.h"
+#include "stm32f4xx_hal.h"
+
+#define MOTOR_IN1_PORT GPIOB
+#define MOTOR_IN1_PIN  GPIO_PIN_1
+#define MOTOR_IN2_PORT GPIOB
+#define MOTOR_IN2_PIN  GPIO_PIN_2
+#define MOTOR_PWM_CHANNEL TIM_CHANNEL_1
+#define MOTOR_DEFAULT_DUTY_PERCENT (60U)
+
+extern TIM_HandleTypeDef htim3;
+
+static MotorDriver_StatusType motor_status;
+
+static void MotorDriver_SetPwmDuty(uint16_t duty_percent)
+{
+    uint32_t period;
+    uint32_t compare;
+
+    period = (uint32_t)__HAL_TIM_GET_AUTORELOAD(&htim3);
+    compare = ((period + 1UL) * (uint32_t)duty_percent) / 100UL;
+    __HAL_TIM_SET_COMPARE(&htim3, MOTOR_PWM_CHANNEL, compare);
+}
+
+void MotorDriver_Init(void)
+{
+    motor_status.direction = MOTOR_DRIVER_DIR_STOP;
+    motor_status.enabled = 0U;
+    motor_status.duty_percent = 0U;
+    (void)HAL_TIM_PWM_Start(&htim3, MOTOR_PWM_CHANNEL);
+    MotorDriver_StopMotor();
+}
+
+void MotorDriver_DriveMotor(uint8_t direction, uint8_t enable)
+{
+    if ((enable == 0U) || (direction == MOTOR_DRIVER_DIR_STOP))
+    {
+        MotorDriver_StopMotor();
+    }
+    else if (direction == MOTOR_DRIVER_DIR_FORWARD)
+    {
+        HAL_GPIO_WritePin(MOTOR_IN1_PORT, MOTOR_IN1_PIN, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(MOTOR_IN2_PORT, MOTOR_IN2_PIN, GPIO_PIN_RESET);
+        MotorDriver_SetPwmDuty(MOTOR_DEFAULT_DUTY_PERCENT);
+        motor_status.direction = direction;
+        motor_status.enabled = 1U;
+        motor_status.duty_percent = MOTOR_DEFAULT_DUTY_PERCENT;
+    }
+    else if (direction == MOTOR_DRIVER_DIR_REVERSE)
+    {
+        HAL_GPIO_WritePin(MOTOR_IN1_PORT, MOTOR_IN1_PIN, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(MOTOR_IN2_PORT, MOTOR_IN2_PIN, GPIO_PIN_SET);
+        MotorDriver_SetPwmDuty(MOTOR_DEFAULT_DUTY_PERCENT);
+        motor_status.direction = direction;
+        motor_status.enabled = 1U;
+        motor_status.duty_percent = MOTOR_DEFAULT_DUTY_PERCENT;
+    }
+    else
+    {
+        MotorDriver_StopMotor();
+    }
+}
+
+void MotorDriver_StopMotor(void)
+{
+    HAL_GPIO_WritePin(MOTOR_IN1_PORT, MOTOR_IN1_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(MOTOR_IN2_PORT, MOTOR_IN2_PIN, GPIO_PIN_RESET);
+    MotorDriver_SetPwmDuty(0U);
+    motor_status.direction = MOTOR_DRIVER_DIR_STOP;
+    motor_status.enabled = 0U;
+    motor_status.duty_percent = 0U;
+}
+
+MotorDriver_StatusType MotorDriver_GetStatus(void)
+{
+    return motor_status;
+}
+###### END FILE ######
+###### FILE: code/src/System Startup/Initialization.c ######
+#include "System Startup/Initialization.h"
+#include "Command Parser.h"
+#include "Feedback Processor.h"
+#include "Flap Control Logic.h"
+#include "LED Status Handler.h"
+#include "Motor Driver.h"
+
+static uint8_t system_initialized;
+
+void SystemStartup_Init(void)
+{
+    FeedbackProcessor_PositionType feedback;
+
+    system_initialized = 0U;
+    CommandParser_Init();
+    FeedbackProcessor_Init();
+    FlapControl_Init();
+    LedStatusHandler_Init();
+    MotorDriver_Init();
+    MotorDriver_StopMotor();
+
+    FeedbackProcessor_Update();
+    feedback = FeedbackProcessor_GetPosition();
+    if (feedback.valid != 0U)
+    {
+        LedStatusHandler_SetLedState(feedback.position);
+        system_initialized = 1U;
+    }
+    else
+    {
+        MotorDriver_StopMotor();
+        LedStatusHandler_IndicateError();
+        system_initialized = 1U;
+    }
+}
+
+void SystemStartup_TaskDispatcher(void)
+{
+    uint8_t target_position = 0U;
+
+    (void)CommandParser_PollUart();
+    if (CommandParser_GetLatestCommand(&target_position) != 0U)
+    {
+        FlapControl_IssueMovementCmd(target_position);
+    }
+
+    FlapControl_Task();
+}
+
+uint8_t SystemStartup_IsInitialized(void)
+{
+    return system_initialized;
+}
+###### END FILE ######
+###### FILE: code/src/main.c ######
+#include "stm32f4xx_hal.h"
+#include "System Startup/Initialization.h"
+
+ADC_HandleTypeDef hadc1;
+TIM_HandleTypeDef htim3;
+UART_HandleTypeDef huart2;
+
+static void SystemClock_Config(void);
+static void MX_GPIO_Init(void);
+static void MX_ADC1_Init(void);
+static void MX_TIM3_Init(void);
+static void MX_USART2_UART_Init(void);
+static void Error_Handler(void);
+
+int main(void)
+{
+    HAL_Init();
+    SystemClock_Config();
+    MX_GPIO_Init();
+    MX_ADC1_Init();
+    MX_TIM3_Init();
+    MX_USART2_UART_Init();
+
+    SystemStartup_Init();
+
+    while (1)
+    {
+        SystemStartup_TaskDispatcher();
+    }
+}
+
+static void SystemClock_Config(void)
+{
+    RCC_OscInitTypeDef RCC_OscInitStruct;
+    RCC_ClkInitTypeDef RCC_ClkInitStruct;
+
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+    RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+    RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+    RCC_OscInitStruct.PLL.PLLM = 8U;
+    RCC_OscInitStruct.PLL.PLLN = 168U;
+    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+    RCC_OscInitStruct.PLL.PLLQ = 7U;
+    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
+                                  RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+    RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+    RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+    RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
+    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
+    {
+        Error_Handler();
+    }
+}
+
+static void MX_ADC1_Init(void)
+{
+    ADC_ChannelConfTypeDef sConfig;
+
+    __HAL_RCC_ADC1_CLK_ENABLE();
+    hadc1.Instance = ADC1;
+    hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
+    hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+    hadc1.Init.ScanConvMode = DISABLE;
+    hadc1.Init.ContinuousConvMode = DISABLE;
+    hadc1.Init.DiscontinuousConvMode = DISABLE;
+    hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+    hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+    hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+    hadc1.Init.NbrOfConversion = 1U;
+    hadc1.Init.DMAContinuousRequests = DISABLE;
+    hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+    if (HAL_ADC_Init(&hadc1) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    sConfig.Channel = ADC_CHANNEL_0;
+    sConfig.Rank = 1U;
+    sConfig.SamplingTime = ADC_SAMPLETIME_84CYCLES;
+    sConfig.Offset = 0U;
+    if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+    {
+        Error_Handler();
+    }
+}
+
+static void MX_TIM3_Init(void)
+{
+    TIM_OC_InitTypeDef sConfigOC;
+
+    __HAL_RCC_TIM3_CLK_ENABLE();
+    htim3.Instance = TIM3;
+    htim3.Init.Prescaler = 83U;
+    htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+    htim3.Init.Period = 999U;
+    htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+    htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+    if (HAL_TIM_PWM_Init(&htim3) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    sConfigOC.OCMode = TIM_OCMODE_PWM1;
+    sConfigOC.Pulse = 0U;
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+    sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+    if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+    {
+        Error_Handler();
+    }
+}
+
+static void MX_USART2_UART_Init(void)
+{
+    __HAL_RCC_USART2_CLK_ENABLE();
+    huart2.Instance = USART2;
+    huart2.Init.BaudRate = 115200U;
+    huart2.Init.WordLength = UART_WORDLENGTH_8B;
+    huart2.Init.StopBits = UART_STOPBITS_1;
+    huart2.Init.Parity = UART_PARITY_NONE;
+    huart2.Init.Mode = UART_MODE_TX_RX;
+    huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+    huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+    if (HAL_UART_Init(&huart2) != HAL_OK)
+    {
+        Error_Handler();
+    }
+}
+
+static void MX_GPIO_Init(void)
+{
+    GPIO_InitTypeDef GPIO_InitStruct;
+
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+    __HAL_RCC_GPIOD_CLK_ENABLE();
+
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_7, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15, GPIO_PIN_RESET);
+
+    GPIO_InitStruct.Pin = GPIO_PIN_0;
+    GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = GPIO_PIN_2 | GPIO_PIN_3;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = GPIO_PIN_6;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Alternate = GPIO_AF2_TIM3;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = GPIO_PIN_7;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+    GPIO_InitStruct.Pin = GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+}
+
+static void Error_Handler(void)
+{
+    __disable_irq();
+    while (1)
+    {
+    }
+}
+###### END FILE ######
