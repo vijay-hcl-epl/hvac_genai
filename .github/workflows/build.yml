@@ -1,0 +1,155 @@
+name: Build STM32 Firmware
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install ARM GNU Toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi binutils-arm-none-eabi
+
+      - name: Verify ARM GCC
+        run: |
+          arm-none-eabi-gcc --version
+          arm-none-eabi-size --version
+
+      - name: Prepare build directories
+        run: |
+          mkdir -p build/obj/Core/Src
+          mkdir -p build/obj/Core/Startup
+          mkdir -p build/obj/Drivers/STM32F4xx_HAL_Driver/Src
+
+      - name: Compile application and system sources
+        run: |
+          set -e
+
+          for src in firmware/Core/Src/*.c; do
+            name=$(basename "$src" .c)
+
+            arm-none-eabi-gcc "$src" \
+              -mcpu=cortex-m4 \
+              -std=gnu11 \
+              -g3 \
+              -DDEBUG \
+              -DUSE_HAL_DRIVER \
+              -DSTM32F407xx \
+              -Ifirmware/Core/Inc \
+              -Ifirmware/Drivers/STM32F4xx_HAL_Driver/Inc \
+              -Ifirmware/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy \
+              -Ifirmware/Drivers/CMSIS/Device/ST/STM32F4xx/Include \
+              -Ifirmware/Drivers/CMSIS/Include \
+              -O0 \
+              -ffunction-sections \
+              -fdata-sections \
+              -Wall \
+              -MMD \
+              -MP \
+              --specs=nano.specs \
+              -mfpu=fpv4-sp-d16 \
+              -mfloat-abi=hard \
+              -mthumb \
+              -c \
+              -o "build/obj/Core/Src/${name}.o"
+          done
+
+      - name: Compile STM32 HAL sources
+        run: |
+          set -e
+
+          for src in firmware/Drivers/STM32F4xx_HAL_Driver/Src/*.c; do
+            name=$(basename "$src" .c)
+
+            arm-none-eabi-gcc "$src" \
+              -mcpu=cortex-m4 \
+              -std=gnu11 \
+              -g3 \
+              -DDEBUG \
+              -DUSE_HAL_DRIVER \
+              -DSTM32F407xx \
+              -Ifirmware/Core/Inc \
+              -Ifirmware/Drivers/STM32F4xx_HAL_Driver/Inc \
+              -Ifirmware/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy \
+              -Ifirmware/Drivers/CMSIS/Device/ST/STM32F4xx/Include \
+              -Ifirmware/Drivers/CMSIS/Include \
+              -O0 \
+              -ffunction-sections \
+              -fdata-sections \
+              -Wall \
+              -MMD \
+              -MP \
+              --specs=nano.specs \
+              -mfpu=fpv4-sp-d16 \
+              -mfloat-abi=hard \
+              -mthumb \
+              -c \
+              -o "build/obj/Drivers/STM32F4xx_HAL_Driver/Src/${name}.o"
+          done
+
+      - name: Compile startup code
+        run: |
+          arm-none-eabi-gcc \
+            -mcpu=cortex-m4 \
+            -g3 \
+            -DDEBUG \
+            -c \
+            -x assembler-with-cpp \
+            --specs=nano.specs \
+            -mfpu=fpv4-sp-d16 \
+            -mfloat-abi=hard \
+            -mthumb \
+            firmware/Core/Startup/startup_stm32f407vgtx.s \
+            -o build/obj/Core/Startup/startup_stm32f407vgtx.o
+
+      - name: Link firmware
+        run: |
+          set -e
+
+          arm-none-eabi-gcc \
+            -o build/DEC16_TEST.elf \
+            $(find build/obj -name "*.o" -print) \
+            -mcpu=cortex-m4 \
+            -Tfirmware/STM32F407VGTX_FLASH.ld \
+            --specs=nosys.specs \
+            --specs=nano.specs \
+            -Wl,-Map=build/DEC16_TEST.map \
+            -Wl,--gc-sections \
+            -static \
+            -mfpu=fpv4-sp-d16 \
+            -mfloat-abi=hard \
+            -mthumb \
+            -Wl,--start-group \
+            -lc \
+            -lm \
+            -Wl,--end-group
+
+      - name: Show firmware size
+        run: |
+          arm-none-eabi-size build/DEC16_TEST.elf
+
+      - name: Generate HEX and BIN
+        run: |
+          arm-none-eabi-objcopy -O ihex \
+            build/DEC16_TEST.elf \
+            build/DEC16_TEST.hex
+
+          arm-none-eabi-objcopy -O binary \
+            build/DEC16_TEST.elf \
+            build/DEC16_TEST.bin
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: stm32-firmware
+          path: |
+            build/DEC16_TEST.elf
+            build/DEC16_TEST.hex
+            build/DEC16_TEST.bin
+            build/DEC16_TEST.map
