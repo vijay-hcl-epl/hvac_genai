@@ -1,28 +1,36 @@
-###### FILE: code/inc/Command Parser.h ######
+###### FILE: code/inc/Command_Parser.h ######
 #ifndef COMMAND_PARSER_H
 #define COMMAND_PARSER_H
 
 #include <stdint.h>
 
+#define COMMAND_PARSER_POSITION_COUNT (4U)
 #define COMMAND_PARSER_POSITION_MIN   (0U)
 #define COMMAND_PARSER_POSITION_MAX   (3U)
 
+typedef struct
+{
+    uint8_t position;
+    uint8_t valid;
+} CommandParser_CommandType;
+
 void CommandParser_Init(void);
-void CommandParser_ProcessRxByte(uint8_t rx_byte);
-uint8_t CommandParser_PollUart(void);
-uint8_t CommandParser_GetLatestCommand(uint8_t * position);
+void CommandParser_AcceptRxByte(uint8_t rx_byte);
+void CommandParser_Service(void);
+CommandParser_CommandType CommandParser_GetLatestCommand(void);
 uint8_t CommandParser_IsValidPosition(uint8_t position);
 
 #endif /* COMMAND_PARSER_H */
 ###### END FILE ######
-###### FILE: code/inc/Feedback Processor.h ######
+###### FILE: code/inc/Feedback_Processor.h ######
 #ifndef FEEDBACK_PROCESSOR_H
 #define FEEDBACK_PROCESSOR_H
 
 #include <stdint.h>
 
-#define FEEDBACK_PROCESSOR_POSITION_MIN (0U)
-#define FEEDBACK_PROCESSOR_POSITION_MAX (3U)
+#define FEEDBACK_PROCESSOR_POSITION_COUNT (4U)
+#define FEEDBACK_PROCESSOR_POSITION_MIN   (0U)
+#define FEEDBACK_PROCESSOR_POSITION_MAX   (3U)
 
 typedef struct
 {
@@ -37,7 +45,7 @@ uint16_t FeedbackProcessor_GetAdcRaw(void);
 
 #endif /* FEEDBACK_PROCESSOR_H */
 ###### END FILE ######
-###### FILE: code/inc/Flap Control Logic.h ######
+###### FILE: code/inc/Flap_Control_Logic.h ######
 #ifndef FLAP_CONTROL_LOGIC_H
 #define FLAP_CONTROL_LOGIC_H
 
@@ -53,27 +61,27 @@ typedef enum
 
 void FlapControl_Init(void);
 void FlapControl_IssueMovementCmd(uint8_t target_pos);
-void FlapControl_Task(void);
+void FlapControl_EvaluateFeedback(void);
 FlapControl_StateType FlapControl_GetState(void);
 uint8_t FlapControl_GetTargetPosition(void);
 
 #endif /* FLAP_CONTROL_LOGIC_H */
 ###### END FILE ######
-###### FILE: code/inc/LED Status Handler.h ######
+###### FILE: code/inc/LED_Status_Handler.h ######
 #ifndef LED_STATUS_HANDLER_H
 #define LED_STATUS_HANDLER_H
 
 #include <stdint.h>
 
-void LedStatusHandler_Init(void);
-void LedStatusHandler_SetPowerLed(void);
-void LedStatusHandler_SetLedState(uint8_t position);
-void LedStatusHandler_IndicateError(void);
-uint8_t LedStatusHandler_GetCurrentState(void);
+void LEDStatusHandler_Init(void);
+void LEDStatusHandler_SetPowerLed(void);
+void LEDStatusHandler_SetLedState(uint8_t position);
+void LEDStatusHandler_IndicateError(void);
+uint8_t LEDStatusHandler_GetCurrentState(void);
 
 #endif /* LED_STATUS_HANDLER_H */
 ###### END FILE ######
-###### FILE: code/inc/Motor Driver.h ######
+###### FILE: code/inc/Motor_Driver.h ######
 #ifndef MOTOR_DRIVER_H
 #define MOTOR_DRIVER_H
 
@@ -97,20 +105,20 @@ MotorDriver_StatusType MotorDriver_GetStatus(void);
 
 #endif /* MOTOR_DRIVER_H */
 ###### END FILE ######
-###### FILE: code/inc/System Startup/Initialization.h ######
+###### FILE: code/inc/System_Startup_Initialization.h ######
 #ifndef SYSTEM_STARTUP_INITIALIZATION_H
 #define SYSTEM_STARTUP_INITIALIZATION_H
 
 #include <stdint.h>
 
-void SystemStartup_Init(void);
-void SystemStartup_TaskDispatcher(void);
-uint8_t SystemStartup_IsInitialized(void);
+void SystemStartupInitialization_Init(void);
+void SystemStartupInitialization_TaskDispatcher(void);
+uint8_t SystemStartupInitialization_IsInitialized(void);
 
 #endif /* SYSTEM_STARTUP_INITIALIZATION_H */
 ###### END FILE ######
-###### FILE: code/src/Command Parser.c ######
-#include "Command Parser.h"
+###### FILE: code/src/Command_Parser.c ######
+#include "Command_Parser.h"
 #include "stm32f4xx_hal.h"
 
 extern UART_HandleTypeDef huart2;
@@ -131,12 +139,13 @@ typedef struct
 } CommandParser_ContextType;
 
 static CommandParser_ContextType command_context;
-static const uint8_t command_position_table[4] = {0U, 1U, 2U, 3U};
+static const uint8_t command_position_table[COMMAND_PARSER_POSITION_COUNT] = {0U, 1U, 2U, 3U};
 
 static uint8_t CommandParser_MapByte(uint8_t rx_byte, uint8_t * position)
 {
-    uint8_t result = 0U;
+    uint8_t result;
 
+    result = 0U;
     if ((rx_byte >= (uint8_t)'0') && (rx_byte <= (uint8_t)'3'))
     {
         *position = (uint8_t)(rx_byte - (uint8_t)'0');
@@ -165,9 +174,10 @@ void CommandParser_Init(void)
 uint8_t CommandParser_IsValidPosition(uint8_t position)
 {
     uint8_t idx;
-    uint8_t valid = 0U;
+    uint8_t valid;
 
-    for (idx = 0U; idx < 4U; idx++)
+    valid = 0U;
+    for (idx = 0U; idx < COMMAND_PARSER_POSITION_COUNT; idx++)
     {
         if (position == command_position_table[idx])
         {
@@ -178,10 +188,11 @@ uint8_t CommandParser_IsValidPosition(uint8_t position)
     return valid;
 }
 
-void CommandParser_ProcessRxByte(uint8_t rx_byte)
+void CommandParser_AcceptRxByte(uint8_t rx_byte)
 {
-    uint8_t mapped_position = 0U;
+    uint8_t mapped_position;
 
+    mapped_position = 0U;
     if (CommandParser_MapByte(rx_byte, &mapped_position) != 0U)
     {
         if ((command_context.valid == 0U) || (mapped_position != command_context.latest_position))
@@ -197,45 +208,39 @@ void CommandParser_ProcessRxByte(uint8_t rx_byte)
     }
     else
     {
-        command_context.state = COMMAND_STATE_INVALID;
         command_context.valid = 0U;
+        command_context.state = COMMAND_STATE_INVALID;
     }
 }
 
-uint8_t CommandParser_PollUart(void)
+void CommandParser_Service(void)
 {
-    uint8_t rx_byte = 0U;
-    uint8_t received = 0U;
+    uint8_t rx_byte;
 
+    rx_byte = 0U;
     if (HAL_UART_Receive(&huart2, &rx_byte, 1U, 0U) == HAL_OK)
     {
-        CommandParser_ProcessRxByte(rx_byte);
-        received = command_context.valid;
+        CommandParser_AcceptRxByte(rx_byte);
     }
-
-    return received;
 }
 
-uint8_t CommandParser_GetLatestCommand(uint8_t * position)
+CommandParser_CommandType CommandParser_GetLatestCommand(void)
 {
-    uint8_t valid = 0U;
+    CommandParser_CommandType command;
 
-    if (position != (uint8_t *)0)
+    command.position = command_context.latest_position;
+    command.valid = command_context.valid;
+    command_context.valid = 0U;
+    if (command.valid != 0U)
     {
-        if (command_context.valid != 0U)
-        {
-            *position = command_context.latest_position;
-            valid = 1U;
-            command_context.valid = 0U;
-            command_context.state = COMMAND_STATE_WAIT_RX;
-        }
+        command_context.state = COMMAND_STATE_WAIT_RX;
     }
 
-    return valid;
+    return command;
 }
 ###### END FILE ######
-###### FILE: code/src/Feedback Processor.c ######
-#include "Feedback Processor.h"
+###### FILE: code/src/Feedback_Processor.c ######
+#include "Feedback_Processor.h"
 #include "stm32f4xx_hal.h"
 
 extern ADC_HandleTypeDef hadc1;
@@ -254,7 +259,7 @@ typedef struct
     uint8_t position;
 } FeedbackProcessor_MapEntryType;
 
-static const FeedbackProcessor_MapEntryType feedback_map[4] =
+static const FeedbackProcessor_MapEntryType feedback_map[FEEDBACK_PROCESSOR_POSITION_COUNT] =
 {
     {0U,    1023U, 0U},
     {1024U, 2047U, 1U},
@@ -269,9 +274,10 @@ static FeedbackProcessor_StateType feedback_state;
 static uint8_t FeedbackProcessor_MapAdc(uint16_t adc_value, uint8_t * position)
 {
     uint8_t idx;
-    uint8_t valid = 0U;
+    uint8_t valid;
 
-    for (idx = 0U; idx < 4U; idx++)
+    valid = 0U;
+    for (idx = 0U; idx < FEEDBACK_PROCESSOR_POSITION_COUNT; idx++)
     {
         if ((adc_value >= feedback_map[idx].min_adc) && (adc_value <= feedback_map[idx].max_adc))
         {
@@ -293,8 +299,9 @@ void FeedbackProcessor_Init(void)
 
 void FeedbackProcessor_Update(void)
 {
-    uint8_t mapped_position = 0U;
+    uint8_t mapped_position;
 
+    mapped_position = 0U;
     if (HAL_ADC_Start(&hadc1) == HAL_OK)
     {
         if (HAL_ADC_PollForConversion(&hadc1, 1U) == HAL_OK)
@@ -336,11 +343,11 @@ uint16_t FeedbackProcessor_GetAdcRaw(void)
     return latest_adc;
 }
 ###### END FILE ######
-###### FILE: code/src/Flap Control Logic.c ######
-#include "Flap Control Logic.h"
-#include "Feedback Processor.h"
-#include "Motor Driver.h"
-#include "LED Status Handler.h"
+###### FILE: code/src/Flap_Control_Logic.c ######
+#include "Flap_Control_Logic.h"
+#include "Feedback_Processor.h"
+#include "LED_Status_Handler.h"
+#include "Motor_Driver.h"
 
 static FlapControl_StateType flap_state;
 static uint8_t current_position;
@@ -365,7 +372,7 @@ void FlapControl_IssueMovementCmd(uint8_t target_pos)
     if ((feedback.valid == 0U) || (target_pos > FEEDBACK_PROCESSOR_POSITION_MAX))
     {
         MotorDriver_StopMotor();
-        LedStatusHandler_IndicateError();
+        LEDStatusHandler_IndicateError();
         flap_state = FLAP_CONTROL_STATE_FAULT;
         in_motion = 0U;
     }
@@ -377,7 +384,7 @@ void FlapControl_IssueMovementCmd(uint8_t target_pos)
         if (target_position == current_position)
         {
             MotorDriver_StopMotor();
-            LedStatusHandler_SetLedState(current_position);
+            LEDStatusHandler_SetLedState(current_position);
             flap_state = FLAP_CONTROL_STATE_TARGET_REACHED;
             in_motion = 0U;
         }
@@ -396,7 +403,7 @@ void FlapControl_IssueMovementCmd(uint8_t target_pos)
     }
 }
 
-void FlapControl_Task(void)
+void FlapControl_EvaluateFeedback(void)
 {
     FeedbackProcessor_PositionType feedback;
 
@@ -406,7 +413,7 @@ void FlapControl_Task(void)
     if (feedback.valid == 0U)
     {
         MotorDriver_StopMotor();
-        LedStatusHandler_IndicateError();
+        LEDStatusHandler_IndicateError();
         flap_state = FLAP_CONTROL_STATE_FAULT;
         in_motion = 0U;
     }
@@ -416,7 +423,7 @@ void FlapControl_Task(void)
         if ((in_motion != 0U) && (current_position == target_position))
         {
             MotorDriver_StopMotor();
-            LedStatusHandler_SetLedState(current_position);
+            LEDStatusHandler_SetLedState(current_position);
             flap_state = FLAP_CONTROL_STATE_TARGET_REACHED;
             in_motion = 0U;
         }
@@ -441,8 +448,8 @@ uint8_t FlapControl_GetTargetPosition(void)
     return target_position;
 }
 ###### END FILE ######
-###### FILE: code/src/LED Status Handler.c ######
-#include "LED Status Handler.h"
+###### FILE: code/src/LED_Status_Handler.c ######
+#include "LED_Status_Handler.h"
 #include "stm32f4xx_hal.h"
 
 #define LED_POWER_PORT GPIOB
@@ -458,7 +465,7 @@ uint8_t FlapControl_GetTargetPosition(void)
 
 static uint8_t led_state;
 
-static void LedStatusHandler_ClearPositionLeds(void)
+static void LEDStatusHandler_ClearPositionLeds(void)
 {
     HAL_GPIO_WritePin(LED_POS0_PORT, LED_POS0_PIN, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(LED_POS1_PORT, LED_POS1_PIN, GPIO_PIN_RESET);
@@ -466,22 +473,22 @@ static void LedStatusHandler_ClearPositionLeds(void)
     HAL_GPIO_WritePin(LED_POS3_PORT, LED_POS3_PIN, GPIO_PIN_RESET);
 }
 
-void LedStatusHandler_Init(void)
+void LEDStatusHandler_Init(void)
 {
     led_state = 0U;
-    LedStatusHandler_ClearPositionLeds();
-    LedStatusHandler_SetPowerLed();
+    LEDStatusHandler_ClearPositionLeds();
+    LEDStatusHandler_SetPowerLed();
 }
 
-void LedStatusHandler_SetPowerLed(void)
+void LEDStatusHandler_SetPowerLed(void)
 {
     HAL_GPIO_WritePin(LED_POWER_PORT, LED_POWER_PIN, GPIO_PIN_SET);
     led_state |= 0x80U;
 }
 
-void LedStatusHandler_SetLedState(uint8_t position)
+void LEDStatusHandler_SetLedState(uint8_t position)
 {
-    LedStatusHandler_ClearPositionLeds();
+    LEDStatusHandler_ClearPositionLeds();
 
     if (position == 0U)
     {
@@ -509,20 +516,20 @@ void LedStatusHandler_SetLedState(uint8_t position)
     }
 }
 
-void LedStatusHandler_IndicateError(void)
+void LEDStatusHandler_IndicateError(void)
 {
-    LedStatusHandler_ClearPositionLeds();
-    LedStatusHandler_SetPowerLed();
+    LEDStatusHandler_ClearPositionLeds();
+    LEDStatusHandler_SetPowerLed();
     led_state = 0x80U;
 }
 
-uint8_t LedStatusHandler_GetCurrentState(void)
+uint8_t LEDStatusHandler_GetCurrentState(void)
 {
     return led_state;
 }
 ###### END FILE ######
-###### FILE: code/src/Motor Driver.c ######
-#include "Motor Driver.h"
+###### FILE: code/src/Motor_Driver.c ######
+#include "Motor_Driver.h"
 #include "stm32f4xx_hal.h"
 
 #define MOTOR_IN1_PORT GPIOB
@@ -600,25 +607,26 @@ MotorDriver_StatusType MotorDriver_GetStatus(void)
     return motor_status;
 }
 ###### END FILE ######
-###### FILE: code/src/System Startup/Initialization.c ######
-#include "System Startup/Initialization.h"
-#include "Command Parser.h"
-#include "Feedback Processor.h"
-#include "Flap Control Logic.h"
-#include "LED Status Handler.h"
-#include "Motor Driver.h"
+###### FILE: code/src/System_Startup_Initialization.c ######
+#include "System_Startup_Initialization.h"
+#include "Command_Parser.h"
+#include "Feedback_Processor.h"
+#include "Flap_Control_Logic.h"
+#include "LED_Status_Handler.h"
+#include "Motor_Driver.h"
 
 static uint8_t system_initialized;
 
-void SystemStartup_Init(void)
+void SystemStartupInitialization_Init(void)
 {
     FeedbackProcessor_PositionType feedback;
 
     system_initialized = 0U;
+
     CommandParser_Init();
     FeedbackProcessor_Init();
     FlapControl_Init();
-    LedStatusHandler_Init();
+    LEDStatusHandler_Init();
     MotorDriver_Init();
     MotorDriver_StopMotor();
 
@@ -626,38 +634,40 @@ void SystemStartup_Init(void)
     feedback = FeedbackProcessor_GetPosition();
     if (feedback.valid != 0U)
     {
-        LedStatusHandler_SetLedState(feedback.position);
-        system_initialized = 1U;
+        LEDStatusHandler_SetLedState(feedback.position);
     }
     else
     {
         MotorDriver_StopMotor();
-        LedStatusHandler_IndicateError();
-        system_initialized = 1U;
+        LEDStatusHandler_IndicateError();
     }
+
+    system_initialized = 1U;
 }
 
-void SystemStartup_TaskDispatcher(void)
+void SystemStartupInitialization_TaskDispatcher(void)
 {
-    uint8_t target_position = 0U;
+    CommandParser_CommandType command;
 
-    (void)CommandParser_PollUart();
-    if (CommandParser_GetLatestCommand(&target_position) != 0U)
+    CommandParser_Service();
+    command = CommandParser_GetLatestCommand();
+
+    if (command.valid != 0U)
     {
-        FlapControl_IssueMovementCmd(target_position);
+        FlapControl_IssueMovementCmd(command.position);
     }
 
-    FlapControl_Task();
+    FlapControl_EvaluateFeedback();
 }
 
-uint8_t SystemStartup_IsInitialized(void)
+uint8_t SystemStartupInitialization_IsInitialized(void)
 {
     return system_initialized;
 }
 ###### END FILE ######
 ###### FILE: code/src/main.c ######
 #include "stm32f4xx_hal.h"
-#include "System Startup/Initialization.h"
+#include "System_Startup_Initialization.h"
 
 ADC_HandleTypeDef hadc1;
 TIM_HandleTypeDef htim3;
@@ -679,11 +689,11 @@ int main(void)
     MX_TIM3_Init();
     MX_USART2_UART_Init();
 
-    SystemStartup_Init();
+    SystemStartupInitialization_Init();
 
     while (1)
     {
-        SystemStartup_TaskDispatcher();
+        SystemStartupInitialization_TaskDispatcher();
     }
 }
 
