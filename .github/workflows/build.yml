@@ -26,15 +26,16 @@ jobs:
 
       - name: Prepare build directories
         run: |
-          mkdir -p build/obj/Core/Src
-          mkdir -p build/obj/Core/Startup
-          mkdir -p build/obj/Drivers/STM32F4xx_HAL_Driver/Src
+          mkdir -p build/obj/code/src
+          mkdir -p build/obj/firmware/Core/Src
+          mkdir -p build/obj/firmware/Core/Startup
+          mkdir -p build/obj/firmware/Drivers/STM32F4xx_HAL_Driver/Src
 
-      - name: Compile application and system sources
+      - name: Compile AIForce generated application
         run: |
           set -e
 
-          for src in firmware/Core/Src/*.c; do
+          for src in code/src/*.c; do
             name=$(basename "$src" .c)
 
             arm-none-eabi-gcc "$src" \
@@ -44,6 +45,7 @@ jobs:
               -DDEBUG \
               -DUSE_HAL_DRIVER \
               -DSTM32F407xx \
+              -Icode/inc \
               -Ifirmware/Core/Inc \
               -Ifirmware/Drivers/STM32F4xx_HAL_Driver/Inc \
               -Ifirmware/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy \
@@ -60,7 +62,46 @@ jobs:
               -mfloat-abi=hard \
               -mthumb \
               -c \
-              -o "build/obj/Core/Src/${name}.o"
+              -o "build/obj/code/src/${name}.o"
+          done
+
+      - name: Compile fixed STM32 platform sources
+        run: |
+          set -e
+
+          for src in \
+            firmware/Core/Src/stm32f4xx_hal_msp.c \
+            firmware/Core/Src/syscalls.c \
+            firmware/Core/Src/sysmem.c \
+            firmware/Core/Src/system_stm32f4xx.c
+          do
+            name=$(basename "$src" .c)
+
+            arm-none-eabi-gcc "$src" \
+              -mcpu=cortex-m4 \
+              -std=gnu11 \
+              -g3 \
+              -DDEBUG \
+              -DUSE_HAL_DRIVER \
+              -DSTM32F407xx \
+              -Icode/inc \
+              -Ifirmware/Core/Inc \
+              -Ifirmware/Drivers/STM32F4xx_HAL_Driver/Inc \
+              -Ifirmware/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy \
+              -Ifirmware/Drivers/CMSIS/Device/ST/STM32F4xx/Include \
+              -Ifirmware/Drivers/CMSIS/Include \
+              -O0 \
+              -ffunction-sections \
+              -fdata-sections \
+              -Wall \
+              -MMD \
+              -MP \
+              --specs=nano.specs \
+              -mfpu=fpv4-sp-d16 \
+              -mfloat-abi=hard \
+              -mthumb \
+              -c \
+              -o "build/obj/firmware/Core/Src/${name}.o"
           done
 
       - name: Compile STM32 HAL sources
@@ -77,6 +118,7 @@ jobs:
               -DDEBUG \
               -DUSE_HAL_DRIVER \
               -DSTM32F407xx \
+              -Icode/inc \
               -Ifirmware/Core/Inc \
               -Ifirmware/Drivers/STM32F4xx_HAL_Driver/Inc \
               -Ifirmware/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy \
@@ -93,7 +135,7 @@ jobs:
               -mfloat-abi=hard \
               -mthumb \
               -c \
-              -o "build/obj/Drivers/STM32F4xx_HAL_Driver/Src/${name}.o"
+              -o "build/obj/firmware/Drivers/STM32F4xx_HAL_Driver/Src/${name}.o"
           done
 
       - name: Compile startup code
@@ -102,27 +144,31 @@ jobs:
             -mcpu=cortex-m4 \
             -g3 \
             -DDEBUG \
+            -DSTM32F407xx \
             -c \
             -x assembler-with-cpp \
             --specs=nano.specs \
             -mfpu=fpv4-sp-d16 \
             -mfloat-abi=hard \
             -mthumb \
+            -Ifirmware/Core/Inc \
+            -Ifirmware/Drivers/CMSIS/Device/ST/STM32F4xx/Include \
+            -Ifirmware/Drivers/CMSIS/Include \
             firmware/Core/Startup/startup_stm32f407vgtx.s \
-            -o build/obj/Core/Startup/startup_stm32f407vgtx.o
+            -o build/obj/firmware/Core/Startup/startup_stm32f407vgtx.o
 
       - name: Link firmware
         run: |
           set -e
 
           arm-none-eabi-gcc \
-            -o build/DEC16_TEST.elf \
+            -o build/hvac_binary.elf \
             $(find build/obj -name "*.o" -print) \
             -mcpu=cortex-m4 \
             -Tfirmware/STM32F407VGTX_FLASH.ld \
             --specs=nosys.specs \
             --specs=nano.specs \
-            -Wl,-Map=build/DEC16_TEST.map \
+            -Wl,-Map=build/hvac_binary.map \
             -Wl,--gc-sections \
             -static \
             -mfpu=fpv4-sp-d16 \
@@ -135,24 +181,24 @@ jobs:
 
       - name: Show firmware size
         run: |
-          arm-none-eabi-size build/DEC16_TEST.elf
+          arm-none-eabi-size build/hvac_binary.elf
 
       - name: Generate HEX and BIN
         run: |
           arm-none-eabi-objcopy -O ihex \
-            build/DEC16_TEST.elf \
-            build/DEC16_TEST.hex
+            build/hvac_binary.elf \
+            build/hvac_binary.hex
 
           arm-none-eabi-objcopy -O binary \
-            build/DEC16_TEST.elf \
-            build/DEC16_TEST.bin
+            build/hvac_binary.elf \
+            build/hvac_binary.bin
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:
           name: stm32-firmware
           path: |
-            build/DEC16_TEST.elf
-            build/DEC16_TEST.hex
-            build/DEC16_TEST.bin
-            build/DEC16_TEST.map
+            build/hvac_binary.elf
+            build/hvac_binary.hex
+            build/hvac_binary.bin
+            build/hvac_binary.map
