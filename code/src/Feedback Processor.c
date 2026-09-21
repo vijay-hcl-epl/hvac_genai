@@ -17,7 +17,7 @@ typedef struct
     uint8_t position;
 } FeedbackProcessor_MapEntryType;
 
-static const FeedbackProcessor_MapEntryType feedback_map[4] =
+static const FeedbackProcessor_MapEntryType feedback_map[FEEDBACK_PROCESSOR_POSITION_COUNT] =
 {
     {0U,    1023U, 0U},
     {1024U, 2047U, 1U},
@@ -32,9 +32,10 @@ static FeedbackProcessor_StateType feedback_state;
 static uint8_t FeedbackProcessor_MapAdc(uint16_t adc_value, uint8_t * position)
 {
     uint8_t idx;
-    uint8_t valid = 0U;
+    uint8_t valid;
 
-    for (idx = 0U; idx < 4U; idx++)
+    valid = 0U;
+    for (idx = 0U; idx < FEEDBACK_PROCESSOR_POSITION_COUNT; idx++)
     {
         if ((adc_value >= feedback_map[idx].min_adc) && (adc_value <= feedback_map[idx].max_adc))
         {
@@ -56,8 +57,9 @@ void FeedbackProcessor_Init(void)
 
 void FeedbackProcessor_Update(void)
 {
-    uint8_t mapped_position = 0U;
+    uint8_t mapped_position;
 
+    mapped_position = 0U;
     if (HAL_ADC_Start(&hadc1) == HAL_OK)
     {
         if (HAL_ADC_PollForConversion(&hadc1, 1U) == HAL_OK)

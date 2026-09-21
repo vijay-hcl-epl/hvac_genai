@@ -7,15 +7,16 @@
 
 static uint8_t system_initialized;
 
-void SystemStartup_Init(void)
+void SystemStartupInitialization_Init(void)
 {
     FeedbackProcessor_PositionType feedback;
 
     system_initialized = 0U;
+
     CommandParser_Init();
     FeedbackProcessor_Init();
     FlapControl_Init();
-    LedStatusHandler_Init();
+    LEDStatusHandler_Init();
     MotorDriver_Init();
     MotorDriver_StopMotor();
 
@@ -23,31 +24,33 @@ void SystemStartup_Init(void)
     feedback = FeedbackProcessor_GetPosition();
     if (feedback.valid != 0U)
     {
-        LedStatusHandler_SetLedState(feedback.position);
-        system_initialized = 1U;
+        LEDStatusHandler_SetLedState(feedback.position);
     }
     else
     {
         MotorDriver_StopMotor();
-        LedStatusHandler_IndicateError();
-        system_initialized = 1U;
+        LEDStatusHandler_IndicateError();
     }
+
+    system_initialized = 1U;
 }
 
-void SystemStartup_TaskDispatcher(void)
+void SystemStartupInitialization_TaskDispatcher(void)
 {
-    uint8_t target_position = 0U;
+    CommandParser_CommandType command;
 
-    (void)CommandParser_PollUart();
-    if (CommandParser_GetLatestCommand(&target_position) != 0U)
+    CommandParser_Service();
+    command = CommandParser_GetLatestCommand();
+
+    if (command.valid != 0U)
     {
-        FlapControl_IssueMovementCmd(target_position);
+        FlapControl_IssueMovementCmd(command.position);
     }
 
-    FlapControl_Task();
+    FlapControl_EvaluateFeedback();
 }
 
-uint8_t SystemStartup_IsInitialized(void)
+uint8_t SystemStartupInitialization_IsInitialized(void)
 {
     return system_initialized;
 }

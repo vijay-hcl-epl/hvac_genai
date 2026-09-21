@@ -1,7 +1,7 @@
 #include "Flap Control Logic.h"
 #include "Feedback Processor.h"
-#include "Motor Driver.h"
 #include "LED Status Handler.h"
+#include "Motor Driver.h"
 
 static FlapControl_StateType flap_state;
 static uint8_t current_position;
@@ -26,7 +26,7 @@ void FlapControl_IssueMovementCmd(uint8_t target_pos)
     if ((feedback.valid == 0U) || (target_pos > FEEDBACK_PROCESSOR_POSITION_MAX))
     {
         MotorDriver_StopMotor();
-        LedStatusHandler_IndicateError();
+        LEDStatusHandler_IndicateError();
         flap_state = FLAP_CONTROL_STATE_FAULT;
         in_motion = 0U;
     }
@@ -38,7 +38,7 @@ void FlapControl_IssueMovementCmd(uint8_t target_pos)
         if (target_position == current_position)
         {
             MotorDriver_StopMotor();
-            LedStatusHandler_SetLedState(current_position);
+            LEDStatusHandler_SetLedState(current_position);
             flap_state = FLAP_CONTROL_STATE_TARGET_REACHED;
             in_motion = 0U;
         }
@@ -57,7 +57,7 @@ void FlapControl_IssueMovementCmd(uint8_t target_pos)
     }
 }
 
-void FlapControl_Task(void)
+void FlapControl_EvaluateFeedback(void)
 {
     FeedbackProcessor_PositionType feedback;
 
@@ -67,7 +67,7 @@ void FlapControl_Task(void)
     if (feedback.valid == 0U)
     {
         MotorDriver_StopMotor();
-        LedStatusHandler_IndicateError();
+        LEDStatusHandler_IndicateError();
         flap_state = FLAP_CONTROL_STATE_FAULT;
         in_motion = 0U;
     }
@@ -77,7 +77,7 @@ void FlapControl_Task(void)
         if ((in_motion != 0U) && (current_position == target_position))
         {
             MotorDriver_StopMotor();
-            LedStatusHandler_SetLedState(current_position);
+            LEDStatusHandler_SetLedState(current_position);
             flap_state = FLAP_CONTROL_STATE_TARGET_REACHED;
             in_motion = 0U;
         }

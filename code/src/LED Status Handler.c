@@ -14,7 +14,7 @@
 
 static uint8_t led_state;
 
-static void LedStatusHandler_ClearPositionLeds(void)
+static void LEDStatusHandler_ClearPositionLeds(void)
 {
     HAL_GPIO_WritePin(LED_POS0_PORT, LED_POS0_PIN, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(LED_POS1_PORT, LED_POS1_PIN, GPIO_PIN_RESET);
@@ -22,22 +22,22 @@ static void LedStatusHandler_ClearPositionLeds(void)
     HAL_GPIO_WritePin(LED_POS3_PORT, LED_POS3_PIN, GPIO_PIN_RESET);
 }
 
-void LedStatusHandler_Init(void)
+void LEDStatusHandler_Init(void)
 {
     led_state = 0U;
-    LedStatusHandler_ClearPositionLeds();
-    LedStatusHandler_SetPowerLed();
+    LEDStatusHandler_ClearPositionLeds();
+    LEDStatusHandler_SetPowerLed();
 }
 
-void LedStatusHandler_SetPowerLed(void)
+void LEDStatusHandler_SetPowerLed(void)
 {
     HAL_GPIO_WritePin(LED_POWER_PORT, LED_POWER_PIN, GPIO_PIN_SET);
     led_state |= 0x80U;
 }
 
-void LedStatusHandler_SetLedState(uint8_t position)
+void LEDStatusHandler_SetLedState(uint8_t position)
 {
-    LedStatusHandler_ClearPositionLeds();
+    LEDStatusHandler_ClearPositionLeds();
 
     if (position == 0U)
     {
@@ -65,14 +65,14 @@ void LedStatusHandler_SetLedState(uint8_t position)
     }
 }
 
-void LedStatusHandler_IndicateError(void)
+void LEDStatusHandler_IndicateError(void)
 {
-    LedStatusHandler_ClearPositionLeds();
-    LedStatusHandler_SetPowerLed();
+    LEDStatusHandler_ClearPositionLeds();
+    LEDStatusHandler_SetPowerLed();
     led_state = 0x80U;
 }
 
-uint8_t LedStatusHandler_GetCurrentState(void)
+uint8_t LEDStatusHandler_GetCurrentState(void)
 {
     return led_state;
 }

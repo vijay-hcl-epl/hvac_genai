@@ -3,10 +3,10 @@
 
 #include <stdint.h>
 
-void LedStatusHandler_Init(void);
-void LedStatusHandler_SetPowerLed(void);
-void LedStatusHandler_SetLedState(uint8_t position);
-void LedStatusHandler_IndicateError(void);
-uint8_t LedStatusHandler_GetCurrentState(void);
+void LEDStatusHandler_Init(void);
+void LEDStatusHandler_SetPowerLed(void);
+void LEDStatusHandler_SetLedState(uint8_t position);
+void LEDStatusHandler_IndicateError(void);
+uint8_t LEDStatusHandler_GetCurrentState(void);
 
 #endif /* LED_STATUS_HANDLER_H */

@@ -19,12 +19,13 @@ typedef struct
 } CommandParser_ContextType;
 
 static CommandParser_ContextType command_context;
-static const uint8_t command_position_table[4] = {0U, 1U, 2U, 3U};
+static const uint8_t command_position_table[COMMAND_PARSER_POSITION_COUNT] = {0U, 1U, 2U, 3U};
 
 static uint8_t CommandParser_MapByte(uint8_t rx_byte, uint8_t * position)
 {
-    uint8_t result = 0U;
+    uint8_t result;
 
+    result = 0U;
     if ((rx_byte >= (uint8_t)'0') && (rx_byte <= (uint8_t)'3'))
     {
         *position = (uint8_t)(rx_byte - (uint8_t)'0');
@@ -53,9 +54,10 @@ void CommandParser_Init(void)
 uint8_t CommandParser_IsValidPosition(uint8_t position)
 {
     uint8_t idx;
-    uint8_t valid = 0U;
+    uint8_t valid;
 
-    for (idx = 0U; idx < 4U; idx++)
+    valid = 0U;
+    for (idx = 0U; idx < COMMAND_PARSER_POSITION_COUNT; idx++)
     {
         if (position == command_position_table[idx])
         {
@@ -66,10 +68,11 @@ uint8_t CommandParser_IsValidPosition(uint8_t position)
     return valid;
 }
 
-void CommandParser_ProcessRxByte(uint8_t rx_byte)
+void CommandParser_AcceptRxByte(uint8_t rx_byte)
 {
-    uint8_t mapped_position = 0U;
+    uint8_t mapped_position;
 
+    mapped_position = 0U;
     if (CommandParser_MapByte(rx_byte, &mapped_position) != 0U)
     {
         if ((command_context.valid == 0U) || (mapped_position != command_context.latest_position))
@@ -85,39 +88,33 @@ void CommandParser_ProcessRxByte(uint8_t rx_byte)
     }
     else
     {
-        command_context.state = COMMAND_STATE_INVALID;
         command_context.valid = 0U;
+        command_context.state = COMMAND_STATE_INVALID;
     }
 }
 
-uint8_t CommandParser_PollUart(void)
+void CommandParser_Service(void)
 {
-    uint8_t rx_byte = 0U;
-    uint8_t received = 0U;
+    uint8_t rx_byte;
 
+    rx_byte = 0U;
     if (HAL_UART_Receive(&huart2, &rx_byte, 1U, 0U) == HAL_OK)
     {
-        CommandParser_ProcessRxByte(rx_byte);
-        received = command_context.valid;
+        CommandParser_AcceptRxByte(rx_byte);
     }
-
-    return received;
 }
 
-uint8_t CommandParser_GetLatestCommand(uint8_t * position)
+CommandParser_CommandType CommandParser_GetLatestCommand(void)
 {
-    uint8_t valid = 0U;
+    CommandParser_CommandType command;
 
-    if (position != (uint8_t *)0)
+    command.position = command_context.latest_position;
+    command.valid = command_context.valid;
+    command_context.valid = 0U;
+    if (command.valid != 0U)
     {
-        if (command_context.valid != 0U)
-        {
-            *position = command_context.latest_position;
-            valid = 1U;
-            command_context.valid = 0U;
-            command_context.state = COMMAND_STATE_WAIT_RX;
-        }
+        command_context.state = COMMAND_STATE_WAIT_RX;
     }
 
-    return valid;
+    return command;
 }

@@ -3,8 +3,8 @@
 
 #include <stdint.h>
 
-void SystemStartup_Init(void);
-void SystemStartup_TaskDispatcher(void);
-uint8_t SystemStartup_IsInitialized(void);
+void SystemStartupInitialization_Init(void);
+void SystemStartupInitialization_TaskDispatcher(void);
+uint8_t SystemStartupInitialization_IsInitialized(void);
 
 #endif /* SYSTEM_STARTUP_INITIALIZATION_H */

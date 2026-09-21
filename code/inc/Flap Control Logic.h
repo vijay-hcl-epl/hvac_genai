@@ -13,7 +13,7 @@ typedef enum
 
 void FlapControl_Init(void);
 void FlapControl_IssueMovementCmd(uint8_t target_pos);
-void FlapControl_Task(void);
+void FlapControl_EvaluateFeedback(void);
 FlapControl_StateType FlapControl_GetState(void);
 uint8_t FlapControl_GetTargetPosition(void);
 
