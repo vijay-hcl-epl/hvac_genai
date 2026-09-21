@@ -1,5 +1,5 @@
 #include "stm32f4xx_hal.h"
-#include "System Startup/Initialization.h"
+#include "System_Startup_Initialization.h"
 
 ADC_HandleTypeDef hadc1;
 TIM_HandleTypeDef htim3;
@@ -21,11 +21,11 @@ int main(void)
     MX_TIM3_Init();
     MX_USART2_UART_Init();
 
-    SystemStartup_Init();
+    SystemStartupInitialization_Init();
 
     while (1)
     {
-        SystemStartup_TaskDispatcher();
+        SystemStartupInitialization_TaskDispatcher();
     }
 }
 
