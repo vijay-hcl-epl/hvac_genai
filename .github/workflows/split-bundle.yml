@@ -10,14 +10,16 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: split-bundle-${{ github.ref }}
   cancel-in-progress: false
-  
+
 jobs:
   split:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,22 +38,36 @@ jobs:
       - name: Commit & push if changed
         run: |
           set -e
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Stage only the generated code tree (avoid committing accidental changes)
+          # Stage only the generated code tree
           git add code/inc code/src
 
-          # If nothing changed, exit cleanly
           if git diff --cached --quiet; then
             echo "No changes to commit."
-            exit 0
+          else
+            git commit -m "Expand code bundle into code/inc and code/src"
+
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+
+            git push origin "HEAD:${GITHUB_REF_NAME}" || {
+              echo "Push failed due to remote update; rebasing and retrying..."
+              git pull --rebase origin "${GITHUB_REF_NAME}"
+              git push origin "HEAD:${GITHUB_REF_NAME}"
+            }
           fi
 
-          git commit -m "Expand code bundle into code/inc and code/src [skip ci]"
-          git pull --rebase origin "${GITHUB_REF_NAME}"
-          git push origin "HEAD:${GITHUB_REF_NAME}" || {
-            echo "Push failed due to remote update; rebasing and retrying..."
-            git pull --rebase origin "${GITHUB_REF_NAME}"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
-          }
+      - name: Trigger Project Context
+        uses: actions/github-script@v7
+        env:
+          TARGET_BRANCH: ${{ github.ref_name }}
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'project-context.yml',
+              ref: process.env.TARGET_BRANCH
+            });

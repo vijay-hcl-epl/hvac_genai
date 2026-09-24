@@ -2,14 +2,6 @@ name: Build Project Context
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "code/src/**"
-      - "code/inc/**"
-      - "context_builder/**"
-      - "context_builder/engines/**"
-      - ".github/workflows/project-context.yml"
-      - "requirements-context.txt"
 
 permissions:
   contents: write
