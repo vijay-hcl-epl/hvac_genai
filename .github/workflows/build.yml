@@ -154,6 +154,11 @@ jobs:
             firmware/Core/Startup/startup_stm32f407vgtx.s \
             -o build/obj/firmware/Core/Startup/startup_stm32f407vgtx.o
 
+      - name: Show generated object files
+        run: |
+          echo "Generated object files:"
+          find build/obj -type f -name "*.o" -print
+
       - name: Link firmware
         run: |
           set -e
