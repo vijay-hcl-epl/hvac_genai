@@ -1,16 +1,33 @@
 {
   "dependency_graph": {
+    "Command Parser.h": [],
     "Command_Parser.h": [],
+    "Feedback Processor.h": [],
     "Feedback_Processor.h": [],
+    "Flap Control Logic.h": [],
     "Flap_Control_Logic.h": [],
+    "LED Status Handler.h": [],
     "LED_Status_Handler.h": [],
+    "Motor Driver.h": [],
     "Motor_Driver.h": [],
     "System_Startup_Initialization.h": [],
+    "Command Parser.c": [
+      "Command Parser.h"
+    ],
     "Command_Parser.c": [
       "Command_Parser.h"
     ],
+    "Feedback Processor.c": [
+      "Feedback Processor.h"
+    ],
     "Feedback_Processor.c": [
       "Feedback_Processor.h"
+    ],
+    "Flap Control Logic.c": [
+      "Feedback Processor.h",
+      "Flap Control Logic.h",
+      "LED Status Handler.h",
+      "Motor Driver.h"
     ],
     "Flap_Control_Logic.c": [
       "Feedback_Processor.h",
@@ -18,8 +35,14 @@
       "LED_Status_Handler.h",
       "Motor_Driver.h"
     ],
+    "LED Status Handler.c": [
+      "LED Status Handler.h"
+    ],
     "LED_Status_Handler.c": [
       "LED_Status_Handler.h"
+    ],
+    "Motor Driver.c": [
+      "Motor Driver.h"
     ],
     "Motor_Driver.c": [
       "Motor_Driver.h"
@@ -33,7 +56,7 @@
       "System_Startup_Initialization.h"
     ],
     "main.c": [
-      "System_Startup_Initialization.h"
+      "Initialization.h"
     ]
   },
   "symbol_ownership": {
@@ -385,10 +408,53 @@
     ]
   },
   "shared_state_map": {
+    "command_context": {
+      "defined_in": "Command_Parser.c",
+      "type": "CommandParser_ContextType",
+      "used_by": [
+        "Command Parser.c"
+      ]
+    },
+    "command_position_table": {
+      "defined_in": "Command_Parser.c",
+      "type": "const uint8_t[4]",
+      "used_by": [
+        "Command Parser.c"
+      ]
+    },
+    "current_position": {
+      "defined_in": "Flap_Control_Logic.c",
+      "type": "uint8_t",
+      "used_by": [
+        "Flap Control Logic.c"
+      ]
+    },
+    "feedback_map": {
+      "defined_in": "Feedback_Processor.c",
+      "type": "const FeedbackProcessor_MapEntryType[4]",
+      "used_by": [
+        "Feedback Processor.c"
+      ]
+    },
+    "feedback_state": {
+      "defined_in": "Feedback_Processor.c",
+      "type": "FeedbackProcessor_StateType",
+      "used_by": [
+        "Feedback Processor.c"
+      ]
+    },
+    "flap_state": {
+      "defined_in": "Flap_Control_Logic.c",
+      "type": "FlapControl_StateType",
+      "used_by": [
+        "Flap Control Logic.c"
+      ]
+    },
     "hadc1": {
       "defined_in": "main.c",
       "type": "ADC_HandleTypeDef",
       "used_by": [
+        "Feedback Processor.c",
         "Feedback_Processor.c"
       ]
     },
@@ -396,6 +462,7 @@
       "defined_in": "main.c",
       "type": "TIM_HandleTypeDef",
       "used_by": [
+        "Motor Driver.c",
         "Motor_Driver.c"
       ]
     },
@@ -403,7 +470,50 @@
       "defined_in": "main.c",
       "type": "UART_HandleTypeDef",
       "used_by": [
+        "Command Parser.c",
         "Command_Parser.c"
+      ]
+    },
+    "in_motion": {
+      "defined_in": "Flap_Control_Logic.c",
+      "type": "uint8_t",
+      "used_by": [
+        "Flap Control Logic.c"
+      ]
+    },
+    "latest_adc": {
+      "defined_in": "Feedback_Processor.c",
+      "type": "uint16_t",
+      "used_by": [
+        "Feedback Processor.c"
+      ]
+    },
+    "latest_position": {
+      "defined_in": "Feedback_Processor.c",
+      "type": "FeedbackProcessor_PositionType",
+      "used_by": [
+        "Feedback Processor.c"
+      ]
+    },
+    "led_state": {
+      "defined_in": "LED_Status_Handler.c",
+      "type": "uint8_t",
+      "used_by": [
+        "LED Status Handler.c"
+      ]
+    },
+    "motor_status": {
+      "defined_in": "Motor_Driver.c",
+      "type": "MotorDriver_StatusType",
+      "used_by": [
+        "Motor Driver.c"
+      ]
+    },
+    "target_position": {
+      "defined_in": "Flap_Control_Logic.c",
+      "type": "uint8_t",
+      "used_by": [
+        "Flap Control Logic.c"
       ]
     }
   }
