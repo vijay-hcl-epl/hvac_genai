@@ -1,0 +1,351 @@
+{
+  "dependency_graph": {
+    "command_parser.h": [],
+    "feedback_processor.h": [],
+    "flap_control_logic.h": [],
+    "led_status_handler.h": [],
+    "motor_driver.h": [],
+    "system_init.h": [],
+    "command_parser.c": [
+      "command_parser.h"
+    ],
+    "feedback_processor.c": [
+      "command_parser.h",
+      "feedback_processor.h"
+    ],
+    "flap_control_logic.c": [
+      "command_parser.h",
+      "feedback_processor.h",
+      "flap_control_logic.h",
+      "led_status_handler.h",
+      "motor_driver.h"
+    ],
+    "led_status_handler.c": [
+      "command_parser.h",
+      "led_status_handler.h"
+    ],
+    "main.c": [
+      "flap_control_logic.h",
+      "led_status_handler.h",
+      "system_init.h"
+    ],
+    "motor_driver.c": [
+      "motor_driver.h"
+    ],
+    "system_init.c": [
+      "command_parser.h",
+      "feedback_processor.h",
+      "flap_control_logic.h",
+      "led_status_handler.h",
+      "motor_driver.h",
+      "system_init.h"
+    ]
+  },
+  "symbol_ownership": {
+    "functions": {
+      "CmdParser_IsValid": "command_parser.c",
+      "CommandParser_ClearCommand": "command_parser.c",
+      "CommandParser_GetLatestCommand": "command_parser.c",
+      "CommandParser_Init": "command_parser.c",
+      "CommandParser_Process": "command_parser.c",
+      "Fb_MapAdcToPosition": "feedback_processor.c",
+      "FeedbackProcessor_GetPosition": "feedback_processor.c",
+      "FeedbackProcessor_GetRawADC": "feedback_processor.c",
+      "FeedbackProcessor_Init": "feedback_processor.c",
+      "FeedbackProcessor_Update": "feedback_processor.c",
+      "FlapControl_GetState": "flap_control_logic.c",
+      "FlapControl_Init": "flap_control_logic.c",
+      "FlapControl_Run": "flap_control_logic.c",
+      "LedStatus_IndicateError": "led_status_handler.c",
+      "LedStatus_Init": "led_status_handler.c",
+      "LedStatus_SetPosition": "led_status_handler.c",
+      "LedStatus_SetPowerLed": "led_status_handler.c",
+      "Led_AllPositionsOff": "led_status_handler.c",
+      "MX_ADC1_Init": "system_init.c",
+      "MX_GPIO_Init": "system_init.c",
+      "MX_TIM2_Init": "system_init.c",
+      "MX_USART2_UART_Init": "system_init.c",
+      "MotorDriver_Drive": "motor_driver.c",
+      "MotorDriver_GetStatus": "motor_driver.c",
+      "MotorDriver_Init": "motor_driver.c",
+      "MotorDriver_Stop": "motor_driver.c",
+      "Motor_SetPWM": "motor_driver.c",
+      "SystemClock_Config": "system_init.c",
+      "SystemInit_Run": "system_init.c",
+      "main": "main.c"
+    }
+  },
+  "interface_contracts": {
+    "CmdParser_IsValid": {
+      "return_type": "_Bool",
+      "parameters": [
+        {
+          "name": "byte",
+          "type": "uint8_t"
+        }
+      ]
+    },
+    "CommandParser_ClearCommand": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "CommandParser_GetLatestCommand": {
+      "return_type": "void",
+      "parameters": [
+        {
+          "name": "p_position",
+          "type": "uint8_t *"
+        },
+        {
+          "name": "p_valid",
+          "type": "_Bool *"
+        }
+      ]
+    },
+    "CommandParser_Init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "CommandParser_Process": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "Fb_MapAdcToPosition": {
+      "return_type": "_Bool",
+      "parameters": [
+        {
+          "name": "adc_val",
+          "type": "uint16_t"
+        },
+        {
+          "name": "p_pos",
+          "type": "uint8_t *"
+        }
+      ]
+    },
+    "FeedbackProcessor_GetPosition": {
+      "return_type": "void",
+      "parameters": [
+        {
+          "name": "p_position",
+          "type": "uint8_t *"
+        },
+        {
+          "name": "p_valid",
+          "type": "_Bool *"
+        }
+      ]
+    },
+    "FeedbackProcessor_GetRawADC": {
+      "return_type": "uint16_t",
+      "parameters": []
+    },
+    "FeedbackProcessor_Init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "FeedbackProcessor_Update": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "FlapControl_GetState": {
+      "return_type": "FlapState_t",
+      "parameters": []
+    },
+    "FlapControl_Init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "FlapControl_Run": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "LedStatus_IndicateError": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "LedStatus_Init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "LedStatus_SetPosition": {
+      "return_type": "void",
+      "parameters": [
+        {
+          "name": "position",
+          "type": "uint8_t"
+        }
+      ]
+    },
+    "LedStatus_SetPowerLed": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "Led_AllPositionsOff": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "MX_ADC1_Init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "MX_GPIO_Init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "MX_TIM2_Init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "MX_USART2_UART_Init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "MotorDriver_Drive": {
+      "return_type": "void",
+      "parameters": [
+        {
+          "name": "dir",
+          "type": "MotorDir_t"
+        },
+        {
+          "name": "enable",
+          "type": "_Bool"
+        }
+      ]
+    },
+    "MotorDriver_GetStatus": {
+      "return_type": "MotorStatus_t",
+      "parameters": []
+    },
+    "MotorDriver_Init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "MotorDriver_Stop": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "Motor_SetPWM": {
+      "return_type": "void",
+      "parameters": [
+        {
+          "name": "duty_percent",
+          "type": "uint8_t"
+        }
+      ]
+    },
+    "SystemClock_Config": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "SystemInit_Run": {
+      "return_type": "_Bool",
+      "parameters": []
+    },
+    "main": {
+      "return_type": "int",
+      "parameters": []
+    }
+  },
+  "call_graph": {
+    "CmdParser_IsValid": [],
+    "CommandParser_ClearCommand": [],
+    "CommandParser_GetLatestCommand": [],
+    "CommandParser_Init": [],
+    "CommandParser_Process": [
+      "CmdParser_IsValid"
+    ],
+    "Fb_MapAdcToPosition": [],
+    "FeedbackProcessor_GetPosition": [],
+    "FeedbackProcessor_GetRawADC": [],
+    "FeedbackProcessor_Init": [],
+    "FeedbackProcessor_Update": [
+      "Fb_MapAdcToPosition"
+    ],
+    "FlapControl_GetState": [],
+    "FlapControl_Init": [],
+    "FlapControl_Run": [
+      "CommandParser_ClearCommand",
+      "CommandParser_GetLatestCommand",
+      "CommandParser_Process",
+      "FeedbackProcessor_GetPosition",
+      "FeedbackProcessor_Update",
+      "LedStatus_IndicateError",
+      "LedStatus_SetPosition",
+      "MotorDriver_Drive",
+      "MotorDriver_Stop"
+    ],
+    "LedStatus_IndicateError": [
+      "Led_AllPositionsOff"
+    ],
+    "LedStatus_Init": [
+      "Led_AllPositionsOff"
+    ],
+    "LedStatus_SetPosition": [
+      "Led_AllPositionsOff"
+    ],
+    "LedStatus_SetPowerLed": [],
+    "Led_AllPositionsOff": [],
+    "MX_ADC1_Init": [],
+    "MX_GPIO_Init": [],
+    "MX_TIM2_Init": [],
+    "MX_USART2_UART_Init": [],
+    "MotorDriver_Drive": [
+      "MotorDriver_Stop",
+      "Motor_SetPWM"
+    ],
+    "MotorDriver_GetStatus": [],
+    "MotorDriver_Init": [
+      "Motor_SetPWM"
+    ],
+    "MotorDriver_Stop": [
+      "Motor_SetPWM"
+    ],
+    "Motor_SetPWM": [],
+    "SystemClock_Config": [],
+    "SystemInit_Run": [
+      "CommandParser_Init",
+      "FeedbackProcessor_GetPosition",
+      "FeedbackProcessor_Init",
+      "FeedbackProcessor_Update",
+      "FlapControl_Init",
+      "LedStatus_Init",
+      "LedStatus_SetPosition",
+      "MX_ADC1_Init",
+      "MX_GPIO_Init",
+      "MX_TIM2_Init",
+      "MX_USART2_UART_Init",
+      "MotorDriver_Init",
+      "SystemClock_Config"
+    ],
+    "main": [
+      "FlapControl_Run",
+      "LedStatus_IndicateError",
+      "SystemInit_Run"
+    ]
+  },
+  "shared_state_map": {
+    "hadc1": {
+      "defined_in": "system_init.c",
+      "type": "ADC_HandleTypeDef",
+      "used_by": [
+        "feedback_processor.c"
+      ]
+    },
+    "htim2": {
+      "defined_in": "system_init.c",
+      "type": "TIM_HandleTypeDef",
+      "used_by": [
+        "motor_driver.c"
+      ]
+    },
+    "huart2": {
+      "defined_in": "system_init.c",
+      "type": "UART_HandleTypeDef",
+      "used_by": [
+        "command_parser.c"
+      ]
+    }
+  }
+}
