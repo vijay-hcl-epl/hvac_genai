@@ -1,0 +1,1006 @@
+###### FILE: code/inc/command_parser.h ######
+/**
+ * @file command_parser.h
+ * @brief Command Parser – UART byte parsing and validation for flap position commands.
+ *
+ * Traces: SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-015, SWE-REQ-022
+ * Platform: STM32F407G-DISC1 / STM32 HAL
+ */
+
+#ifndef COMMAND_PARSER_H
+#define COMMAND_PARSER_H
+
+#include <stdint.h>
+
+/** Number of supported flap positions */
+#define CMD_NUM_POSITIONS       (5U)
+
+/** Position command byte values (sent from PC over UART) */
+#define CMD_POS_1               (0x01U)
+#define CMD_POS_2               (0x02U)
+#define CMD_POS_3               (0x03U)
+#define CMD_POS_4               (0x04U)
+#define CMD_POS_5               (0x05U)
+
+/** Invalid / no-command sentinel */
+#define CMD_INVALID             (0xFFU)
+
+/**
+ * @brief Initialise the command parser internal state.
+ *        Must be called once before any other command_parser API.
+ */
+void command_parser_init(void);
+
+/**
+ * @brief Process incoming UART data (poll / call periodically).
+ *        Reads one byte from UART; if valid, stores as latest command (latest wins).
+ *        Invalid / unsupported bytes are silently discarded.
+ */
+void command_parser_update(void);
+
+/**
+ * @brief Retrieve the latest validated command.
+ * @param[out] p_position  Pointer to store the position value (1–5).
+ * @return 1 if a valid unread command is available, 0 otherwise.
+ *         After a successful read the internal flag is cleared.
+ */
+uint8_t command_parser_get_latest(uint8_t *p_position);
+
+#endif /* COMMAND_PARSER_H */
+###### END FILE ######
+
+###### FILE: code/inc/feedback_processor.h ######
+/**
+ * @file feedback_processor.h
+ * @brief Feedback Processor – ADC acquisition, validation, and position mapping.
+ *
+ * Traces: SWE-REQ-010, SWE-REQ-011, SWE-REQ-017, SWE-REQ-027, SWE-REQ-028, SWE-REQ-030
+ * Platform: STM32F407G-DISC1 / STM32 HAL / ADC1
+ */
+
+#ifndef FEEDBACK_PROCESSOR_H
+#define FEEDBACK_PROCESSOR_H
+
+#include <stdint.h>
+
+/** ADC valid range boundaries (12-bit ADC, 0–4095) */
+#define FB_ADC_MIN              (0U)
+#define FB_ADC_MAX              (4095U)
+
+/** Position value indicating invalid / out-of-range feedback */
+#define FB_POSITION_INVALID     (0xFFU)
+
+/**
+ * @brief Initialise feedback processor internal state and ADC peripheral.
+ */
+void feedback_processor_init(void);
+
+/**
+ * @brief Acquire a new ADC sample, validate, and map to logical position.
+ *        Call periodically from the main loop.
+ */
+void feedback_processor_update(void);
+
+/**
+ * @brief Get the latest mapped flap position.
+ * @param[out] p_position  Logical position (1–5) or FB_POSITION_INVALID.
+ * @return 1 if the position is valid, 0 if invalid / out-of-range.
+ */
+uint8_t feedback_processor_get_position(uint8_t *p_position);
+
+/**
+ * @brief Get the raw ADC value from the last sample.
+ * @return 12-bit ADC value (0–4095).
+ */
+uint16_t feedback_processor_get_raw_adc(void);
+
+#endif /* FEEDBACK_PROCESSOR_H */
+###### END FILE ######
+
+###### FILE: code/inc/flap_control_logic.h ######
+/**
+ * @file flap_control_logic.h
+ * @brief Flap Control Logic – Decides movement, manages current/target state.
+ *
+ * Traces: SWE-REQ-004, SWE-REQ-005, SWE-REQ-006, SWE-REQ-023, SWE-REQ-024, SWE-REQ-031
+ * Platform: STM32F407G-DISC1
+ */
+
+#ifndef FLAP_CONTROL_LOGIC_H
+#define FLAP_CONTROL_LOGIC_H
+
+#include <stdint.h>
+
+/** Flap control states */
+typedef enum
+{
+    FLAP_STATE_IDLE = 0U,
+    FLAP_STATE_MOVING,
+    FLAP_STATE_TARGET_REACHED,
+    FLAP_STATE_FAULT
+} flap_state_t;
+
+/**
+ * @brief Initialise flap control logic internal state.
+ */
+void flap_control_init(void);
+
+/**
+ * @brief Issue a new target position command.
+ * @param target_pos  Desired position (1–5).
+ */
+void flap_control_set_target(uint8_t target_pos);
+
+/**
+ * @brief Run the flap control state machine.
+ *        Reads feedback, drives motor, updates LEDs as needed.
+ *        Call periodically from the main loop.
+ */
+void flap_control_update(void);
+
+/**
+ * @brief Get the current flap control state.
+ * @return Current flap_state_t value.
+ */
+flap_state_t flap_control_get_state(void);
+
+#endif /* FLAP_CONTROL_LOGIC_H */
+###### END FILE ######
+
+###### FILE: code/inc/led_status_handler.h ######
+/**
+ * @file led_status_handler.h
+ * @brief LED Status Handler – Power/position LEDs, one-hot indication, event-driven.
+ *
+ * Traces: SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-018, SWE-REQ-021, SWE-REQ-039
+ * Platform: STM32F407G-DISC1 / STM32 HAL / GPIO
+ */
+
+#ifndef LED_STATUS_HANDLER_H
+#define LED_STATUS_HANDLER_H
+
+#include <stdint.h>
+
+/** Number of position LEDs (one per flap position) */
+#define LED_NUM_POSITIONS       (5U)
+
+/**
+ * @brief Initialise LED GPIO pins and set default states (power LED ON, others OFF).
+ */
+void led_status_init(void);
+
+/**
+ * @brief Set the power / running LED state.
+ * @param on  1 = ON, 0 = OFF.
+ */
+void led_status_set_power(uint8_t on);
+
+/**
+ * @brief Update position LEDs to indicate the given position (one-hot).
+ *        Only one green position LED is ON at a time.
+ * @param position  Logical position (1–5). 0 or invalid turns all position LEDs OFF.
+ */
+void led_status_set_position(uint8_t position);
+
+/**
+ * @brief Indicate an error condition on LEDs (implementation-defined pattern).
+ */
+void led_status_indicate_error(void);
+
+#endif /* LED_STATUS_HANDLER_H */
+###### END FILE ######
+
+###### FILE: code/inc/motor_driver.h ######
+/**
+ * @file motor_driver.h
+ * @brief Motor Driver – GPIO/PWM control for L298N DC motor via STM32 HAL.
+ *
+ * Traces: SWE-REQ-007, SWE-REQ-008, SWE-REQ-016, SWE-REQ-025, SWE-REQ-036, SWE-REQ-038
+ * Platform: STM32F407G-DISC1 / STM32 HAL / L298N
+ */
+
+#ifndef MOTOR_DRIVER_H
+#define MOTOR_DRIVER_H
+
+#include <stdint.h>
+
+/** Motor direction enumeration */
+typedef enum
+{
+    MOTOR_DIR_STOP = 0U,
+    MOTOR_DIR_FORWARD,
+    MOTOR_DIR_REVERSE
+} motor_direction_t;
+
+/** Motor status */
+typedef enum
+{
+    MOTOR_STATUS_STOPPED = 0U,
+    MOTOR_STATUS_RUNNING,
+    MOTOR_STATUS_ERROR
+} motor_status_t;
+
+/** Default PWM duty cycle (percentage, 0–100) */
+#define MOTOR_DEFAULT_DUTY      (70U)
+
+/**
+ * @brief Initialise motor driver GPIO/PWM peripherals and ensure motor is stopped.
+ */
+void motor_driver_init(void);
+
+/**
+ * @brief Drive the motor in the specified direction.
+ * @param dir     MOTOR_DIR_FORWARD or MOTOR_DIR_REVERSE.
+ * @param enable  1 = enable motor, 0 = disable (coast).
+ */
+void motor_driver_drive(motor_direction_t dir, uint8_t enable);
+
+/**
+ * @brief Immediately stop the motor (all outputs off – safe state).
+ */
+void motor_driver_stop(void);
+
+/**
+ * @brief Get current motor status.
+ * @return motor_status_t value.
+ */
+motor_status_t motor_driver_get_status(void);
+
+#endif /* MOTOR_DRIVER_H */
+###### END FILE ######
+
+###### FILE: code/inc/system_init.h ######
+/**
+ * @file system_init.h
+ * @brief System Startup / Initialisation – One-time peripheral and unit init.
+ *
+ * Traces: SWE-REQ-020
+ * Platform: STM32F407G-DISC1 / STM32 HAL
+ */
+
+#ifndef SYSTEM_INIT_H
+#define SYSTEM_INIT_H
+
+#include <stdint.h>
+
+/**
+ * @brief Perform full system initialisation.
+ *        Configures HAL, clocks, and calls init for every software unit.
+ *        Ensures motor is off and LEDs reflect initial state.
+ */
+void system_init(void);
+
+#endif /* SYSTEM_INIT_H */
+###### END FILE ######
+
+###### FILE: code/src/command_parser.c ######
+/**
+ * @file command_parser.c
+ * @brief Command Parser implementation – UART byte parsing, validation, latest-wins.
+ *
+ * Traces: SWE-REQ-001, SWE-REQ-002, SWE-REQ-003, SWE-REQ-015, SWE-REQ-022
+ * Platform: STM32F407G-DISC1 / STM32 HAL / USART2
+ */
+
+#include "command_parser.h"
+#include "stm32f4xx_hal.h"
+
+/* ---- Private types / data (static, no dynamic allocation) ---- */
+
+/** Allowed position command lookup table [SWE-REQ-027, SWE-REQ-030] */
+static const uint8_t allowed_positions[CMD_NUM_POSITIONS] =
+{
+    CMD_POS_1,
+    CMD_POS_2,
+    CMD_POS_3,
+    CMD_POS_4,
+    CMD_POS_5
+};
+
+/** Internal state – latest command byte and validity flag */
+static uint8_t  s_latest_cmd;
+static uint8_t  s_cmd_valid;
+
+/** Single-byte UART receive buffer (static) [SWE-REQ-038] */
+static uint8_t  s_uart_rx_byte;
+
+/* Extern UART handle – expected to be defined by STM32CubeMX generated code */
+extern UART_HandleTypeDef huart2;
+
+/* ---- Private helpers ---- */
+
+/**
+ * @brief Check whether a byte is a supported position command.
+ * @param byte  The received byte.
+ * @return 1 if valid, 0 otherwise.
+ */
+static uint8_t is_valid_command(uint8_t byte)
+{
+    uint8_t i;
+    uint8_t result = 0U;
+
+    for (i = 0U; i < CMD_NUM_POSITIONS; i++)
+    {
+        if (byte == allowed_positions[i])
+        {
+            result = 1U;
+            break;
+        }
+    }
+    return result;
+}
+
+/* ---- Public API ---- */
+
+void command_parser_init(void)
+{
+    s_latest_cmd  = CMD_INVALID;
+    s_cmd_valid   = 0U;
+    s_uart_rx_byte = 0U;
+}
+
+void command_parser_update(void)
+{
+    HAL_StatusTypeDef status;
+
+    /* Non-blocking single-byte receive [SWE-REQ-022] */
+    status = HAL_UART_Receive(&huart2, &s_uart_rx_byte, 1U, 0U);
+
+    if (status == HAL_OK)
+    {
+        if (is_valid_command(s_uart_rx_byte) != 0U)
+        {
+            /* Latest wins – overwrite previous [SWE-REQ-003] */
+            s_latest_cmd = s_uart_rx_byte;
+            s_cmd_valid  = 1U;
+        }
+        else
+        {
+            /* Invalid / unsupported command – silently ignore [SWE-REQ-002] */
+        }
+    }
+}
+
+uint8_t command_parser_get_latest(uint8_t *p_position)
+{
+    uint8_t available = 0U;
+
+    if ((p_position != (void *)0) && (s_cmd_valid != 0U))
+    {
+        *p_position = s_latest_cmd;
+        s_cmd_valid = 0U;       /* Clear after read */
+        available   = 1U;
+    }
+    return available;
+}
+###### END FILE ######
+
+###### FILE: code/src/feedback_processor.c ######
+/**
+ * @file feedback_processor.c
+ * @brief Feedback Processor implementation – ADC acquisition, validation, position mapping.
+ *
+ * Traces: SWE-REQ-010, SWE-REQ-011, SWE-REQ-017, SWE-REQ-027, SWE-REQ-028, SWE-REQ-030
+ * Platform: STM32F407G-DISC1 / STM32 HAL / ADC1
+ */
+
+#include "feedback_processor.h"
+#include "stm32f4xx_hal.h"
+
+/* ---- Static position mapping table [SWE-REQ-027, SWE-REQ-028, SWE-REQ-030] ---- */
+
+/**
+ * Position-to-ADC boundary table.
+ * Each entry defines the upper ADC boundary for the corresponding position.
+ * Position 1: ADC 0   – 819
+ * Position 2: ADC 820 – 1638
+ * Position 3: ADC 1639 – 2457
+ * Position 4: ADC 2458 – 3276
+ * Position 5: ADC 3277 – 4095
+ *
+ * Configurable responsiveness parameter [SWE-REQ-035]
+ */
+static const uint16_t position_adc_upper[CMD_NUM_POSITIONS_FB] =
+{
+    819U,
+    1638U,
+    2457U,
+    3276U,
+    4095U
+};
+
+/** Number of positions – kept in sync with command parser */
+#define CMD_NUM_POSITIONS_FB    (5U)
+
+/* ---- Internal state (static, no dynamic allocation) [SWE-REQ-036, SWE-REQ-038] ---- */
+static uint16_t s_raw_adc;
+static uint8_t  s_mapped_position;
+static uint8_t  s_position_valid;
+
+/* Extern ADC handle – expected from STM32CubeMX generated code */
+extern ADC_HandleTypeDef hadc1;
+
+/* ---- Private helpers ---- */
+
+/**
+ * @brief Map a validated ADC value to a logical position (1–5).
+ * @param adc_val  12-bit ADC reading.
+ * @return Mapped position (1–5).
+ */
+static uint8_t map_adc_to_position(uint16_t adc_val)
+{
+    uint8_t pos = 1U;
+    uint8_t i;
+
+    for (i = 0U; i < CMD_NUM_POSITIONS_FB; i++)
+    {
+        if (adc_val <= position_adc_upper[i])
+        {
+            pos = (uint8_t)(i + 1U);
+            break;
+        }
+    }
+    return pos;
+}
+
+/* ---- Public API ---- */
+
+void feedback_processor_init(void)
+{
+    s_raw_adc         = 0U;
+    s_mapped_position = FB_POSITION_INVALID;
+    s_position_valid  = 0U;
+}
+
+void feedback_processor_update(void)
+{
+    /* Start ADC conversion, poll for result [SWE-REQ-017] */
+    HAL_ADC_Start(&hadc1);
+
+    if (HAL_ADC_PollForConversion(&hadc1, 10U) == HAL_OK)
+    {
+        s_raw_adc = (uint16_t)HAL_ADC_GetValue(&hadc1);
+
+        /* Bounding / validation [SWE-REQ-011] */
+        if (s_raw_adc <= FB_ADC_MAX)
+        {
+            s_mapped_position = map_adc_to_position(s_raw_adc);
+            s_position_valid  = 1U;
+        }
+        else
+        {
+            /* Out-of-range – mark invalid [SWE-REQ-031] */
+            s_mapped_position = FB_POSITION_INVALID;
+            s_position_valid  = 0U;
+        }
+    }
+    else
+    {
+        /* ADC timeout / error – mark invalid */
+        s_position_valid = 0U;
+        s_mapped_position = FB_POSITION_INVALID;
+    }
+
+    HAL_ADC_Stop(&hadc1);
+}
+
+uint8_t feedback_processor_get_position(uint8_t *p_position)
+{
+    uint8_t valid = 0U;
+
+    if (p_position != (void *)0)
+    {
+        *p_position = s_mapped_position;
+        valid = s_position_valid;
+    }
+    return valid;
+}
+
+uint16_t feedback_processor_get_raw_adc(void)
+{
+    return s_raw_adc;
+}
+###### END FILE ######
+
+###### FILE: code/src/flap_control_logic.c ######
+/**
+ * @file flap_control_logic.c
+ * @brief Flap Control Logic implementation – state machine, movement decisions.
+ *
+ * Traces: SWE-REQ-004, SWE-REQ-005, SWE-REQ-006, SWE-REQ-023, SWE-REQ-024, SWE-REQ-031
+ * Platform: STM32F407G-DISC1
+ */
+
+#include "flap_control_logic.h"
+#include "command_parser.h"
+#include "feedback_processor.h"
+#include "motor_driver.h"
+#include "led_status_handler.h"
+
+/* ---- Internal state (static) [SWE-REQ-009, SWE-REQ-036] ---- */
+static flap_state_t  s_state;
+static uint8_t       s_target_position;
+static uint8_t       s_current_position;
+
+/* ---- Public API ---- */
+
+void flap_control_init(void)
+{
+    s_state            = FLAP_STATE_IDLE;
+    s_target_position  = 0U;
+    s_current_position = 0U;
+}
+
+void flap_control_set_target(uint8_t target_pos)
+{
+    s_target_position = target_pos;
+}
+
+void flap_control_update(void)
+{
+    uint8_t new_cmd    = 0U;
+    uint8_t fb_pos     = 0U;
+    uint8_t fb_valid   = 0U;
+
+    /* --- Read latest command [SWE-REQ-022, SWE-REQ-023] --- */
+    if (command_parser_get_latest(&new_cmd) != 0U)
+    {
+        s_target_position = new_cmd;
+    }
+
+    /* --- Read feedback [SWE-REQ-010] --- */
+    fb_valid = feedback_processor_get_position(&fb_pos);
+
+    /* --- State machine --- */
+    switch (s_state)
+    {
+        case FLAP_STATE_IDLE:
+            if ((s_target_position != 0U) && (fb_valid != 0U))
+            {
+                if (s_target_position != fb_pos)
+                {
+                    /* Need to move [SWE-REQ-004] */
+                    if (s_target_position > fb_pos)
+                    {
+                        motor_driver_drive(MOTOR_DIR_FORWARD, 1U);
+                    }
+                    else
+                    {
+                        motor_driver_drive(MOTOR_DIR_REVERSE, 1U);
+                    }
+                    s_state = FLAP_STATE_MOVING;
+                }
+                else
+                {
+                    /* Target equals current – ignore [SWE-REQ-006] */
+                    s_state = FLAP_STATE_TARGET_REACHED;
+                }
+            }
+            else if (fb_valid == 0U)
+            {
+                /* Feedback fault – enter fault [SWE-REQ-031] */
+                motor_driver_stop();
+                led_status_indicate_error();
+                s_state = FLAP_STATE_FAULT;
+            }
+            else
+            {
+                /* No target yet – remain idle */
+            }
+            break;
+
+        case FLAP_STATE_MOVING:
+            if (fb_valid == 0U)
+            {
+                /* Feedback error during movement – emergency stop [SWE-REQ-008, SWE-REQ-025] */
+                motor_driver_stop();
+                led_status_indicate_error();
+                s_state = FLAP_STATE_FAULT;
+            }
+            else if (fb_pos == s_target_position)
+            {
+                /* Target reached [SWE-REQ-005, SWE-REQ-024] */
+                motor_driver_stop();
+                s_current_position = fb_pos;
+                led_status_set_position(s_current_position);
+                s_state = FLAP_STATE_TARGET_REACHED;
+            }
+            else
+            {
+                /* Still moving – re-evaluate direction in case of overshoot */
+                if (s_target_position > fb_pos)
+                {
+                    motor_driver_drive(MOTOR_DIR_FORWARD, 1U);
+                }
+                else
+                {
+                    motor_driver_drive(MOTOR_DIR_REVERSE, 1U);
+                }
+            }
+            break;
+
+        case FLAP_STATE_TARGET_REACHED:
+            /* Update LEDs for current position [SWE-REQ-013, SWE-REQ-014] */
+            s_current_position = fb_pos;
+            led_status_set_position(s_current_position);
+            s_state = FLAP_STATE_IDLE;
+            break;
+
+        case FLAP_STATE_FAULT:
+            /* Remain in fault until feedback recovers */
+            motor_driver_stop();
+            if (fb_valid != 0U)
+            {
+                /* Recovery – return to idle */
+                s_current_position = fb_pos;
+                led_status_set_position(s_current_position);
+                s_state = FLAP_STATE_IDLE;
+            }
+            break;
+
+        default:
+            /* Defensive: unknown state – go to fault */
+            motor_driver_stop();
+            s_state = FLAP_STATE_FAULT;
+            break;
+    }
+}
+
+flap_state_t flap_control_get_state(void)
+{
+    return s_state;
+}
+###### END FILE ######
+
+###### FILE: code/src/led_status_handler.c ######
+/**
+ * @file led_status_handler.c
+ * @brief LED Status Handler implementation – Power/position LED control.
+ *
+ * Traces: SWE-REQ-012, SWE-REQ-013, SWE-REQ-014, SWE-REQ-018, SWE-REQ-021, SWE-REQ-039
+ * Platform: STM32F407G-DISC1 / STM32 HAL / GPIO
+ *
+ * Pin mapping (assumed, configurable):
+ *   Power LED   : PD12 (Green on Discovery board)
+ *   Position 1  : PE0
+ *   Position 2  : PE1
+ *   Position 3  : PE2
+ *   Position 4  : PE3
+ *   Position 5  : PE4
+ */
+
+#include "led_status_handler.h"
+#include "stm32f4xx_hal.h"
+
+/* ---- Pin configuration (static constants) [SWE-REQ-030, SWE-REQ-038] ---- */
+
+/** Power LED */
+#define LED_POWER_PORT          GPIOD
+#define LED_POWER_PIN           GPIO_PIN_12
+
+/** Position LED GPIO port */
+#define LED_POS_PORT            GPIOE
+
+/** Position LED pins – array indexed 0..4 for positions 1..5 */
+static const uint16_t s_pos_led_pins[LED_NUM_POSITIONS] =
+{
+    GPIO_PIN_0,   /* Position 1 */
+    GPIO_PIN_1,   /* Position 2 */
+    GPIO_PIN_2,   /* Position 3 */
+    GPIO_PIN_3,   /* Position 4 */
+    GPIO_PIN_4    /* Position 5 */
+};
+
+/* ---- Internal state (static) ---- */
+static uint8_t s_current_pos_led;  /* Currently lit position (0 = none) */
+
+/* ---- Private helpers ---- */
+
+/** Turn all position LEDs OFF */
+static void all_position_leds_off(void)
+{
+    uint8_t i;
+    for (i = 0U; i < LED_NUM_POSITIONS; i++)
+    {
+        HAL_GPIO_WritePin(LED_POS_PORT, s_pos_led_pins[i], GPIO_PIN_RESET);
+    }
+    s_current_pos_led = 0U;
+}
+
+/* ---- Public API ---- */
+
+void led_status_init(void)
+{
+    /* Ensure all position LEDs are OFF */
+    all_position_leds_off();
+
+    /* Power LED ON at startup [SWE-REQ-012] */
+    HAL_GPIO_WritePin(LED_POWER_PORT, LED_POWER_PIN, GPIO_PIN_SET);
+}
+
+void led_status_set_power(uint8_t on)
+{
+    if (on != 0U)
+    {
+        HAL_GPIO_WritePin(LED_POWER_PORT, LED_POWER_PIN, GPIO_PIN_SET);
+    }
+    else
+    {
+        HAL_GPIO_WritePin(LED_POWER_PORT, LED_POWER_PIN, GPIO_PIN_RESET);
+    }
+}
+
+void led_status_set_position(uint8_t position)
+{
+    /* Only update on actual change [SWE-REQ-014] */
+    if (position == s_current_pos_led)
+    {
+        return;
+    }
+
+    /* Turn all position LEDs OFF first (one-hot) [SWE-REQ-013] */
+    all_position_leds_off();
+
+    if ((position >= 1U) && (position <= LED_NUM_POSITIONS))
+    {
+        HAL_GPIO_WritePin(LED_POS_PORT, s_pos_led_pins[position - 1U], GPIO_PIN_SET);
+        s_current_pos_led = position;
+    }
+    /* else: invalid position – all remain OFF */
+}
+
+void led_status_indicate_error(void)
+{
+    /* Error indication: turn all position LEDs OFF, keep power LED ON */
+    all_position_leds_off();
+    HAL_GPIO_WritePin(LED_POWER_PORT, LED_POWER_PIN, GPIO_PIN_SET);
+}
+###### END FILE ######
+
+###### FILE: code/src/main.c ######
+/**
+ * @file main.c
+ * @brief Application entry point – init + main task dispatcher (super-loop).
+ *
+ * Traces: SWE-REQ-020, SWE-REQ-021, SWE-REQ-022, SWE-REQ-033, SWE-REQ-034
+ * Platform: STM32F407G-DISC1 / STM32 HAL / Bare-metal
+ *
+ * Execution model: bare-metal super-loop; no RTOS [SWE-REQ-026].
+ */
+
+#include "stm32f4xx_hal.h"
+#include "system_init.h"
+#include "command_parser.h"
+#include "feedback_processor.h"
+#include "flap_control_logic.h"
+#include "led_status_handler.h"
+#include "motor_driver.h"
+
+/**
+ * @brief Main application entry point.
+ * @return Does not return (infinite loop).
+ */
+int main(void)
+{
+    /* ---- STEP 1: Full system initialisation [SWE-REQ-020] ---- */
+    system_init();
+
+    /* ---- STEP 2: Read initial feedback and update LEDs [SWE-REQ-021] ---- */
+    feedback_processor_update();
+    {
+        uint8_t init_pos = 0U;
+        if (feedback_processor_get_position(&init_pos) != 0U)
+        {
+            led_status_set_position(init_pos);
+        }
+    }
+
+    /* ---- STEP 3: Main task dispatcher (super-loop) ---- */
+    while (1)
+    {
+        /* 3a. Poll UART for new commands [SWE-REQ-022] */
+        command_parser_update();
+
+        /* 3b. Acquire and validate feedback [SWE-REQ-010] */
+        feedback_processor_update();
+
+        /* 3c. Run flap control state machine [SWE-REQ-023, SWE-REQ-033] */
+        flap_control_update();
+    }
+
+    /* Should never reach here */
+    return 0;
+}
+###### END FILE ######
+
+###### FILE: code/src/motor_driver.c ######
+/**
+ * @file motor_driver.c
+ * @brief Motor Driver implementation – L298N control via STM32 HAL GPIO/PWM.
+ *
+ * Traces: SWE-REQ-007, SWE-REQ-008, SWE-REQ-016, SWE-REQ-025, SWE-REQ-036, SWE-REQ-038
+ * Platform: STM32F407G-DISC1 / STM32 HAL / L298N
+ *
+ * Pin mapping (assumed, configurable):
+ *   Motor IN1 (direction A) : PB0  (GPIO)
+ *   Motor IN2 (direction B) : PB1  (GPIO)
+ *   Motor ENA (PWM enable)  : PA0  (TIM2 CH1 PWM)
+ */
+
+#include "motor_driver.h"
+#include "stm32f4xx_hal.h"
+
+/* ---- Pin / peripheral configuration (static constants) [SWE-REQ-038] ---- */
+
+#define MOTOR_IN1_PORT          GPIOB
+#define MOTOR_IN1_PIN           GPIO_PIN_0
+#define MOTOR_IN2_PORT          GPIOB
+#define MOTOR_IN2_PIN           GPIO_PIN_1
+
+/* PWM Timer handle – expected from STM32CubeMX generated code */
+extern TIM_HandleTypeDef htim2;
+
+/** PWM channel for motor enable */
+#define MOTOR_PWM_CHANNEL       TIM_CHANNEL_1
+
+/** Timer auto-reload value (set during CubeMX config, assumed 999 for 0–100% mapping) */
+#define MOTOR_PWM_PERIOD        (999U)
+
+/* ---- Internal state (static) [SWE-REQ-009, SWE-REQ-036] ---- */
+static motor_status_t s_motor_status;
+static uint8_t        s_duty_percent;
+
+/* ---- Private helpers ---- */
+
+/**
+ * @brief Set PWM duty cycle.
+ * @param duty_percent  0–100.
+ */
+static void set_pwm_duty(uint8_t duty_percent)
+{
+    uint32_t compare_val;
+
+    if (duty_percent > 100U)
+    {
+        duty_percent = 100U;
+    }
+    compare_val = (uint32_t)((uint32_t)MOTOR_PWM_PERIOD * (uint32_t)duty_percent) / 100U;
+
+    __HAL_TIM_SET_COMPARE(&htim2, MOTOR_PWM_CHANNEL, compare_val);
+    s_duty_percent = duty_percent;
+}
+
+/* ---- Public API ---- */
+
+void motor_driver_init(void)
+{
+    /* Ensure motor is stopped on init [SWE-REQ-020] */
+    HAL_GPIO_WritePin(MOTOR_IN1_PORT, MOTOR_IN1_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(MOTOR_IN2_PORT, MOTOR_IN2_PIN, GPIO_PIN_RESET);
+
+    /* Start PWM with 0% duty */
+    HAL_TIM_PWM_Start(&htim2, MOTOR_PWM_CHANNEL);
+    set_pwm_duty(0U);
+
+    s_motor_status = MOTOR_STATUS_STOPPED;
+}
+
+void motor_driver_drive(motor_direction_t dir, uint8_t enable)
+{
+    if (enable == 0U)
+    {
+        motor_driver_stop();
+        return;
+    }
+
+    switch (dir)
+    {
+        case MOTOR_DIR_FORWARD:
+            HAL_GPIO_WritePin(MOTOR_IN1_PORT, MOTOR_IN1_PIN, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(MOTOR_IN2_PORT, MOTOR_IN2_PIN, GPIO_PIN_RESET);
+            set_pwm_duty(MOTOR_DEFAULT_DUTY);
+            s_motor_status = MOTOR_STATUS_RUNNING;
+            break;
+
+        case MOTOR_DIR_REVERSE:
+            HAL_GPIO_WritePin(MOTOR_IN1_PORT, MOTOR_IN1_PIN, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(MOTOR_IN2_PORT, MOTOR_IN2_PIN, GPIO_PIN_SET);
+            set_pwm_duty(MOTOR_DEFAULT_DUTY);
+            s_motor_status = MOTOR_STATUS_RUNNING;
+            break;
+
+        case MOTOR_DIR_STOP:
+        default:
+            motor_driver_stop();
+            break;
+    }
+}
+
+void motor_driver_stop(void)
+{
+    /* All outputs OFF – safe state [SWE-REQ-008, SWE-REQ-025, SWE-REQ-032] */
+    HAL_GPIO_WritePin(MOTOR_IN1_PORT, MOTOR_IN1_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(MOTOR_IN2_PORT, MOTOR_IN2_PIN, GPIO_PIN_RESET);
+    set_pwm_duty(0U);
+    s_motor_status = MOTOR_STATUS_STOPPED;
+}
+
+motor_status_t motor_driver_get_status(void)
+{
+    return s_motor_status;
+}
+###### END FILE ######
+
+###### FILE: code/src/system_init.c ######
+/**
+ * @file system_init.c
+ * @brief System Startup / Initialisation implementation.
+ *
+ * Traces: SWE-REQ-020
+ * Platform: STM32F407G-DISC1 / STM32 HAL
+ *
+ * Calls HAL_Init, SystemClock_Config (expected from CubeMX), and
+ * initialises every software unit in the correct order.
+ */
+
+#include "system_init.h"
+#include "stm32f4xx_hal.h"
+#include "command_parser.h"
+#include "feedback_processor.h"
+#include "flap_control_logic.h"
+#include "led_status_handler.h"
+#include "motor_driver.h"
+
+/* ---- External CubeMX-generated functions ---- */
+
+/**
+ * @brief System clock configuration (generated by STM32CubeMX).
+ *        Must be provided by the project / CubeMX output.
+ */
+extern void SystemClock_Config(void);
+
+/**
+ * @brief GPIO initialisation (generated by STM32CubeMX).
+ *        Configures all GPIO pins used by motor, LEDs, etc.
+ */
+extern void MX_GPIO_Init(void);
+
+/**
+ * @brief USART2 initialisation (generated by STM32CubeMX).
+ */
+extern void MX_USART2_UART_Init(void);
+
+/**
+ * @brief ADC1 initialisation (generated by STM32CubeMX).
+ */
+extern void MX_ADC1_Init(void);
+
+/**
+ * @brief TIM2 initialisation for PWM (generated by STM32CubeMX).
+ */
+extern void MX_TIM2_Init(void);
+
+/* ---- Public API ---- */
+
+void system_init(void)
+{
+    /* 1. HAL low-level init */
+    HAL_Init();
+
+    /* 2. Configure system clock */
+    SystemClock_Config();
+
+    /* 3. Initialise peripherals (CubeMX generated) */
+    MX_GPIO_Init();
+    MX_USART2_UART_Init();
+    MX_ADC1_Init();
+    MX_TIM2_Init();
+
+    /* 4. Initialise software units [SWE-REQ-020] */
+    command_parser_init();
+    feedback_processor_init();
+    motor_driver_init();        /* Ensures motor is stopped */
+    led_status_init();          /* Power LED ON, position LEDs OFF */
+    flap_control_init();
+}
+###### END FILE ######
