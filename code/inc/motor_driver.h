@@ -13,7 +13,7 @@
 
 #include <stdint.h>
 
-/** Motor direction */
+/** Motor direction (LLD: pure command->output logic) */
 typedef enum
 {
     MOTOR_DIR_STOP    = 0U,
@@ -29,13 +29,13 @@ typedef enum
     MOTOR_STATUS_FAULT
 } MotorStatus_t;
 
-/** Motor driver static data */
+/** Motor driver static data (SWE-REQ-036, SWE-REQ-038) */
 typedef struct
 {
     MotorDirection_t direction;   /**< Current direction setting */
     uint8_t          enable;      /**< 1 = enabled, 0 = disabled */
     uint16_t         pwmDuty;     /**< PWM duty cycle (0..max period) */
-    MotorStatus_t    status;
+    MotorStatus_t    status;      /**< Current motor status */
 } MotorDriverData_t;
 
 /** Default PWM duty for active motor (configurable constant)
@@ -64,6 +64,7 @@ void MotorDriver_Stop(void);
 
 /**
  * @brief Get current motor status.
+ * @return Current MotorStatus_t.
  * Traces: SWE-REQ-040
  */
 MotorStatus_t MotorDriver_GetStatus(void);

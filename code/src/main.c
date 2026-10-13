@@ -1,10 +1,13 @@
 /**
  * @file main.c
- * @brief Application entry point – init + super-loop dispatcher.
+ * @brief Application entry point – init + super-loop task dispatcher.
  *
  * Traces: SWE-REQ-020 (startup), SWE-REQ-022 (constant monitoring),
  *         SWE-REQ-033 (responsiveness), SWE-REQ-034 (no assumed execution model)
  * Platform: STM32F407G-DISC1, STM32 HAL, bare-metal super-loop
+ *
+ * No RTOS constructs are used (SWE-REQ-026).
+ * No dynamic memory allocation (SWE-REQ-036).
  */
 
 #include "stm32f4xx_hal.h"
@@ -17,7 +20,8 @@
  *
  * Performs system initialisation then enters an infinite super-loop
  * that continuously dispatches the command parser and flap control logic.
- * No RTOS constructs are used (SWE-REQ-026).
+ *
+ * @return int  (never reached in bare-metal operation)
  */
 int main(void)
 {

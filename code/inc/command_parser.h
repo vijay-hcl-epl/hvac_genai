@@ -12,17 +12,17 @@
 
 #include <stdint.h>
 
-/** Number of supported flap positions */
+/** Number of supported flap positions (SWE-REQ-027, SWE-REQ-030) */
 #define CMD_NUM_POSITIONS  ((uint8_t)5U)
 
-/** Position command byte values (sent from PC over UART) */
+/** Position command byte values sent from PC over UART (SWE-REQ-001) */
 #define CMD_POS_FULLY_CLOSED  ((uint8_t)0x00U)
 #define CMD_POS_25_PERCENT    ((uint8_t)0x01U)
 #define CMD_POS_50_PERCENT    ((uint8_t)0x02U)
 #define CMD_POS_75_PERCENT    ((uint8_t)0x03U)
 #define CMD_POS_FULLY_OPEN    ((uint8_t)0x04U)
 
-/** Command parser states */
+/** Command parser states (LLD state machine: INIT, WAIT_RX, VALID, INVALID) */
 typedef enum
 {
     CMD_STATE_INIT    = 0U,
@@ -31,7 +31,7 @@ typedef enum
     CMD_STATE_INVALID
 } CmdParserState_t;
 
-/** Command result structure */
+/** Command result structure (SWE-REQ-009, SWE-REQ-036, SWE-REQ-038) */
 typedef struct
 {
     uint8_t          position;   /**< Last valid position command byte */

@@ -1,6 +1,6 @@
 /**
  * @file flap_control_logic.h
- * @brief Flap Control Logic – movement decision, state management.
+ * @brief Flap Control Logic – movement decision and state management.
  *
  * Software Unit : Flap Control Logic
  * Traces        : SWE-REQ-004, SWE-REQ-005, SWE-REQ-006, SWE-REQ-023,
@@ -13,7 +13,7 @@
 
 #include <stdint.h>
 
-/** Flap control states */
+/** Flap control states (LLD: IDLE, MOVING, TARGET_REACHED, FAULT) */
 typedef enum
 {
     FLAP_STATE_IDLE           = 0U,
@@ -22,13 +22,13 @@ typedef enum
     FLAP_STATE_FAULT
 } FlapControlState_t;
 
-/** Flap control data */
+/** Flap control static data (SWE-REQ-009, SWE-REQ-036) */
 typedef struct
 {
     uint8_t            currentPos;   /**< Last confirmed position from feedback */
     uint8_t            targetPos;    /**< Commanded target position */
     uint8_t            inMotion;     /**< 1 = motor active, 0 = idle */
-    FlapControlState_t state;
+    FlapControlState_t state;        /**< Current control state */
 } FlapControlData_t;
 
 /**

@@ -17,6 +17,8 @@
  *   IN1 – PB0  (direction A)    GPIO output
  *   IN2 – PB1  (direction B)    GPIO output
  *   ENA – PA0  (PWM enable)     TIM2 Channel 1
+ *
+ * Motor Type: 12 V DC geared motor (env-setup)
  */
 #define MOTOR_IN1_PORT   GPIOB
 #define MOTOR_IN1_PIN    GPIO_PIN_0
@@ -33,6 +35,7 @@ static MotorDriverData_t motorData;
 
 /**
  * @brief Set direction GPIO pins for L298N.
+ * Traces: SWE-REQ-007, SWE-REQ-016
  */
 static void SetDirectionPins(MotorDirection_t dir)
 {

@@ -75,14 +75,16 @@ void CommandParser_Process(void)
         }
         else
         {
-            /* Invalid / unsupported – ignore (SWE-REQ-002) */
+            /* Invalid / unsupported – ignore, no acknowledge (SWE-REQ-002) */
             cmdData.state = CMD_STATE_INVALID;
         }
     }
     /* If HAL_TIMEOUT or HAL_BUSY: no byte available – remain in WAIT_RX */
+
     if (cmdData.state == CMD_STATE_INVALID)
     {
-        cmdData.state = CMD_STATE_WAIT_RX;  /* Flush, return to wait */
+        /* Flush: return to wait state (LLD transition INVALID->WAIT_RX) */
+        cmdData.state = CMD_STATE_WAIT_RX;
     }
 }
 

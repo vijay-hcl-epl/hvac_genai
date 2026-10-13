@@ -14,13 +14,13 @@
 /* ---------- Platform GPIO mapping (env-setup: GPIO for LED control) ---- */
 /*
  * STM32F407G-DISC1 on-board LEDs:
- *   PD12 – Green   (used as Power LED)
- *   PD13 – Orange  (position 0 indicator)
- *   PD14 – Red     (position 1 indicator)
- *   PD15 – Blue    (position 2 indicator)
+ *   PD12 – Green   (used as Power / Initialization LED)
+ *   PD13 – Orange  (position 0 indicator – Fully closed)
+ *   PD14 – Red     (position 1 indicator – 25%)
+ *   PD15 – Blue    (position 2 indicator – 50%)
  * External LEDs (directly driven GPIOs):
- *   PE0  – Green   (position 3 indicator)
- *   PE1  – Green   (position 4 indicator)
+ *   PE0  – Green   (position 3 indicator – 75%)
+ *   PE1  – Green   (position 4 indicator – Fully open)
  *
  * All active-high.
  */
@@ -45,7 +45,7 @@ static const LedGpioMap_t posLedMap[LED_NUM_POSITION_LEDS] =
     { GPIOE, GPIO_PIN_1  }    /* Position 4 – Fully open   */
 };
 
-/* ---------- Static data (SWE-REQ-036) ---------------------------------- */
+/* ---------- Static data (SWE-REQ-036, SWE-REQ-038) --------------------- */
 static uint8_t currentLedPos;  /* Last indicated position */
 
 /* ---------- Private helpers -------------------------------------------- */
@@ -93,9 +93,11 @@ void LedStatus_SetPowerLed(void)
 
 void LedStatus_IndicateError(void)
 {
-    /* Simple error indication: all position LEDs OFF, power LED stays ON.
+    /*
+     * Error indication: all position LEDs OFF, power LED stays ON.
      * SWE-REQ-032: safe idle – no movement, status LEDs unchanged beyond
-     * clearing position indicator. */
+     * clearing position indicator.
+     */
     AllPositionLedsOff();
     currentLedPos = 0xFFU;
 }

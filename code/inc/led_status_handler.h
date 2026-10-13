@@ -13,14 +13,14 @@
 
 #include <stdint.h>
 
-/** Number of position indicator LEDs (green) */
+/** Number of position indicator LEDs (green) (SWE-REQ-013, SWE-REQ-038) */
 #define LED_NUM_POSITION_LEDS  ((uint8_t)5U)
 
 /** LED identifiers (logical) */
 #define LED_POWER_INDEX        ((uint8_t)0xFFU)  /**< Power / init LED */
 
 /**
- * @brief Initialise LED outputs (all off, power LED on).
+ * @brief Initialise LED outputs (all off, then power LED on).
  * Traces: SWE-REQ-012, SWE-REQ-020
  */
 void LedStatus_Init(void);

@@ -41,7 +41,7 @@ void FlapControl_Run(void)
     /* ---- 2. Check for feedback fault (SWE-REQ-031, SWE-REQ-025) ---- */
     if (fbValid == 0U)
     {
-        /* Fault path: stop motor, set fault state */
+        /* Fault path: stop motor immediately, set fault state */
         MotorDriver_Stop();
         flapData.inMotion = 0U;
         flapData.state    = FLAP_STATE_FAULT;
@@ -59,11 +59,11 @@ void FlapControl_Run(void)
         flapData.targetPos = newCmd;
     }
 
-    /* ---- 4. State machine ---- */
+    /* ---- 4. State machine (LLD: IDLE, MOVING, TARGET_REACHED, FAULT) ---- */
     switch (flapData.state)
     {
         case FLAP_STATE_IDLE:
-            /* Fall-through to evaluate if movement needed */
+            /* Fall-through to evaluate if movement is needed */
         case FLAP_STATE_TARGET_REACHED:
             if (flapData.targetPos != flapData.currentPos)  /* SWE-REQ-006 */
             {
@@ -81,7 +81,7 @@ void FlapControl_Run(void)
             }
             else
             {
-                /* Already at target – update LEDs (SWE-REQ-013) */
+                /* Already at target – ensure correct LED indication (SWE-REQ-013) */
                 LedStatus_SetPosition(flapData.currentPos);
             }
             break;
@@ -110,7 +110,7 @@ void FlapControl_Run(void)
             break;
 
         case FLAP_STATE_FAULT:
-            /* Recovery: if feedback becomes valid again, return to idle */
+            /* Recovery: feedback is valid again (checked above), return to idle */
             MotorDriver_Stop();
             flapData.inMotion = 0U;
             flapData.state    = FLAP_STATE_IDLE;
@@ -118,7 +118,7 @@ void FlapControl_Run(void)
             break;
 
         default:
-            /* Defensive: stop motor */
+            /* Defensive: stop motor, reset to idle */
             MotorDriver_Stop();
             flapData.inMotion = 0U;
             flapData.state    = FLAP_STATE_IDLE;

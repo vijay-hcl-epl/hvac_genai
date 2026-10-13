@@ -12,7 +12,7 @@
 #include "stm32f4xx_hal.h"
 
 /* ---------- Platform binding ------------------------------------------- */
-extern ADC_HandleTypeDef hadc1;  /* ADC1 – potentiometer channel */
+extern ADC_HandleTypeDef hadc1;  /* ADC1 – potentiometer feedback channel */
 
 /* ---------- Static position mapping table (SWE-REQ-027, SWE-REQ-030) --- */
 /**
@@ -35,7 +35,7 @@ static const AdcZone_t positionMap[FB_NUM_POSITIONS] =
     { 3277U,  4095U }    /* Position 4 – Fully open    */
 };
 
-/* ---------- Static data (SWE-REQ-036) ---------------------------------- */
+/* ---------- Static data (SWE-REQ-036, SWE-REQ-038) --------------------- */
 static FeedbackData_t fbData;
 
 /* ---------- Public API ------------------------------------------------- */
@@ -50,15 +50,15 @@ void FeedbackProcessor_Init(void)
 
 void FeedbackProcessor_Update(void)
 {
-    HAL_StatusTypeDef status;
+    HAL_StatusTypeDef halStatus;
     uint16_t adcValue;
     uint8_t  i;
 
     /* Start conversion and poll (blocking, single-channel) – SWE-REQ-017 */
     HAL_ADC_Start(&hadc1);
-    status = HAL_ADC_PollForConversion(&hadc1, 10U);  /* 10 ms timeout */
+    halStatus = HAL_ADC_PollForConversion(&hadc1, 10U);  /* 10 ms timeout */
 
-    if (status == HAL_OK)
+    if (halStatus == HAL_OK)
     {
         adcValue = (uint16_t)HAL_ADC_GetValue(&hadc1);
 
@@ -73,7 +73,7 @@ void FeedbackProcessor_Update(void)
             fbData.rawAdc = adcValue;
 
             /* Table lookup – SWE-REQ-010, SWE-REQ-027 */
-            fbData.valid = 0U;  /* assume invalid until matched */
+            fbData.valid = 0U;  /* Assume invalid until matched */
             for (i = 0U; i < FB_NUM_POSITIONS; i++)
             {
                 if ((adcValue >= positionMap[i].low) &&
@@ -87,6 +87,7 @@ void FeedbackProcessor_Update(void)
             }
             if (fbData.valid == 0U)
             {
+                /* Value within ADC range but not in any zone – mark invalid */
                 fbData.state = FB_STATE_INVALID;
             }
         }

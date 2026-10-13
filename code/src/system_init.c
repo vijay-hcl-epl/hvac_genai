@@ -33,7 +33,7 @@ extern void MX_USART2_UART_Init(void);
 extern void MX_ADC1_Init(void);
 extern void MX_TIM2_Init(void);
 
-/* ---------- Static data (SWE-REQ-036) ---------------------------------- */
+/* ---------- Static data (SWE-REQ-036, SWE-REQ-038) --------------------- */
 static uint8_t initDone;  /* 0 = not done, 1 = complete */
 
 /* ---------- Public API ------------------------------------------------- */
@@ -42,7 +42,7 @@ void SystemInit_Run(void)
 {
     if (initDone != 0U)
     {
-        return;  /* Guard: single-pass only */
+        return;  /* Guard: single-pass only (LLD: not re-entrant) */
     }
 
     /* ---- HAL & clock initialisation ---- */
