@@ -1,0 +1,277 @@
+{
+  "dependency_graph": {
+    "command_parser.h": [],
+    "feedback_processor.h": [],
+    "flap_control_logic.h": [],
+    "led_status_handler.h": [],
+    "motor_driver.h": [],
+    "system_init.h": [],
+    "command_parser.c": [
+      "command_parser.h"
+    ],
+    "feedback_processor.c": [
+      "feedback_processor.h"
+    ],
+    "flap_control_logic.c": [
+      "command_parser.h",
+      "feedback_processor.h",
+      "flap_control_logic.h",
+      "led_status_handler.h",
+      "motor_driver.h"
+    ],
+    "led_status_handler.c": [
+      "led_status_handler.h"
+    ],
+    "main.c": [
+      "command_parser.h",
+      "flap_control_logic.h",
+      "system_init.h"
+    ],
+    "motor_driver.c": [
+      "motor_driver.h"
+    ],
+    "system_init.c": [
+      "command_parser.h",
+      "feedback_processor.h",
+      "flap_control_logic.h",
+      "led_status_handler.h",
+      "motor_driver.h",
+      "system_init.h"
+    ]
+  },
+  "symbol_ownership": {
+    "functions": {
+      "AllPositionLedsOff": "led_status_handler.c",
+      "CommandParser_GetLatestCommand": "command_parser.c",
+      "CommandParser_Init": "command_parser.c",
+      "CommandParser_Process": "command_parser.c",
+      "FeedbackProcessor_GetPosition": "feedback_processor.c",
+      "FeedbackProcessor_Init": "feedback_processor.c",
+      "FeedbackProcessor_Update": "feedback_processor.c",
+      "FlapControl_GetState": "flap_control_logic.c",
+      "FlapControl_Init": "flap_control_logic.c",
+      "FlapControl_Run": "flap_control_logic.c",
+      "IsValidPosition": "command_parser.c",
+      "LedStatus_IndicateError": "led_status_handler.c",
+      "LedStatus_Init": "led_status_handler.c",
+      "LedStatus_SetPosition": "led_status_handler.c",
+      "LedStatus_SetPowerLed": "led_status_handler.c",
+      "MotorDriver_Drive": "motor_driver.c",
+      "MotorDriver_GetStatus": "motor_driver.c",
+      "MotorDriver_Init": "motor_driver.c",
+      "MotorDriver_Stop": "motor_driver.c",
+      "SetDirectionPins": "motor_driver.c",
+      "SystemInit_Run": "system_init.c",
+      "main": "main.c"
+    }
+  },
+  "interface_contracts": {
+    "AllPositionLedsOff": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "CommandParser_GetLatestCommand": {
+      "return_type": "uint8_t",
+      "parameters": [
+        {
+          "name": "pPosition",
+          "type": "uint8_t *"
+        }
+      ]
+    },
+    "CommandParser_Init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "CommandParser_Process": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "FeedbackProcessor_GetPosition": {
+      "return_type": "uint8_t",
+      "parameters": [
+        {
+          "name": "pPosition",
+          "type": "uint8_t *"
+        }
+      ]
+    },
+    "FeedbackProcessor_Init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "FeedbackProcessor_Update": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "FlapControl_GetState": {
+      "return_type": "FlapControlState_t",
+      "parameters": []
+    },
+    "FlapControl_Init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "FlapControl_Run": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "IsValidPosition": {
+      "return_type": "uint8_t",
+      "parameters": [
+        {
+          "name": "byte",
+          "type": "uint8_t"
+        }
+      ]
+    },
+    "LedStatus_IndicateError": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "LedStatus_Init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "LedStatus_SetPosition": {
+      "return_type": "void",
+      "parameters": [
+        {
+          "name": "position",
+          "type": "uint8_t"
+        }
+      ]
+    },
+    "LedStatus_SetPowerLed": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "MotorDriver_Drive": {
+      "return_type": "void",
+      "parameters": [
+        {
+          "name": "dir",
+          "type": "MotorDirection_t"
+        },
+        {
+          "name": "enable",
+          "type": "uint8_t"
+        }
+      ]
+    },
+    "MotorDriver_GetStatus": {
+      "return_type": "MotorStatus_t",
+      "parameters": []
+    },
+    "MotorDriver_Init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "MotorDriver_Stop": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "SetDirectionPins": {
+      "return_type": "void",
+      "parameters": [
+        {
+          "name": "dir",
+          "type": "MotorDirection_t"
+        }
+      ]
+    },
+    "SystemInit_Run": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "main": {
+      "return_type": "int",
+      "parameters": []
+    }
+  },
+  "call_graph": {
+    "AllPositionLedsOff": [],
+    "CommandParser_GetLatestCommand": [],
+    "CommandParser_Init": [],
+    "CommandParser_Process": [
+      "IsValidPosition"
+    ],
+    "FeedbackProcessor_GetPosition": [],
+    "FeedbackProcessor_Init": [],
+    "FeedbackProcessor_Update": [],
+    "FlapControl_GetState": [],
+    "FlapControl_Init": [],
+    "FlapControl_Run": [
+      "CommandParser_GetLatestCommand",
+      "FeedbackProcessor_GetPosition",
+      "FeedbackProcessor_Update",
+      "LedStatus_IndicateError",
+      "LedStatus_SetPosition",
+      "MotorDriver_Drive",
+      "MotorDriver_Stop"
+    ],
+    "IsValidPosition": [],
+    "LedStatus_IndicateError": [
+      "AllPositionLedsOff"
+    ],
+    "LedStatus_Init": [
+      "AllPositionLedsOff",
+      "LedStatus_SetPowerLed"
+    ],
+    "LedStatus_SetPosition": [
+      "AllPositionLedsOff"
+    ],
+    "LedStatus_SetPowerLed": [],
+    "MotorDriver_Drive": [
+      "MotorDriver_Stop",
+      "SetDirectionPins"
+    ],
+    "MotorDriver_GetStatus": [],
+    "MotorDriver_Init": [
+      "SetDirectionPins"
+    ],
+    "MotorDriver_Stop": [
+      "SetDirectionPins"
+    ],
+    "SetDirectionPins": [],
+    "SystemInit_Run": [
+      "CommandParser_Init",
+      "FeedbackProcessor_GetPosition",
+      "FeedbackProcessor_Init",
+      "FeedbackProcessor_Update",
+      "FlapControl_Init",
+      "LedStatus_IndicateError",
+      "LedStatus_Init",
+      "LedStatus_SetPosition",
+      "MotorDriver_Init"
+    ],
+    "main": [
+      "CommandParser_Process",
+      "FlapControl_Run",
+      "SystemInit_Run"
+    ]
+  },
+  "shared_state_map": {
+    "hadc1": {
+      "defined_in": "system_init.c",
+      "type": "ADC_HandleTypeDef",
+      "used_by": [
+        "feedback_processor.c"
+      ]
+    },
+    "htim2": {
+      "defined_in": "system_init.c",
+      "type": "TIM_HandleTypeDef",
+      "used_by": [
+        "motor_driver.c"
+      ]
+    },
+    "huart2": {
+      "defined_in": "system_init.c",
+      "type": "UART_HandleTypeDef",
+      "used_by": [
+        "command_parser.c"
+      ]
+    }
+  }
+}
