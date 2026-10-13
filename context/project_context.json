@@ -1,0 +1,349 @@
+{
+  "dependency_graph": {
+    "command_parser.h": [],
+    "feedback_processor.h": [],
+    "flap_control_logic.h": [],
+    "led_status_handler.h": [],
+    "motor_driver.h": [],
+    "system_init.h": [],
+    "command_parser.c": [
+      "command_parser.h"
+    ],
+    "feedback_processor.c": [
+      "feedback_processor.h"
+    ],
+    "flap_control_logic.c": [
+      "feedback_processor.h",
+      "flap_control_logic.h",
+      "led_status_handler.h",
+      "motor_driver.h"
+    ],
+    "led_status_handler.c": [
+      "led_status_handler.h"
+    ],
+    "main.c": [
+      "command_parser.h",
+      "flap_control_logic.h",
+      "system_init.h"
+    ],
+    "motor_driver.c": [
+      "motor_driver.h"
+    ],
+    "system_init.c": [
+      "command_parser.h",
+      "feedback_processor.h",
+      "flap_control_logic.h",
+      "led_status_handler.h",
+      "motor_driver.h",
+      "system_init.h"
+    ]
+  },
+  "symbol_ownership": {
+    "functions": {
+      "MX_ADC1_Init": "system_init.c",
+      "MX_GPIO_Init": "system_init.c",
+      "MX_TIM2_Init": "system_init.c",
+      "MX_USART2_UART_Init": "system_init.c",
+      "SystemClock_Config": "system_init.c",
+      "all_position_leds_off": "led_status_handler.c",
+      "command_parser_get_latest": "command_parser.c",
+      "command_parser_init": "command_parser.c",
+      "command_parser_process_byte": "command_parser.c",
+      "feedback_processor_get_position": "feedback_processor.c",
+      "feedback_processor_get_state": "feedback_processor.c",
+      "feedback_processor_init": "feedback_processor.c",
+      "feedback_processor_update": "feedback_processor.c",
+      "flap_control_get_state": "flap_control_logic.c",
+      "flap_control_init": "flap_control_logic.c",
+      "flap_control_issue_command": "flap_control_logic.c",
+      "flap_control_run": "flap_control_logic.c",
+      "led_status_indicate_error": "led_status_handler.c",
+      "led_status_init": "led_status_handler.c",
+      "led_status_set_position": "led_status_handler.c",
+      "led_status_set_power": "led_status_handler.c",
+      "main": "main.c",
+      "map_adc_to_position": "feedback_processor.c",
+      "motor_driver_drive": "motor_driver.c",
+      "motor_driver_get_status": "motor_driver.c",
+      "motor_driver_init": "motor_driver.c",
+      "motor_driver_stop": "motor_driver.c",
+      "system_init": "system_init.c",
+      "validate_byte": "command_parser.c"
+    }
+  },
+  "interface_contracts": {
+    "MX_ADC1_Init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "MX_GPIO_Init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "MX_TIM2_Init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "MX_USART2_UART_Init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "SystemClock_Config": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "all_position_leds_off": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "command_parser_get_latest": {
+      "return_type": "_Bool",
+      "parameters": [
+        {
+          "name": "position",
+          "type": "uint8_t *"
+        }
+      ]
+    },
+    "command_parser_init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "command_parser_process_byte": {
+      "return_type": "void",
+      "parameters": [
+        {
+          "name": "rx_byte",
+          "type": "uint8_t"
+        }
+      ]
+    },
+    "feedback_processor_get_position": {
+      "return_type": "void",
+      "parameters": [
+        {
+          "name": "position",
+          "type": "uint8_t *"
+        },
+        {
+          "name": "valid",
+          "type": "_Bool *"
+        }
+      ]
+    },
+    "feedback_processor_get_state": {
+      "return_type": "fb_state_t",
+      "parameters": []
+    },
+    "feedback_processor_init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "feedback_processor_update": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "flap_control_get_state": {
+      "return_type": "flap_state_t",
+      "parameters": []
+    },
+    "flap_control_init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "flap_control_issue_command": {
+      "return_type": "void",
+      "parameters": [
+        {
+          "name": "target_pos",
+          "type": "uint8_t"
+        }
+      ]
+    },
+    "flap_control_run": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "led_status_indicate_error": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "led_status_init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "led_status_set_position": {
+      "return_type": "void",
+      "parameters": [
+        {
+          "name": "position",
+          "type": "uint8_t"
+        }
+      ]
+    },
+    "led_status_set_power": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "main": {
+      "return_type": "int",
+      "parameters": []
+    },
+    "map_adc_to_position": {
+      "return_type": "uint8_t",
+      "parameters": [
+        {
+          "name": "adc_val",
+          "type": "uint16_t"
+        }
+      ]
+    },
+    "motor_driver_drive": {
+      "return_type": "void",
+      "parameters": [
+        {
+          "name": "dir",
+          "type": "motor_dir_t"
+        },
+        {
+          "name": "enable",
+          "type": "uint8_t"
+        }
+      ]
+    },
+    "motor_driver_get_status": {
+      "return_type": "motor_status_t",
+      "parameters": []
+    },
+    "motor_driver_init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "motor_driver_stop": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "system_init": {
+      "return_type": "void",
+      "parameters": []
+    },
+    "validate_byte": {
+      "return_type": "uint8_t",
+      "parameters": [
+        {
+          "name": "byte",
+          "type": "uint8_t"
+        }
+      ]
+    }
+  },
+  "call_graph": {
+    "MX_ADC1_Init": [],
+    "MX_GPIO_Init": [],
+    "MX_TIM2_Init": [],
+    "MX_USART2_UART_Init": [],
+    "SystemClock_Config": [],
+    "all_position_leds_off": [],
+    "command_parser_get_latest": [],
+    "command_parser_init": [],
+    "command_parser_process_byte": [
+      "validate_byte"
+    ],
+    "feedback_processor_get_position": [],
+    "feedback_processor_get_state": [],
+    "feedback_processor_init": [],
+    "feedback_processor_update": [
+      "map_adc_to_position"
+    ],
+    "flap_control_get_state": [],
+    "flap_control_init": [],
+    "flap_control_issue_command": [
+      "feedback_processor_get_position",
+      "feedback_processor_update",
+      "led_status_indicate_error",
+      "led_status_set_position",
+      "motor_driver_drive",
+      "motor_driver_stop"
+    ],
+    "flap_control_run": [
+      "feedback_processor_get_position",
+      "feedback_processor_update",
+      "led_status_indicate_error",
+      "led_status_set_position",
+      "motor_driver_drive",
+      "motor_driver_stop"
+    ],
+    "led_status_indicate_error": [
+      "all_position_leds_off"
+    ],
+    "led_status_init": [
+      "all_position_leds_off"
+    ],
+    "led_status_set_position": [
+      "all_position_leds_off"
+    ],
+    "led_status_set_power": [],
+    "main": [
+      "command_parser_get_latest",
+      "command_parser_process_byte",
+      "flap_control_issue_command",
+      "flap_control_run",
+      "system_init"
+    ],
+    "map_adc_to_position": [],
+    "motor_driver_drive": [
+      "motor_driver_stop"
+    ],
+    "motor_driver_get_status": [],
+    "motor_driver_init": [],
+    "motor_driver_stop": [],
+    "system_init": [
+      "MX_ADC1_Init",
+      "MX_GPIO_Init",
+      "MX_TIM2_Init",
+      "MX_USART2_UART_Init",
+      "SystemClock_Config",
+      "command_parser_init",
+      "feedback_processor_get_position",
+      "feedback_processor_init",
+      "feedback_processor_update",
+      "flap_control_init",
+      "led_status_indicate_error",
+      "led_status_init",
+      "led_status_set_position",
+      "led_status_set_power",
+      "motor_driver_init"
+    ],
+    "validate_byte": []
+  },
+  "shared_state_map": {
+    "hadc1": {
+      "defined_in": "system_init.c",
+      "type": "ADC_HandleTypeDef",
+      "used_by": [
+        "feedback_processor.c"
+      ]
+    },
+    "htim2": {
+      "defined_in": "system_init.c",
+      "type": "TIM_HandleTypeDef",
+      "used_by": [
+        "motor_driver.c"
+      ]
+    },
+    "huart2": {
+      "defined_in": "system_init.c",
+      "type": "UART_HandleTypeDef",
+      "used_by": [
+        "main.c"
+      ]
+    },
+    "s_state": {
+      "defined_in": "flap_control_logic.c",
+      "type": "flap_state_t",
+      "used_by": [
+        "feedback_processor.c"
+      ]
+    }
+  }
+}
